@@ -3,7 +3,7 @@
 MultiTrade is a Paper-first foundation for a multi-account, multi-strategy
 trading platform. The current milestone connects only to Alpaca Paper and
 provides centralized risk checks, audit logging, broker payload construction,
-and an always-on account heartbeat.
+and always-on read-only broker reconciliation.
 
 This repository does not contain a profitable strategy and does not support
 live trading.
@@ -29,6 +29,8 @@ Normal strategy allocations will be lower.
 - Centralized position sizing and kill switches.
 - Atomic SQLite risk reservation for a single orchestrator.
 - Alpaca Paper account, position, and order adapter.
+- Read-only reconciliation of account controls, positions, open orders, and
+  the US market clock.
 - Multi-leg option order payloads with up to four legs.
 - Structured audit events.
 - Freshness-based container health checks.
@@ -36,8 +38,8 @@ Normal strategy allocations will be lower.
 - Hardened Docker Compose deployment with no public ports.
 
 SQLite is intentionally temporary. Before multiple workers, multiple accounts,
-or live trading, the risk ledger must move to PostgreSQL and full broker
-reconciliation must be implemented.
+or live trading, the account-scoped risk and reconciliation ledger must move
+to PostgreSQL.
 
 ## Local verification
 
@@ -78,17 +80,30 @@ docker compose logs --tail=100 engine
 docker compose logs --tail=100 dashboard
 ```
 
-The default service performs read-only Paper account heartbeats. It cannot
-submit orders while `TRADING_ENABLE_PAPER_ORDERS=false`.
+The default service performs read-only Paper reconciliation. It cannot submit
+orders while `TRADING_ENABLE_PAPER_ORDERS=false`.
 
 The dashboard service reads the audit database through SQLite query-only
 connections. It requires `DASHBOARD_USERNAME` and `DASHBOARD_PASSWORD`, and it
-is available only inside the Docker network. No dashboard port is published
-until a later HTTPS reverse-proxy milestone is explicitly approved.
+is available only inside the Docker network by default.
 
 The repository includes an opt-in `public-dashboard` Compose profile backed by
 Caddy. The profile is disabled by default and is documented in
 [`docs/HTTPS_DASHBOARD.md`](docs/HTTPS_DASHBOARD.md).
+
+## VPS updates
+
+Verified releases are pushed to the private `main` branch. On the VPS, updates
+use a fast-forward-only workflow and stop if tracked server files were edited:
+
+```bash
+cd /opt/multitrade/app
+bash ops/update.sh
+```
+
+The updater detects `DASHBOARD_DOMAIN` and preserves the HTTPS profile. It
+validates configuration and credentials before recreating services. It never
+enables Paper order submission or modifies `.env`.
 
 ## Hostinger
 
@@ -97,13 +112,21 @@ The server setup is documented in
 Compose, a private Git repository, and Hostinger's browser terminal. Direct SSH
 from the current workstation is blocked by its Zscaler network path.
 
-## Planned milestones
+## Implementation sequence
+
+Completed foundation:
 
 1. Secure, reproducible Alpaca Paper deployment.
-2. PostgreSQL account, allocation, risk, and audit model.
-3. HTTPS access to the authenticated operations dashboard.
-4. First researched strategy and backtesting pipeline.
-5. Multi-account strategy allocation.
-6. Additional broker adapters for forex and crypto accounts.
-7. Controlled Paper order execution and reconciliation.
+2. HTTPS access to the authenticated, read-only operations dashboard.
+3. Account, position, open-order, and market-clock reconciliation.
+
+Next controlled releases:
+
+1. PostgreSQL account, allocation, risk, and audit model.
+2. Historical market-data and reproducible backtesting pipeline.
+3. Market-regime classification and versioned signal contracts.
+4. First researched strategy with out-of-sample and Paper validation.
+5. Multi-account strategy allocation and portfolio-level exposure controls.
+6. Controlled Paper order lifecycle and reconciliation.
+7. Additional broker adapters for dedicated crypto and forex accounts.
 8. Separate, explicitly approved live-trading program.

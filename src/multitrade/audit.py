@@ -95,6 +95,13 @@ class SqliteAuditStore:
 
                 CREATE INDEX IF NOT EXISTS idx_risk_reservation_state
                 ON risk_reservations(state);
+
+                CREATE TABLE IF NOT EXISTS latest_broker_state (
+                    connection_id TEXT PRIMARY KEY,
+                    observed_at TEXT NOT NULL,
+                    payload_json TEXT NOT NULL,
+                    updated_at TEXT NOT NULL
+                );
                 """
             )
         finally:
@@ -240,6 +247,48 @@ class SqliteAuditStore:
             connection.execute("BEGIN IMMEDIATE")
             self._insert_event(
                 connection, event_type, correlation_id, payload
+            )
+            connection.execute("COMMIT")
+        except Exception:
+            if connection.in_transaction:
+                connection.execute("ROLLBACK")
+            raise
+        finally:
+            self._close_if_needed(connection)
+
+    def record_broker_state(
+        self,
+        connection_id: str,
+        observed_at: datetime,
+        payload: Any,
+        summary: Any,
+    ) -> None:
+        connection = self._connect()
+        try:
+            connection.execute("BEGIN IMMEDIATE")
+            updated_at = datetime.now(timezone.utc).isoformat()
+            connection.execute(
+                """
+                INSERT INTO latest_broker_state (
+                    connection_id, observed_at, payload_json, updated_at
+                ) VALUES (?, ?, ?, ?)
+                ON CONFLICT(connection_id) DO UPDATE SET
+                    observed_at = excluded.observed_at,
+                    payload_json = excluded.payload_json,
+                    updated_at = excluded.updated_at
+                """,
+                (
+                    connection_id,
+                    observed_at.isoformat(),
+                    _json(payload),
+                    updated_at,
+                ),
+            )
+            self._insert_event(
+                connection,
+                "broker_reconciled",
+                connection_id,
+                summary,
             )
             connection.execute("COMMIT")
         except Exception:
@@ -401,4 +450,25 @@ class SqliteAuditReader:
                 "risk_amount": format(entry["risk_amount"], "f"),
             }
             for state, entry in summary.items()
+        }
+
+    def latest_broker_state(
+        self, connection_id: str
+    ) -> dict[str, Any] | None:
+        with closing(self._connect()) as connection:
+            row = connection.execute(
+                """
+                SELECT connection_id, observed_at, payload_json, updated_at
+                FROM latest_broker_state
+                WHERE connection_id = ?
+                """,
+                (connection_id,),
+            ).fetchone()
+        if row is None:
+            return None
+        return {
+            "connection_id": row["connection_id"],
+            "observed_at": row["observed_at"],
+            "updated_at": row["updated_at"],
+            "payload": json.loads(row["payload_json"]),
         }

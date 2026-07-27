@@ -1,0 +1,376 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width,initial-scale=1">
+  <title>MultiTrade Operations</title>
+  <style nonce="{{NONCE}}">
+    :root {
+      color-scheme: dark;
+      --bg: #071018;
+      --panel: #0e1a24;
+      --panel-2: #132330;
+      --text: #edf6f8;
+      --muted: #8ba4ad;
+      --line: #203744;
+      --ok: #50d890;
+      --warn: #f5c451;
+      --bad: #ff6b6b;
+      --accent: #62b8ff;
+    }
+    * { box-sizing: border-box; }
+    body {
+      margin: 0;
+      background:
+        radial-gradient(circle at 92% 0, #123044 0, transparent 34rem),
+        var(--bg);
+      color: var(--text);
+      font-family: Inter, ui-sans-serif, system-ui, sans-serif;
+    }
+    main { width: min(1320px, 94vw); margin: 0 auto; padding: 32px 0 64px; }
+    header { display: flex; gap: 24px; align-items: end; justify-content: space-between; }
+    h1 { margin: 0; font-size: clamp(1.8rem, 4vw, 2.8rem); letter-spacing: -.04em; }
+    h2 { margin: 0; font-size: 1rem; }
+    .eyebrow { color: var(--accent); font-size: .72rem; font-weight: 800; letter-spacing: .16em; }
+    .muted, #updated, .subcopy { color: var(--muted); }
+    .subcopy { margin: 6px 0 0; font-size: .83rem; }
+    .summary-grid {
+      display: grid;
+      grid-template-columns: repeat(6, 1fr);
+      gap: 12px;
+      margin: 26px 0 14px;
+    }
+    .card, .panel {
+      background: color-mix(in srgb, var(--panel) 94%, transparent);
+      border: 1px solid var(--line);
+      border-radius: 16px;
+      box-shadow: 0 18px 45px rgb(0 0 0 / 18%);
+    }
+    .card { padding: 17px; min-height: 108px; }
+    .label { color: var(--muted); font-size: .69rem; text-transform: uppercase; letter-spacing: .09em; }
+    .value { margin-top: 12px; font-size: 1.28rem; font-weight: 760; overflow-wrap: anywhere; }
+    .ok { color: var(--ok); }
+    .warn { color: var(--warn); }
+    .bad { color: var(--bad); }
+    .panel { padding: 20px; margin-top: 14px; overflow: hidden; }
+    .panel-head { display: flex; align-items: start; justify-content: space-between; gap: 12px; margin-bottom: 16px; }
+    .two-column { display: grid; grid-template-columns: 1.2fr .8fr; gap: 14px; }
+    .bar { height: 8px; background: var(--panel-2); border-radius: 99px; overflow: hidden; margin-top: 16px; }
+    .bar span { display: block; height: 100%; width: 0; background: var(--accent); transition: width .25s; }
+    .facts { display: grid; grid-template-columns: repeat(2, 1fr); gap: 12px; }
+    .facts-spaced { margin-top: 16px; }
+    .fact { padding: 12px; background: var(--panel-2); border-radius: 10px; }
+    .fact strong { display: block; margin-top: 4px; font-size: .94rem; }
+    .pills { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 14px; }
+    .pill { padding: 6px 9px; border: 1px solid var(--line); border-radius: 999px; font-size: .72rem; }
+    .pill.ok { background: rgb(80 216 144 / 8%); }
+    .pill.bad { background: rgb(255 107 107 / 8%); }
+    .table-wrap { overflow-x: auto; }
+    table { width: 100%; border-collapse: collapse; font-size: .82rem; min-width: 760px; }
+    th, td { padding: 11px 9px; border-top: 1px solid var(--line); text-align: left; vertical-align: top; }
+    th { color: var(--muted); font-size: .66rem; text-transform: uppercase; letter-spacing: .08em; }
+    td.number, th.number { text-align: right; }
+    code { color: #b8d7e4; white-space: pre-wrap; overflow-wrap: anywhere; font-size: .72rem; }
+    details summary { color: var(--accent); cursor: pointer; margin-bottom: 6px; }
+    .empty { color: var(--muted); text-align: center; padding: 24px; }
+    @media (max-width: 1100px) {
+      .summary-grid { grid-template-columns: repeat(3, 1fr); }
+    }
+    @media (max-width: 820px) {
+      header { align-items: start; flex-direction: column; }
+      .two-column { grid-template-columns: 1fr; }
+    }
+    @media (max-width: 560px) {
+      .summary-grid { grid-template-columns: repeat(2, 1fr); }
+      .facts { grid-template-columns: 1fr; }
+    }
+  </style>
+</head>
+<body>
+<main>
+  <header>
+    <div>
+      <div class="eyebrow">PAPER ENVIRONMENT</div>
+      <h1>MultiTrade Operations</h1>
+      <p class="muted">Read-only broker reconciliation, risk, and audit monitoring.</p>
+    </div>
+    <div id="updated">Waiting for reconciliation...</div>
+  </header>
+
+  <section class="summary-grid" aria-label="System summary">
+    <article class="card"><div class="label">Engine</div><div class="value" id="engine">--</div></article>
+    <article class="card"><div class="label">US market</div><div class="value" id="market">--</div></article>
+    <article class="card"><div class="label">Paper equity</div><div class="value" id="equity">--</div></article>
+    <article class="card"><div class="label">Buying power</div><div class="value" id="buying-power">--</div></article>
+    <article class="card"><div class="label">Gross notional</div><div class="value" id="notional">--</div></article>
+    <article class="card"><div class="label">Reserved risk</div><div class="value" id="risk">--</div></article>
+  </section>
+
+  <section class="two-column">
+    <article class="panel">
+      <div class="panel-head">
+        <div>
+          <h2>Risk capacity</h2>
+          <p id="risk-copy" class="subcopy">Waiting for data...</p>
+        </div>
+      </div>
+      <div class="bar"><span id="risk-bar"></span></div>
+      <div class="facts facts-spaced">
+        <div class="fact"><span class="label">Aggregate capacity</span><strong id="risk-capacity">--</strong></div>
+        <div class="fact"><span class="label">Per-trade ceiling</span><strong id="trade-capacity">--</strong></div>
+      </div>
+    </article>
+
+    <article class="panel">
+      <div class="panel-head">
+        <div>
+          <h2>Account controls</h2>
+          <p id="account-status" class="subcopy">Waiting for data...</p>
+        </div>
+      </div>
+      <div class="facts">
+        <div class="fact"><span class="label">Cash</span><strong id="cash">--</strong></div>
+        <div class="fact"><span class="label">Maintenance margin</span><strong id="margin">--</strong></div>
+        <div class="fact"><span class="label">Day trades</span><strong id="daytrades">--</strong></div>
+        <div class="fact"><span class="label">Next market event</span><strong id="market-next">--</strong></div>
+      </div>
+      <div class="pills" id="control-pills"></div>
+    </article>
+  </section>
+
+  <section class="panel">
+    <div class="panel-head">
+      <div><h2>Open positions</h2><p class="subcopy" id="positions-copy">No data yet.</p></div>
+    </div>
+    <div class="table-wrap">
+      <table>
+        <thead><tr><th>Symbol</th><th>Class</th><th>Side</th><th class="number">Quantity</th><th class="number">Average</th><th class="number">Current</th><th class="number">Market value</th><th class="number">Unrealized P/L</th></tr></thead>
+        <tbody id="positions"></tbody>
+      </table>
+    </div>
+  </section>
+
+  <section class="panel">
+    <div class="panel-head">
+      <div><h2>Open orders</h2><p class="subcopy" id="orders-copy">No data yet.</p></div>
+    </div>
+    <div class="table-wrap">
+      <table>
+        <thead><tr><th>Symbol</th><th>Class</th><th>Side</th><th>Type</th><th>Status</th><th class="number">Quantity</th><th class="number">Filled</th><th class="number">Limit</th><th>Submitted</th></tr></thead>
+        <tbody id="orders"></tbody>
+      </table>
+    </div>
+  </section>
+
+  <section class="panel">
+    <div class="panel-head">
+      <div><h2>Recent audit events</h2><p class="subcopy">Decision and reconciliation records. Raw details remain available for diagnosis.</p></div>
+    </div>
+    <div class="table-wrap">
+      <table>
+        <thead><tr><th>Time</th><th>Event</th><th>Correlation</th><th>Summary</th><th>Record</th></tr></thead>
+        <tbody id="events"></tbody>
+      </table>
+    </div>
+  </section>
+</main>
+<script nonce="{{NONCE}}">
+  const money = value => value == null
+    ? "--"
+    : new Intl.NumberFormat("en-US", {style:"currency", currency:"USD"}).format(Number(value));
+  const quantity = value => value == null
+    ? "--"
+    : new Intl.NumberFormat("en-US", {maximumFractionDigits:8}).format(Number(value));
+  const percent = value => `${(Number(value || 0) * 100).toFixed(2)}%`;
+  const localTime = value => value ? new Date(value).toLocaleString() : "--";
+
+  function setText(id, value) { document.getElementById(id).textContent = value; }
+  function setStatus(id, value, state) {
+    const element = document.getElementById(id);
+    element.textContent = value;
+    element.className = `value ${state}`;
+  }
+  function cell(value, className = "") {
+    const node = document.createElement("td");
+    node.textContent = value;
+    if (className) node.className = className;
+    return node;
+  }
+  function emptyRow(body, columns, message) {
+    const row = document.createElement("tr");
+    const node = cell(message, "empty");
+    node.colSpan = columns;
+    row.appendChild(node);
+    body.appendChild(row);
+  }
+
+  function renderControls(account) {
+    const container = document.getElementById("control-pills");
+    container.replaceChildren();
+    if (!account) return;
+    const controls = [
+      ["Trading allowed", !account.trading_blocked],
+      ["Account unblocked", !account.account_blocked],
+      ["Transfers allowed", !account.transfers_blocked],
+      ["User trading active", !account.trade_suspended_by_user],
+      ["Shorting enabled", account.shorting_enabled],
+      ["PDT status clear", !account.pattern_day_trader],
+    ];
+    for (const [label, healthy] of controls) {
+      const pill = document.createElement("span");
+      pill.className = `pill ${healthy ? "ok" : "bad"}`;
+      pill.textContent = label;
+      container.appendChild(pill);
+    }
+  }
+
+  function renderPositions(positions) {
+    const body = document.getElementById("positions");
+    body.replaceChildren();
+    setText("positions-copy", `${positions.length} reconciled position${positions.length === 1 ? "" : "s"}.`);
+    if (!positions.length) {
+      emptyRow(body, 8, "No open positions.");
+      return;
+    }
+    for (const position of positions) {
+      const row = document.createElement("tr");
+      const pnl = `${money(position.unrealized_pl)} (${percent(position.unrealized_pl_percent)})`;
+      const values = [
+        [position.symbol, ""],
+        [position.asset_class, ""],
+        [position.side, ""],
+        [quantity(position.quantity), "number"],
+        [money(position.average_entry_price), "number"],
+        [money(position.current_price), "number"],
+        [money(position.market_value), "number"],
+        [pnl, `number ${Number(position.unrealized_pl) >= 0 ? "ok" : "bad"}`],
+      ];
+      for (const [value, className] of values) row.appendChild(cell(value, className));
+      body.appendChild(row);
+    }
+  }
+
+  function renderOrders(orders) {
+    const body = document.getElementById("orders");
+    body.replaceChildren();
+    setText("orders-copy", `${orders.length} reconciled open order${orders.length === 1 ? "" : "s"}.`);
+    if (!orders.length) {
+      emptyRow(body, 9, "No open orders.");
+      return;
+    }
+    for (const order of orders) {
+      const row = document.createElement("tr");
+      const values = [
+        [order.symbol, ""],
+        [order.asset_class, ""],
+        [order.side, ""],
+        [`${order.order_type}${order.legs_count ? ` / ${order.legs_count} legs` : ""}`, ""],
+        [order.status, ""],
+        [quantity(order.quantity), "number"],
+        [quantity(order.filled_quantity), "number"],
+        [order.limit_price == null ? "--" : money(order.limit_price), "number"],
+        [localTime(order.submitted_at), ""],
+      ];
+      for (const [value, className] of values) row.appendChild(cell(value, className));
+      body.appendChild(row);
+    }
+  }
+
+  function eventSummary(event) {
+    const payload = event.payload || {};
+    if (event.event_type === "broker_reconciled") {
+      return `Broker synchronized: ${payload.positions_count || 0} positions, ${payload.open_orders_count || 0} open orders.`;
+    }
+    if (event.event_type === "heartbeat_failed") return `Broker heartbeat failed: ${payload.error_type || "unknown error"}.`;
+    if (event.event_type === "risk_approved") return "Trade intent passed the central risk authority.";
+    if (event.event_type === "risk_rejected") return `Trade intent rejected: ${payload.decision?.reason || "risk policy"}.`;
+    if (event.event_type === "dry_run") return "Approved intent remained a dry run; no order was sent.";
+    if (event.event_type === "risk_released") return `Reserved risk released: ${payload.reason || "completed"}.`;
+    if (event.event_type === "order_submitted") return "Paper order submitted to the broker.";
+    if (event.event_type === "account_heartbeat") return "Legacy account heartbeat completed.";
+    return "Audit event recorded.";
+  }
+
+  function renderEvents(events) {
+    const body = document.getElementById("events");
+    body.replaceChildren();
+    if (!events.length) {
+      emptyRow(body, 5, "No audit events.");
+      return;
+    }
+    for (const event of events) {
+      const row = document.createElement("tr");
+      row.appendChild(cell(localTime(event.occurred_at)));
+      row.appendChild(cell(event.event_type));
+      row.appendChild(cell(event.correlation_id));
+      row.appendChild(cell(eventSummary(event)));
+      const detailCell = document.createElement("td");
+      const details = document.createElement("details");
+      const summary = document.createElement("summary");
+      summary.textContent = "View";
+      const code = document.createElement("code");
+      code.textContent = JSON.stringify(event.payload);
+      details.append(summary, code);
+      detailCell.appendChild(details);
+      row.appendChild(detailCell);
+      body.appendChild(row);
+    }
+  }
+
+  async function refresh() {
+    try {
+      const response = await fetch("/api/overview?limit=40", {cache:"no-store"});
+      if (!response.ok) throw new Error(`HTTP ${response.status}`);
+      const data = await response.json();
+      const account = data.account;
+      const market = data.market;
+
+      setStatus("engine", data.engine.healthy ? "Healthy" : "Attention", data.engine.healthy ? "ok" : "bad");
+      setStatus(
+        "market",
+        market == null ? "Unavailable" : (market.is_open ? "Open" : "Closed"),
+        market == null ? "bad" : (market.is_open ? "ok" : "warn")
+      );
+      setText("equity", money(account?.equity));
+      setText("buying-power", money(account?.buying_power));
+      setText("notional", money(account?.gross_notional));
+      setText("risk", money(data.risk.active_amount));
+      setText("cash", money(account?.cash));
+      setText("margin", money(account?.maintenance_margin));
+      setText("daytrades", account?.daytrade_count ?? "--");
+      setText(
+        "account-status",
+        account
+          ? `${String(account.status || "unknown").toUpperCase()} / ${account.currency || "USD"}`
+          : "Account unavailable"
+      );
+      const nextMarketEvent = market?.is_open ? market?.next_close : market?.next_open;
+      setText("market-next", localTime(nextMarketEvent));
+      setText(
+        "updated",
+        data.connection?.observed_at
+          ? `Broker synchronized ${localTime(data.connection.observed_at)}`
+          : "Waiting for broker reconciliation..."
+      );
+
+      const utilization = Number(data.risk.utilization_percent || 0);
+      setText("risk-copy", `${utilization.toFixed(2)}% of the aggregate ceiling is reserved. Paper order submission remains disabled.`);
+      setText("risk-capacity", money(data.risk.aggregate_capacity_amount));
+      setText("trade-capacity", money(data.risk.per_trade_capacity_amount));
+      document.getElementById("risk-bar").style.width = `${Math.min(100, Math.max(0, utilization))}%`;
+
+      renderControls(account);
+      renderPositions(data.positions || []);
+      renderOrders(data.open_orders || []);
+      renderEvents(data.events || []);
+    } catch (error) {
+      setStatus("engine", "Unavailable", "bad");
+      setText("updated", "Dashboard data unavailable");
+    }
+  }
+
+  refresh();
+  setInterval(refresh, 15000);
+</script>
+</body>
+</html>

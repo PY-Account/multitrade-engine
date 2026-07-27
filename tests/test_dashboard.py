@@ -1,6 +1,7 @@
 import base64
 import json
 import threading
+from datetime import datetime, timezone
 from decimal import Decimal
 from pathlib import Path
 from tempfile import TemporaryDirectory
@@ -20,15 +21,60 @@ class DashboardTests(TestCase):
         db_path = Path(directory) / "trading.db"
         health_path = Path(directory) / "health.json"
         store = SqliteAuditStore(db_path)
-        store.record_event(
-            "account_heartbeat",
+        observed_at = datetime.now(timezone.utc)
+        store.record_broker_state(
             "alpaca-paper",
+            observed_at,
+            {
+                "broker": "alpaca",
+                "environment": "paper",
+                "observed_at": observed_at,
+                "account": {
+                    "status": "active",
+                    "currency": "USD",
+                    "equity": Decimal("100000"),
+                    "last_equity": Decimal("99500"),
+                    "cash": Decimal("50000"),
+                    "buying_power": Decimal("200000"),
+                    "long_market_value": Decimal("2500"),
+                    "short_market_value": Decimal("0"),
+                    "maintenance_margin": Decimal("750"),
+                    "gross_notional": Decimal("2500"),
+                    "daytrade_count": 1,
+                    "pattern_day_trader": False,
+                    "trading_blocked": False,
+                    "transfers_blocked": False,
+                    "account_blocked": False,
+                    "trade_suspended_by_user": False,
+                    "shorting_enabled": True,
+                },
+                "market": {
+                    "timestamp": observed_at.isoformat(),
+                    "is_open": True,
+                    "next_open": observed_at.isoformat(),
+                    "next_close": observed_at.isoformat(),
+                },
+                "positions": [
+                    {
+                        "symbol": "AAPL",
+                        "asset_class": "stock",
+                        "side": "long",
+                        "quantity": Decimal("5"),
+                        "market_value": Decimal("2500"),
+                        "cost_basis": Decimal("2400"),
+                        "average_entry_price": Decimal("480"),
+                        "current_price": Decimal("500"),
+                        "unrealized_pl": Decimal("100"),
+                        "unrealized_pl_percent": Decimal("0.0416667"),
+                    }
+                ],
+                "open_orders": [],
+                "request_ids": ["test-request-id"],
+            },
             {
                 "equity": Decimal("100000"),
-                "start_of_day_equity": Decimal("100000"),
-                "gross_notional": Decimal("2500"),
-                "positions": {"AAPL": Decimal("5")},
-                "reserved_active_risk": Decimal("0"),
+                "positions_count": 1,
+                "open_orders_count": 0,
             },
         )
         write_health(health_path, "ok", {"environment": "paper"})
@@ -38,6 +84,7 @@ class DashboardTests(TestCase):
                 health_path=health_path,
                 health_max_age_seconds=120,
                 max_total_open=Decimal("0.10"),
+                max_per_trade=Decimal("0.03"),
             ),
             db_path,
             health_path,
@@ -53,7 +100,15 @@ class DashboardTests(TestCase):
             self.assertTrue(result["engine"]["healthy"])
             self.assertEqual(result["storage"]["status"], "ok")
             self.assertEqual(result["account"]["equity"], "100000")
+            self.assertTrue(result["market"]["is_open"])
+            self.assertEqual(len(result["positions"]), 1)
+            self.assertEqual(result["connection"]["request_ids"], [
+                "test-request-id"
+            ])
             self.assertEqual(result["risk"]["active_amount"], "0")
+            self.assertEqual(
+                result["risk"]["per_trade_capacity_amount"], "3000.00"
+            )
             self.assertEqual(len(result["events"]), 1)
 
     def test_http_dashboard_requires_authentication(self) -> None:
@@ -89,6 +144,20 @@ class DashboardTests(TestCase):
 
                 self.assertEqual(response.status, 200)
                 self.assertEqual(result["account"]["equity"], "100000")
+
+                root_request = Request(
+                    f"http://127.0.0.1:{port}/",
+                    headers={"Authorization": f"Basic {token}"},
+                )
+                with urlopen(root_request, timeout=3) as root_response:
+                    html = root_response.read().decode("utf-8")
+                    policy = root_response.headers[
+                        "Content-Security-Policy"
+                    ]
+
+                self.assertIn("Open positions", html)
+                self.assertNotIn("{{NONCE}}", html)
+                self.assertIn("script-src 'nonce-", policy)
             finally:
                 server.shutdown()
                 server.server_close()

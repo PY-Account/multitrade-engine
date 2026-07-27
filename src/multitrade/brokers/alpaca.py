@@ -1,13 +1,21 @@
 from __future__ import annotations
 
 import json
+from datetime import datetime, timezone
 from decimal import Decimal
 from typing import Any
 from urllib.error import HTTPError, URLError
 from urllib.parse import urlencode
 from urllib.request import Request, urlopen
 
-from multitrade.brokers.base import BrokerOrder
+from multitrade.brokers.base import (
+    BrokerAccount,
+    BrokerMarketClock,
+    BrokerOpenOrder,
+    BrokerOrder,
+    BrokerPosition,
+    BrokerReconciliation,
+)
 from multitrade.config import PAPER_URL
 from multitrade.domain import (
     AccountSnapshot,
@@ -25,6 +33,35 @@ class AlpacaError(RuntimeError):
 
 def _decimal_text(value: Decimal) -> str:
     return format(value, "f")
+
+
+def _decimal(value: Any, default: Any = "0") -> Decimal:
+    if value is None or value == "":
+        return Decimal(str(default))
+    return Decimal(str(value))
+
+
+def _optional_decimal(value: Any) -> Decimal | None:
+    if value is None or value == "":
+        return None
+    return Decimal(str(value))
+
+
+def _asset_class(value: Any) -> AssetClass:
+    normalized = str(value or "").lower()
+    mapping = {
+        "us_equity": AssetClass.STOCK,
+        "stock": AssetClass.STOCK,
+        "us_option": AssetClass.OPTION,
+        "option": AssetClass.OPTION,
+        "crypto": AssetClass.CRYPTO,
+    }
+    try:
+        return mapping[normalized]
+    except KeyError as exc:
+        raise AlpacaError(
+            f"Unsupported Alpaca asset class: {normalized or 'missing'}"
+        ) from exc
 
 
 class AlpacaPaperBroker:
@@ -46,27 +83,147 @@ class AlpacaPaperBroker:
             "APCA-API-SECRET-KEY": secret_key,
             "Accept": "application/json",
         }
+        self._request_ids: list[str] = []
 
-    def get_account_snapshot(self) -> AccountSnapshot:
+    def reconcile(self) -> BrokerReconciliation:
+        self._request_ids = []
         account = self._request("GET", "/v2/account")
         positions_payload = self._request("GET", "/v2/positions")
-        positions: dict[str, Decimal] = {}
-        gross_notional = ZERO
-        for row in positions_payload:
-            quantity = Decimal(row["qty"])
-            if row.get("side") == "short":
-                quantity = -quantity
-            positions[row["symbol"]] = quantity
-            gross_notional += abs(Decimal(row.get("market_value", "0")))
+        orders_payload = self._request(
+            "GET",
+            "/v2/orders",
+            query={
+                "status": "open",
+                "limit": "500",
+                "nested": "true",
+                "direction": "desc",
+            },
+        )
+        clock_payload = self._request("GET", "/v2/clock")
 
-        equity = Decimal(account["equity"])
-        last_equity = Decimal(account.get("last_equity", account["equity"]))
-        return AccountSnapshot(
-            equity=equity,
-            start_of_day_equity=last_equity,
-            peak_equity=max(equity, last_equity),
+        if not isinstance(account, dict):
+            raise AlpacaError("Alpaca account response was not an object")
+        if not isinstance(positions_payload, list):
+            raise AlpacaError("Alpaca positions response was not a list")
+        if not isinstance(orders_payload, list):
+            raise AlpacaError("Alpaca orders response was not a list")
+        if not isinstance(clock_payload, dict):
+            raise AlpacaError("Alpaca clock response was not an object")
+
+        positions = tuple(
+            self._parse_position(row) for row in positions_payload
+        )
+        gross_notional = sum(
+            (abs(position.market_value) for position in positions),
+            start=ZERO,
+        )
+        normalized_account = BrokerAccount(
+            status=str(account.get("status", "unknown")).lower(),
+            currency=str(account.get("currency", "USD")).upper(),
+            equity=_decimal(account.get("equity")),
+            last_equity=_decimal(
+                account.get("last_equity"), account.get("equity", "0")
+            ),
+            cash=_decimal(account.get("cash")),
+            buying_power=_decimal(account.get("buying_power")),
+            long_market_value=_decimal(
+                account.get("long_market_value")
+            ),
+            short_market_value=_decimal(
+                account.get("short_market_value")
+            ),
+            maintenance_margin=_decimal(
+                account.get("maintenance_margin")
+            ),
             gross_notional=gross_notional,
+            daytrade_count=int(account.get("daytrade_count") or 0),
+            pattern_day_trader=bool(
+                account.get("pattern_day_trader", False)
+            ),
+            trading_blocked=bool(
+                account.get("trading_blocked", False)
+            ),
+            transfers_blocked=bool(
+                account.get("transfers_blocked", False)
+            ),
+            account_blocked=bool(
+                account.get("account_blocked", False)
+            ),
+            trade_suspended_by_user=bool(
+                account.get("trade_suspended_by_user", False)
+            ),
+            shorting_enabled=bool(
+                account.get("shorting_enabled", False)
+            ),
+        )
+        market = BrokerMarketClock(
+            timestamp=str(clock_payload.get("timestamp", "")),
+            is_open=bool(clock_payload.get("is_open", False)),
+            next_open=str(clock_payload.get("next_open", "")),
+            next_close=str(clock_payload.get("next_close", "")),
+        )
+        open_orders = tuple(
+            self._parse_open_order(row) for row in orders_payload
+        )
+        return BrokerReconciliation(
+            broker="alpaca",
+            environment="paper",
+            observed_at=datetime.now(timezone.utc),
+            account=normalized_account,
+            market=market,
             positions=positions,
+            open_orders=open_orders,
+            request_ids=tuple(self._request_ids),
+        )
+
+    def get_account_snapshot(self) -> AccountSnapshot:
+        return self.reconcile().account_snapshot()
+
+    @staticmethod
+    def _parse_position(row: dict[str, Any]) -> BrokerPosition:
+        return BrokerPosition(
+            symbol=str(row["symbol"]),
+            asset_class=_asset_class(row.get("asset_class")),
+            side=str(row.get("side", "long")).lower(),
+            quantity=abs(_decimal(row.get("qty"))),
+            market_value=_decimal(row.get("market_value")),
+            cost_basis=_decimal(row.get("cost_basis")),
+            average_entry_price=_decimal(
+                row.get("avg_entry_price")
+            ),
+            current_price=_decimal(row.get("current_price")),
+            unrealized_pl=_decimal(row.get("unrealized_pl")),
+            unrealized_pl_percent=_decimal(
+                row.get("unrealized_plpc")
+            ),
+        )
+
+    @staticmethod
+    def _parse_open_order(row: dict[str, Any]) -> BrokerOpenOrder:
+        legs = row.get("legs") or []
+        asset_class = row.get("asset_class")
+        if not asset_class and legs:
+            asset_class = legs[0].get("asset_class")
+        symbol = row.get("symbol")
+        if not symbol and len(legs) == 1:
+            symbol = legs[0].get("symbol")
+        if not symbol:
+            symbol = "MULTI-LEG"
+        return BrokerOpenOrder(
+            broker_order_id=str(row.get("id", "")),
+            client_order_id=str(row.get("client_order_id", "")),
+            symbol=str(symbol),
+            asset_class=_asset_class(asset_class),
+            side=str(row.get("side", "")).lower(),
+            order_type=str(row.get("type", "")).lower(),
+            order_class=str(row.get("order_class", "simple")).lower(),
+            status=str(row.get("status", "unknown")).lower(),
+            quantity=abs(_decimal(row.get("qty"))),
+            filled_quantity=abs(_decimal(row.get("filled_qty"))),
+            limit_price=_optional_decimal(row.get("limit_price")),
+            stop_price=_optional_decimal(row.get("stop_price")),
+            submitted_at=str(row.get("submitted_at", "")),
+            legs_count=len(legs),
         )
 
     def submit_order(
@@ -145,12 +302,26 @@ class AlpacaPaperBroker:
         request = Request(url, data=data, headers=headers, method=method)
         try:
             with urlopen(request, timeout=self.timeout_seconds) as response:
+                request_id = response.headers.get("X-Request-ID")
+                if request_id:
+                    self._request_ids.append(request_id)
                 body = response.read().decode("utf-8")
                 return json.loads(body) if body else {}
         except HTTPError as exc:
+            request_id = (
+                exc.headers.get("X-Request-ID")
+                if exc.headers is not None
+                else None
+            )
+            if request_id:
+                self._request_ids.append(request_id)
             body = exc.read().decode("utf-8", errors="replace")
+            request_context = (
+                f" request_id={request_id}" if request_id else ""
+            )
             raise AlpacaError(
-                f"Alpaca returned HTTP {exc.code}: {body}"
+                f"Alpaca returned HTTP {exc.code}:{request_context} "
+                f"{body[:1000]}"
             ) from exc
         except URLError as exc:
             raise AlpacaError(f"Cannot reach Alpaca: {exc.reason}") from exc

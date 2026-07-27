@@ -102,6 +102,14 @@ def _doctor() -> int:
         print(f"configuration_error: {exc}", file=sys.stderr)
         return 2
 
+    try:
+        settings.require_dashboard_credentials()
+        dashboard_credentials_valid = True
+        dashboard_configuration_error = None
+    except ValueError as exc:
+        dashboard_credentials_valid = False
+        dashboard_configuration_error = str(exc)
+
     checks = {
         "paper_endpoint_locked": True,
         "paper_order_submission_enabled": settings.enable_paper_orders,
@@ -116,12 +124,22 @@ def _doctor() -> int:
         "dashboard_password_present": bool(
             settings.dashboard_password
         ),
+        "dashboard_credentials_valid": dashboard_credentials_valid,
+        "dashboard_configuration_error": dashboard_configuration_error,
         "dashboard_listen": (
             f"{settings.dashboard_host}:{settings.dashboard_port}"
         ),
     }
     print(json.dumps(checks, indent=2, sort_keys=True))
-    return 0 if checks["api_key_present"] and checks["api_secret_present"] else 1
+    return (
+        0
+        if (
+            checks["api_key_present"]
+            and checks["api_secret_present"]
+            and checks["dashboard_credentials_valid"]
+        )
+        else 1
+    )
 
 
 def _run(once: bool) -> int:
@@ -145,17 +163,25 @@ def _run(once: bool) -> int:
 
     while True:
         try:
-            snapshot = broker.get_account_snapshot()
-            store.record_event(
-                "account_heartbeat",
+            reconciliation = broker.reconcile()
+            snapshot = reconciliation.account_snapshot()
+            active_risk = store.active_risk()
+            summary = {
+                "account_status": reconciliation.account.status,
+                "equity": reconciliation.account.equity,
+                "buying_power": reconciliation.account.buying_power,
+                "gross_notional": reconciliation.account.gross_notional,
+                "positions_count": len(reconciliation.positions),
+                "open_orders_count": len(reconciliation.open_orders),
+                "market_open": reconciliation.market.is_open,
+                "request_ids": reconciliation.request_ids,
+                "reserved_active_risk": active_risk,
+            }
+            store.record_broker_state(
                 "alpaca-paper",
-                {
-                    "equity": snapshot.equity,
-                    "start_of_day_equity": snapshot.start_of_day_equity,
-                    "gross_notional": snapshot.gross_notional,
-                    "positions": snapshot.positions,
-                    "reserved_active_risk": store.active_risk(),
-                },
+                reconciliation.observed_at,
+                asdict(reconciliation),
+                summary,
             )
             print(
                 json.dumps(
@@ -163,7 +189,10 @@ def _run(once: bool) -> int:
                         "status": "ok",
                         "environment": "paper",
                         "equity": format(snapshot.equity, "f"),
-                        "active_risk": format(store.active_risk(), "f"),
+                        "active_risk": format(active_risk, "f"),
+                        "market_open": reconciliation.market.is_open,
+                        "positions": len(reconciliation.positions),
+                        "open_orders": len(reconciliation.open_orders),
                     },
                     sort_keys=True,
                 ),
@@ -175,7 +204,15 @@ def _run(once: bool) -> int:
                 {
                     "environment": "paper",
                     "equity": format(snapshot.equity, "f"),
-                    "active_risk": format(store.active_risk(), "f"),
+                    "active_risk": format(active_risk, "f"),
+                    "market_open": reconciliation.market.is_open,
+                    "positions_count": len(reconciliation.positions),
+                    "open_orders_count": len(
+                        reconciliation.open_orders
+                    ),
+                    "observed_at": (
+                        reconciliation.observed_at.isoformat()
+                    ),
                 },
             )
         except Exception as exc:
@@ -233,6 +270,7 @@ def _dashboard() -> int:
         health_path=settings.health_path,
         health_max_age_seconds=settings.health_max_age_seconds,
         max_total_open=settings.risk_policy.max_total_open,
+        max_per_trade=settings.risk_policy.max_per_trade,
     )
     server = create_dashboard_server(
         host=settings.dashboard_host,

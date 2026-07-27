@@ -42,7 +42,7 @@ The interactive steps are intentionally kept separate:
 1. Create the private repository.
 2. Push the locally tested code.
 3. Bootstrap Docker on the VPS.
-4. give the VPS read-only repository access.
+4. Give the VPS read-only repository access.
 5. Clone the repository into `/opt/multitrade/app`.
 6. Create the private `.env`.
 7. Run `ops/deploy.sh`.
@@ -83,3 +83,24 @@ docker compose run --rm --no-deps engine multitrade doctor
 The engine uses `restart: unless-stopped`, so Docker restarts it after a process
 failure or server reboot. A stale or failed heartbeat marks the container
 unhealthy for monitoring.
+
+## Updating an existing deployment
+
+After a release passes CI and is pushed to the private `main` branch:
+
+```bash
+cd /opt/multitrade/app
+bash ops/update.sh
+```
+
+The updater permits only a fast-forward from `origin/main`, refuses tracked
+local modifications, preserves the public dashboard profile when a valid
+`DASHBOARD_DOMAIN` exists, and prints the previous and current commit IDs.
+
+For the first release that introduces the updater, use:
+
+```bash
+cd /opt/multitrade/app
+git pull --ff-only origin main
+bash ops/update.sh
+```

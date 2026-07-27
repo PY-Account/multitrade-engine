@@ -10,8 +10,17 @@ if [[ ! -f .env ]]; then
 fi
 
 chmod 600 .env
-docker compose config --quiet
-docker compose build --pull
-docker compose run --rm --no-deps engine multitrade doctor
-docker compose up -d --remove-orphans
-docker compose ps
+
+compose=(docker compose)
+if grep -Eq '^DASHBOARD_DOMAIN=[A-Za-z0-9.-]+\.[A-Za-z]{2,}$' .env; then
+  compose+=(--profile public-dashboard)
+  echo "PUBLIC_DASHBOARD_PROFILE_ENABLED"
+else
+  echo "PUBLIC_DASHBOARD_PROFILE_DISABLED"
+fi
+
+"${compose[@]}" config --quiet
+"${compose[@]}" build --pull engine dashboard
+"${compose[@]}" run --rm --no-deps engine multitrade doctor
+"${compose[@]}" up -d --remove-orphans
+"${compose[@]}" ps
