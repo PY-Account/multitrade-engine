@@ -5,7 +5,7 @@ algorithmic-trading organization. It separates market analysis, strategy
 signals, portfolio allocation, central risk approval, broker execution,
 reconciliation, audit, backtesting, and monitoring.
 
-Release 0.3 is designed for controlled Alpaca Paper observation and dry-run
+Release 0.4 is designed for controlled Alpaca Paper observation and dry-run
 testing. It does not support live trading and it does not claim that any
 strategy is profitable.
 
@@ -38,6 +38,13 @@ The 3% and 10% figures are hard ceilings, not operating targets.
   feed selection.
 - Feature service: moving averages, ATR, volume, volatility, Donchian levels,
   trend strength, and market-regime classification.
+- Separate observation-only research service: closed daily bars, medium-term
+  momentum/trend, market and relative trend, liquidity, realized-volatility
+  scaling without leverage, and panic/rebound guards.
+- Versioned evidence registry with positive findings, contradictory caveats,
+  data limitations, execution candidacy, and internal validation requirements.
+- Research-only public AI compute/power price proxy. It is explicitly not a
+  reconstruction of any investment firm's holdings or trading rules.
 - Versioned and explainable stock strategy candidates:
   breakout/retest, trend pullback, volatility-contraction breakout, and
   range mean reversion.
@@ -108,6 +115,8 @@ $env:PYTHONPATH="src"
 python -m multitrade doctor
 python -m multitrade run --once
 python -m multitrade automate --once
+python -m multitrade research --once
+python -m multitrade evidence-catalog
 ```
 
 Backtest one strategy:
@@ -156,16 +165,19 @@ cd /opt/multitrade/app
 docker compose --profile public-dashboard ps
 docker compose --profile public-dashboard logs --tail=100 automation
 docker compose --profile public-dashboard logs --tail=100 engine
+docker compose --profile public-dashboard logs --tail=100 research
 ```
 
 The controlled testing sequence is documented in
 [`docs/PAPER_VALIDATION_RUNBOOK.md`](docs/PAPER_VALIDATION_RUNBOOK.md).
 Strategy definitions and limitations are documented in
 [`docs/STRATEGY_CATALOG.md`](docs/STRATEGY_CATALOG.md).
+Evidence admission and the public-thesis boundary are documented in
+[`docs/RESEARCH_GOVERNANCE.md`](docs/RESEARCH_GOVERNANCE.md).
 
 ## Current boundary
 
-This release supports one enabled Alpaca Paper account in the running worker.
+This release supports one enabled Alpaca Paper account in the running workers.
 The configuration model is account-scoped, but true multi-account execution,
 PostgreSQL portfolio aggregation, dedicated crypto/forex broker adapters,
 role-based administration/MFA, and any live-trading program remain separate

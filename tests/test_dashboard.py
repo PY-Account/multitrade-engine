@@ -113,6 +113,8 @@ class DashboardTests(TestCase):
                 result["risk"]["per_trade_capacity_amount"], "3000.00"
             )
             self.assertEqual(len(result["events"]), 1)
+            self.assertFalse(result["research"]["execution_enabled"])
+            self.assertGreater(len(result["evidence_catalog"]), 0)
 
     def test_http_dashboard_requires_authentication(self) -> None:
         with TemporaryDirectory() as directory:
@@ -168,6 +170,8 @@ class DashboardTests(TestCase):
                 self.assertIn('hourCycle: "h23"', html)
                 self.assertIn('Asia/Jerusalem', html)
                 self.assertIn('Strategy bots', html)
+                self.assertIn('Evidence-weighted market model', html)
+                self.assertIn('Research evidence registry', html)
                 self.assertNotIn("{{NONCE}}", html)
                 self.assertIn("script-src 'nonce-", policy)
             finally:

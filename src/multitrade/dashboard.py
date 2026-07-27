@@ -19,6 +19,7 @@ from urllib.request import urlopen
 
 from multitrade.audit import SqliteAuditReader
 from multitrade.health import check_health
+from multitrade.research import evidence_catalog
 
 
 _DASHBOARD_HTML = (
@@ -36,6 +37,8 @@ class DashboardData:
         max_per_trade: Decimal,
         strategy_health_path: str | Path | None = None,
         strategy_health_max_age_seconds: int = 900,
+        research_health_path: str | Path | None = None,
+        research_health_max_age_seconds: int = 10800,
         automation_enabled: bool = False,
         paper_order_submission_enabled: bool = False,
         emergency_stop: bool = False,
@@ -52,6 +55,14 @@ class DashboardData:
         )
         self.strategy_health_max_age_seconds = (
             strategy_health_max_age_seconds
+        )
+        self.research_health_path = (
+            Path(research_health_path)
+            if research_health_path is not None
+            else None
+        )
+        self.research_health_max_age_seconds = (
+            research_health_max_age_seconds
         )
         self.automation_enabled = automation_enabled
         self.paper_order_submission_enabled = (
@@ -78,6 +89,14 @@ class DashboardData:
         else:
             automation_healthy = False
             automation_health = {"status": "not_configured"}
+        if self.research_health_path is not None:
+            research_healthy, research_health = check_health(
+                self.research_health_path,
+                self.research_health_max_age_seconds,
+            )
+        else:
+            research_healthy = False
+            research_health = {"status": "not_configured"}
         try:
             state = self.reader.latest_broker_state("alpaca-paper")
             active_risk = self.reader.active_risk()
@@ -88,6 +107,9 @@ class DashboardData:
             trade_records = self.reader.recent_trade_records(event_limit)
             backtests = self.reader.recent_backtests(20)
             validations = self.reader.recent_validations(20)
+            research_decisions = (
+                self.reader.recent_research_decisions(event_limit)
+            )
             storage: dict[str, Any] = {"status": "ok"}
         except (FileNotFoundError, OSError, sqlite3.Error):
             state = None
@@ -99,6 +121,7 @@ class DashboardData:
             trade_records = []
             backtests = []
             validations = []
+            research_decisions = []
             storage = {"status": "unavailable"}
 
         account: dict[str, Any] | None = None
@@ -164,6 +187,11 @@ class DashboardData:
                 "healthy": automation_healthy,
                 "details": automation_health,
             },
+            "research": {
+                "healthy": research_healthy,
+                "details": research_health,
+                "execution_enabled": False,
+            },
             "storage": storage,
             "connection": connection,
             "operating_mode": operating_mode,
@@ -194,6 +222,8 @@ class DashboardData:
             "trade_records": trade_records,
             "backtests": backtests,
             "validations": validations,
+            "research_decisions": research_decisions,
+            "evidence_catalog": evidence_catalog(),
         }
 
     def chart(
@@ -221,7 +251,7 @@ class DashboardData:
 
 
 class DashboardRequestHandler(BaseHTTPRequestHandler):
-    server_version = "MultiTradeDashboard/0.3"
+    server_version = "MultiTradeDashboard/0.4"
     sys_version = ""
     data_service: DashboardData
     expected_authorization: str

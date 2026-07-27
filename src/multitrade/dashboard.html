@@ -198,6 +198,7 @@
   <section class="summary-grid" aria-label="System summary">
     <article class="card"><div class="label">Engine</div><div class="value" id="engine">--</div></article>
     <article class="card"><div class="label">Strategy service</div><div class="value" id="automation">--</div></article>
+    <article class="card"><div class="label">Research service</div><div class="value" id="research">--</div></article>
     <article class="card"><div class="label">US market</div><div class="value" id="market">--</div></article>
     <article class="card"><div class="label">Paper equity</div><div class="value" id="equity">--</div></article>
     <article class="card"><div class="label">Buying power</div><div class="value" id="buying-power">--</div></article>
@@ -245,6 +246,30 @@
       <table>
         <thead><tr><th>Symbol</th><th>Class</th><th>Side</th><th class="number">Quantity</th><th class="number">Average</th><th class="number">Current</th><th class="number">Market value</th><th class="number">Unrealized P/L</th></tr></thead>
         <tbody id="positions"></tbody>
+      </table>
+    </div>
+  </section>
+
+  <section class="panel">
+    <div class="panel-head">
+      <div><h2>Evidence-weighted market model</h2><p class="subcopy">Hourly, closed-daily-bar observations. Risk multipliers are analytical outputs only and cannot place orders.</p></div>
+    </div>
+    <div class="table-wrap">
+      <table>
+        <thead><tr><th>Evaluated</th><th>Model</th><th>Symbol / theme</th><th>State</th><th class="number">Score</th><th class="number">Risk multiplier</th><th>Reasons</th><th>Execution</th></tr></thead>
+        <tbody id="research-decisions"></tbody>
+      </table>
+    </div>
+  </section>
+
+  <section class="panel">
+    <div class="panel-head">
+      <div><h2>Research evidence registry</h2><p class="subcopy">Published support, contradictory caveats, and internal admission status. External evidence never authorizes deployment by itself.</p></div>
+    </div>
+    <div class="table-wrap">
+      <table>
+        <thead><tr><th>Evidence</th><th>Grade</th><th>Role</th><th>Finding</th><th>Caveats</th><th>Candidate</th><th>Source</th></tr></thead>
+        <tbody id="evidence-catalog"></tbody>
       </table>
     </div>
   </section>
@@ -648,6 +673,57 @@
     }
   }
 
+  function renderResearchDecisions(decisions) {
+    const body = document.getElementById("research-decisions");
+    body.replaceChildren();
+    if (!decisions.length) {
+      emptyRow(body, 8, "The observation-only research service has not completed a cycle.");
+      return;
+    }
+    for (const item of decisions) {
+      const row = document.createElement("tr");
+      const values = [
+        [localTime(item.evaluated_at), ""],
+        [`${item.model_id} v${item.model_version}`, ""],
+        [item.symbol, ""],
+        [item.state, item.state === "risk_on" ? "ok" : item.state === "risk_off" ? "bad" : "warn"],
+        [Number(item.score || 0).toFixed(4), "number"],
+        [`${(Number(item.target_risk_multiplier || 0) * 100).toFixed(1)}%`, "number"],
+        [(item.reason_codes || []).join(", ").replaceAll("_", " ") || "--", ""],
+        [item.execution_eligible ? "Eligible" : "Observation only", item.execution_eligible ? "warn" : "ok"],
+      ];
+      for (const [value, className] of values) row.appendChild(cell(value, className));
+      body.appendChild(row);
+    }
+  }
+
+  function renderEvidenceCatalog(records) {
+    const body = document.getElementById("evidence-catalog");
+    body.replaceChildren();
+    if (!records.length) {
+      emptyRow(body, 7, "No evidence records are available.");
+      return;
+    }
+    for (const item of records) {
+      const row = document.createElement("tr");
+      row.appendChild(cell(item.title));
+      row.appendChild(cell(item.grade));
+      row.appendChild(cell(item.role));
+      row.appendChild(cell(item.finding));
+      row.appendChild(cell((item.caveats || []).join(" ")));
+      row.appendChild(cell(item.execution_candidate ? "Internal validation required" : "No", item.execution_candidate ? "warn" : ""));
+      const sourceCell = document.createElement("td");
+      const link = document.createElement("a");
+      link.href = item.source_url;
+      link.target = "_blank";
+      link.rel = "noopener noreferrer";
+      link.textContent = "Open";
+      sourceCell.appendChild(link);
+      row.appendChild(sourceCell);
+      body.appendChild(row);
+    }
+  }
+
   function renderSignals(signals) {
     const body = document.getElementById("signals");
     body.replaceChildren();
@@ -866,6 +942,8 @@
     if (event.event_type === "strategy_signal_generated") return "A strategy generated a versioned trade signal.";
     if (event.event_type === "strategy_signal_status") return `Signal status changed to ${payload.status || "unknown"}.`;
     if (event.event_type === "strategy_cycle_completed") return "The guarded strategy cycle completed.";
+    if (event.event_type === "research_cycle_completed") return "The observation-only evidence model completed.";
+    if (event.event_type === "research_cycle_failed") return `The research cycle failed: ${payload.error_type || "unknown error"}.`;
     if (event.event_type === "backtest_completed") return "A reproducible backtest completed.";
     if (event.event_type === "strategy_validation_completed") {
       return `Walk-forward validation ${payload.passed ? "passed" : "failed"} its configured gates.`;
@@ -914,6 +992,11 @@
         data.automation.healthy ? "ok" : "bad"
       );
       setStatus(
+        "research",
+        data.research.healthy ? "Healthy" : "Attention",
+        data.research.healthy ? "ok" : "bad"
+      );
+      setStatus(
         "market",
         market == null ? "Unavailable" : (market.is_open ? "Open" : "Closed"),
         market == null ? "bad" : (market.is_open ? "ok" : "warn")
@@ -958,6 +1041,8 @@
       renderPositions(data.positions || []);
       renderOrders(data.open_orders || []);
       renderStrategyRuntime(data.strategy_runtime || []);
+      renderResearchDecisions(data.research_decisions || []);
+      renderEvidenceCatalog(data.evidence_catalog || []);
       renderSignals(data.signals || []);
       renderTradeRecords(data.trade_records || []);
       renderBacktests(data.backtests || [], data.validations || []);

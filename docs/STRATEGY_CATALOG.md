@@ -52,6 +52,42 @@ Long-only stock candidate:
 This strategy is disabled even for signal generation in the default portfolio
 because regime transitions make mean reversion especially sensitive.
 
+## Evidence-weighted daily market model (`evidence_weighted_market_model` v1.0.0)
+
+This is an observation and risk-regime model, not an entry strategy:
+
+- Requires at least 253 closed daily bars.
+- Combines 1-month and skip-month 3/6/12-month own-price momentum.
+- Checks price and the SPY benchmark against their 200-day averages.
+- Includes 12-to-1-month relative strength versus SPY.
+- Scales exposure downward toward a 10% annualized-volatility target, capped
+  at 100%; it never introduces leverage.
+- Returns zero risk when the benchmark trend is negative, liquidity is below
+  the configured floor, or panic/volatile-rebound guards fire.
+- Writes `risk_on`, `watch`, `risk_off`, or `insufficient_data` decisions with
+  all component values and evidence IDs.
+
+It cannot place Paper orders. A later release may use a validated version as
+one input to portfolio allocation, but only after tests demonstrate that the
+combined system improves results after costs without hiding tail risk.
+
+## Public AI infrastructure thesis proxy (`public_thesis_proxy` v1.0.0)
+
+This is MultiTrade's independent research proxy for public themes discussed in
+Leopold Aschenbrenner's 2024 essay: broad technology, compute/semiconductors,
+power infrastructure, and the broad market. The configured ETFs are imperfect
+price proxies, not a claim about the essay author's portfolio.
+
+The public essay does not disclose fund holdings, entries, exits, sizing, or
+risk limits. Accordingly:
+
+- The model must not be described as Aschenbrenner's trading strategy.
+- Its `paper_execution_allowed` value is structurally required to be false.
+- Its output is excluded from the broker execution pipeline.
+- Missing proxy data fails closed to `insufficient_data`.
+- Fundamental and alternative data are still needed to validate the thesis
+  rather than merely extrapolating ETF price trends.
+
 ## Defined-risk option structures
 
 The option layer currently normalizes Alpaca chains, parses OCC symbols,

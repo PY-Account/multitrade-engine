@@ -22,6 +22,7 @@ if TYPE_CHECKING:
     from multitrade.brokers.base import BrokerReconciliation
     from multitrade.engine import EngineResult
     from multitrade.market import MarketBar
+    from multitrade.research import MarketModelDecision
     from multitrade.strategies.base import StrategySignal
 
 
@@ -279,6 +280,29 @@ class SqliteAuditStore:
                     latest_equity TEXT NOT NULL,
                     observed_at TEXT NOT NULL
                 );
+
+                CREATE TABLE IF NOT EXISTS research_decisions (
+                    decision_key TEXT PRIMARY KEY,
+                    model_id TEXT NOT NULL,
+                    model_version TEXT NOT NULL,
+                    account_id TEXT NOT NULL,
+                    symbol TEXT NOT NULL,
+                    bar_timestamp TEXT,
+                    evaluated_at TEXT NOT NULL,
+                    state TEXT NOT NULL,
+                    score TEXT NOT NULL,
+                    target_risk_multiplier TEXT NOT NULL,
+                    execution_eligible INTEGER NOT NULL,
+                    reason_codes_json TEXT NOT NULL,
+                    evidence_ids_json TEXT NOT NULL,
+                    components_json TEXT NOT NULL
+                );
+
+                CREATE INDEX IF NOT EXISTS idx_research_decisions_recent
+                ON research_decisions(evaluated_at DESC);
+
+                CREATE INDEX IF NOT EXISTS idx_research_decisions_symbol
+                ON research_decisions(model_id, symbol, evaluated_at DESC);
                 """
             )
             self._ensure_column(
@@ -1341,6 +1365,55 @@ class SqliteAuditStore:
         finally:
             self._close_if_needed(connection)
 
+    def record_research_decision(
+        self, decision: "MarketModelDecision"
+    ) -> None:
+        bar_identity = decision.bar_timestamp or decision.evaluated_at
+        decision_key = (
+            f"{decision.account_id}:{decision.model_id}:"
+            f"{decision.symbol}:{bar_identity}"
+        )
+        connection = self._connect()
+        try:
+            connection.execute(
+                """
+                INSERT INTO research_decisions (
+                    decision_key, model_id, model_version, account_id,
+                    symbol, bar_timestamp, evaluated_at, state, score,
+                    target_risk_multiplier, execution_eligible,
+                    reason_codes_json, evidence_ids_json, components_json
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                ON CONFLICT(decision_key) DO UPDATE SET
+                    evaluated_at = excluded.evaluated_at,
+                    state = excluded.state,
+                    score = excluded.score,
+                    target_risk_multiplier =
+                        excluded.target_risk_multiplier,
+                    execution_eligible = excluded.execution_eligible,
+                    reason_codes_json = excluded.reason_codes_json,
+                    evidence_ids_json = excluded.evidence_ids_json,
+                    components_json = excluded.components_json
+                """,
+                (
+                    decision_key,
+                    decision.model_id,
+                    decision.model_version,
+                    decision.account_id,
+                    decision.symbol,
+                    decision.bar_timestamp,
+                    decision.evaluated_at,
+                    decision.state.value,
+                    format(decision.score, "f"),
+                    format(decision.target_risk_multiplier, "f"),
+                    int(decision.execution_eligible),
+                    _json(decision.reason_codes),
+                    _json(decision.evidence_ids),
+                    _json(decision.components),
+                ),
+            )
+        finally:
+            self._close_if_needed(connection)
+
     def active_risk(self) -> Decimal:
         connection = self._connect()
         try:
@@ -1687,6 +1760,51 @@ class SqliteAuditReader:
                 "in_sample_run_id": row["in_sample_run_id"],
                 "out_of_sample_run_id": row["out_of_sample_run_id"],
                 "completed_at": row["completed_at"],
+            }
+            for row in rows
+        ]
+
+    def recent_research_decisions(
+        self, limit: int = 100
+    ) -> list[dict[str, Any]]:
+        safe_limit = max(1, min(limit, 200))
+        with closing(self._connect()) as connection:
+            rows = connection.execute(
+                """
+                SELECT model_id, model_version, account_id, symbol,
+                       bar_timestamp, evaluated_at, state, score,
+                       target_risk_multiplier, execution_eligible,
+                       reason_codes_json, evidence_ids_json,
+                       components_json
+                FROM research_decisions
+                ORDER BY evaluated_at DESC, model_id, symbol
+                LIMIT ?
+                """,
+                (safe_limit,),
+            ).fetchall()
+        return [
+            {
+                "model_id": row["model_id"],
+                "model_version": row["model_version"],
+                "account_id": row["account_id"],
+                "symbol": row["symbol"],
+                "bar_timestamp": row["bar_timestamp"],
+                "evaluated_at": row["evaluated_at"],
+                "state": row["state"],
+                "score": row["score"],
+                "target_risk_multiplier": row[
+                    "target_risk_multiplier"
+                ],
+                "execution_eligible": bool(
+                    row["execution_eligible"]
+                ),
+                "reason_codes": json.loads(
+                    row["reason_codes_json"]
+                ),
+                "evidence_ids": json.loads(
+                    row["evidence_ids_json"]
+                ),
+                "components": json.loads(row["components_json"]),
             }
             for row in rows
         ]

@@ -6,6 +6,7 @@ controls or broker reconciliation.
 ```text
 Alpaca Market Data
   -> Normalized closed bars
+  -> Observation-only evidence model and thesis proxies
   -> Features and market regime
   -> Versioned strategy candidates
   -> Deterministic signals and evidence
@@ -24,6 +25,18 @@ The market-data adapter records the source feed and request IDs. Bars are
 normalized to `Decimal`, persisted idempotently, and excluded until their
 timeframe has closed. Reproducible backtests consume the same normalized bar
 contract as the strategy worker.
+
+An independent hourly `research` service loads at least 253 closed daily bars
+per instrument. It stores weighted trend, relative-strength, liquidity,
+drawdown, volatility, and crisis-state observations. It has no broker object
+and no order-submission dependency. Its target-risk multiplier is therefore
+an analytical result, not an instruction to trade.
+
+The evidence registry is code-reviewed and versioned. It stores favorable
+findings and material caveats together. Internet material is never ingested
+straight into an executable strategy: a candidate must have a plausible
+mechanism, independent support, chronological out-of-sample results, realistic
+costs, stability checks, and a Paper observation period.
 
 ### Pattern and regime analysis
 
@@ -92,11 +105,12 @@ browser-local preferences. It cannot change trading configuration.
 
 ## Deployment
 
-The VPS runs four isolated containers:
+The VPS runs five isolated containers:
 
 - `engine`: frequent broker truth/reconciliation heartbeat.
 - `automation`: five-minute data, feature, signal, allocation, and guarded
   Paper cycle.
+- `research`: hourly closed-daily-bar evidence model; no execution path.
 - `dashboard`: authenticated query-only monitoring.
 - `caddy`: public TLS termination and reverse proxy.
 
@@ -106,7 +120,7 @@ shared `/app/var` volume.
 
 ## Scaling boundary
 
-Release 0.3 intentionally supports one enabled Paper account and one
+Release 0.4 intentionally supports one enabled Paper account and one
 orchestrator. Multi-account/cross-broker execution requires PostgreSQL with
 account-scoped reservations, a portfolio-wide exposure service, credential
 isolation per connector, and distributed locking. Dedicated crypto and forex

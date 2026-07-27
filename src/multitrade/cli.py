@@ -36,6 +36,11 @@ from multitrade.options import (
     OptionLiquidityPolicy,
 )
 from multitrade.portfolio import load_account_plans
+from multitrade.research import (
+    ContinuousResearchService,
+    evidence_catalog,
+    load_research_program,
+)
 from multitrade.risk import RiskEngine
 from multitrade.strategies import default_equity_strategies
 
@@ -130,6 +135,17 @@ def _doctor() -> int:
         portfolio_configuration_valid = False
         portfolio_configuration_error = str(exc)
         enabled_accounts = []
+    try:
+        research_program = load_research_program(
+            settings.research_program_path
+        )
+        research_configuration_valid = True
+        research_configuration_error = None
+        research_universe = list(research_program.universe)
+    except (OSError, ValueError, json.JSONDecodeError) as exc:
+        research_configuration_valid = False
+        research_configuration_error = str(exc)
+        research_universe = []
 
     checks = {
         "paper_endpoint_locked": True,
@@ -161,6 +177,11 @@ def _doctor() -> int:
         "portfolio_configuration_error": (
             portfolio_configuration_error
         ),
+        "research_program_path": str(settings.research_program_path),
+        "research_configuration_valid": research_configuration_valid,
+        "research_configuration_error": research_configuration_error,
+        "research_universe": research_universe,
+        "research_execution_enabled": False,
         "enabled_accounts": enabled_accounts,
     }
     print(json.dumps(checks, indent=2, sort_keys=True))
@@ -171,6 +192,7 @@ def _doctor() -> int:
             and checks["api_secret_present"]
             and checks["dashboard_credentials_valid"]
             and checks["portfolio_configuration_valid"]
+            and checks["research_configuration_valid"]
             and len(checks["enabled_accounts"]) == 1
         )
         else 1
@@ -385,6 +407,106 @@ def _automation_healthcheck() -> int:
     return 0 if healthy else 1
 
 
+def _research(once: bool) -> int:
+    settings = Settings.from_env()
+    service = ContinuousResearchService.from_settings(settings)
+    stop_event = threading.Event()
+
+    def request_shutdown(signum, frame) -> None:
+        del signum, frame
+        stop_event.set()
+
+    if not once:
+        signal.signal(signal.SIGTERM, request_shutdown)
+        signal.signal(signal.SIGINT, request_shutdown)
+
+    while True:
+        try:
+            result = service.run_cycle()
+            print(
+                json.dumps(
+                    asdict(result),
+                    default=_json_default,
+                    sort_keys=True,
+                ),
+                flush=True,
+            )
+        except Exception as exc:
+            try:
+                service.store.record_event(
+                    "research_cycle_failed",
+                    service.account_plan.account_id,
+                    {
+                        "error_type": type(exc).__name__,
+                        "message": str(exc),
+                    },
+                )
+            finally:
+                write_health(
+                    settings.research_health_path,
+                    "error",
+                    {"error_type": type(exc).__name__},
+                )
+            print(
+                json.dumps(
+                    {
+                        "status": "error",
+                        "component": "continuous_research",
+                        "error_type": type(exc).__name__,
+                        "message": str(exc),
+                    },
+                    sort_keys=True,
+                ),
+                file=sys.stderr,
+                flush=True,
+            )
+            if once:
+                return 1
+        if once:
+            return 0
+        if stop_event.wait(settings.research_cycle_seconds):
+            print(
+                json.dumps(
+                    {
+                        "status": "stopped",
+                        "component": "continuous_research",
+                    },
+                    sort_keys=True,
+                ),
+                flush=True,
+            )
+            return 0
+
+
+def _research_healthcheck() -> int:
+    settings = Settings.from_env()
+    healthy, result = check_health(
+        settings.research_health_path,
+        settings.research_health_max_age_seconds,
+    )
+    print(json.dumps(result, sort_keys=True))
+    return 0 if healthy else 1
+
+
+def _evidence_catalog() -> int:
+    print(
+        json.dumps(
+            {
+                "execution_policy": (
+                    "Evidence admission does not authorize Paper or live "
+                    "orders. Internal validation and explicit configuration "
+                    "approval remain mandatory."
+                ),
+                "records": evidence_catalog(),
+            },
+            default=_json_default,
+            indent=2,
+            sort_keys=True,
+        )
+    )
+    return 0
+
+
 def _parse_boundary(value: str | None, fallback: datetime) -> datetime:
     if value is None:
         return fallback
@@ -524,6 +646,10 @@ def _dashboard() -> int:
         strategy_health_max_age_seconds=(
             settings.strategy_health_max_age_seconds
         ),
+        research_health_path=settings.research_health_path,
+        research_health_max_age_seconds=(
+            settings.research_health_max_age_seconds
+        ),
         automation_enabled=settings.automation_enabled,
         paper_order_submission_enabled=settings.enable_paper_orders,
         emergency_stop=settings.emergency_stop,
@@ -660,6 +786,21 @@ def build_parser() -> argparse.ArgumentParser:
         "automation-healthcheck",
         help="Check whether the latest strategy cycle is fresh",
     )
+    research_parser = subparsers.add_parser(
+        "research",
+        help="Run the observation-only daily evidence model",
+    )
+    research_parser.add_argument(
+        "--once", action="store_true", help="Run one research cycle and exit"
+    )
+    subparsers.add_parser(
+        "research-healthcheck",
+        help="Check whether the latest research cycle is fresh",
+    )
+    subparsers.add_parser(
+        "evidence-catalog",
+        help="Print strategy evidence, caveats, and admission status",
+    )
     backtest_parser = subparsers.add_parser(
         "backtest",
         help="Backtest or walk-forward validate a strategy",
@@ -712,6 +853,12 @@ def main(argv: list[str] | None = None) -> int:
             return _automate(args.once)
         if args.command == "automation-healthcheck":
             return _automation_healthcheck()
+        if args.command == "research":
+            return _research(args.once)
+        if args.command == "research-healthcheck":
+            return _research_healthcheck()
+        if args.command == "evidence-catalog":
+            return _evidence_catalog()
         if args.command == "backtest":
             return _backtest(
                 args.strategy,

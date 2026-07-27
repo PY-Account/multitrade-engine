@@ -1,0 +1,36 @@
+{
+  "benchmark": "SPY",
+  "universe": ["SPY", "QQQ", "SMH", "XLU"],
+  "themes": [
+    {
+      "theme_id": "public_ai_infrastructure_thesis",
+      "title": "Public AI compute and power thesis proxy",
+      "source_url": "https://situational-awareness.ai/",
+      "attribution_notice": "Inspired only by the themes in Leopold Aschenbrenner's public 2024 essay. This is MultiTrade's independent price-proxy research model, not his fund strategy, holdings, or rules.",
+      "status": "research_only",
+      "paper_execution_allowed": false,
+      "pillars": [
+        {
+          "pillar_id": "broad_technology",
+          "symbols": ["QQQ"],
+          "weight": "0.25"
+        },
+        {
+          "pillar_id": "compute_semiconductors",
+          "symbols": ["SMH"],
+          "weight": "0.40"
+        },
+        {
+          "pillar_id": "power_infrastructure_proxy",
+          "symbols": ["XLU"],
+          "weight": "0.20"
+        },
+        {
+          "pillar_id": "broad_market_control",
+          "symbols": ["SPY"],
+          "weight": "0.15"
+        }
+      ]
+    }
+  ]
+}

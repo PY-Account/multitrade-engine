@@ -105,6 +105,11 @@ class Settings:
     option_data_feed: str
     market_lookback_days: int
     market_max_bar_age_seconds: int
+    research_cycle_seconds: int
+    research_health_path: Path
+    research_health_max_age_seconds: int
+    research_program_path: Path
+    research_lookback_days: int
     dashboard_host: str
     dashboard_port: int
     dashboard_username: str
@@ -141,6 +146,20 @@ class Settings:
             raise ValueError(
                 "TRADING_STRATEGY_HEALTH_MAX_AGE_SECONDS must be at "
                 "least twice TRADING_STRATEGY_CYCLE_SECONDS"
+            )
+        research_cycle_seconds = _int_env(
+            "TRADING_RESEARCH_CYCLE_SECONDS", "3600", 300, 86400
+        )
+        research_health_max_age_seconds = _int_env(
+            "TRADING_RESEARCH_HEALTH_MAX_AGE_SECONDS",
+            "10800",
+            900,
+            259200,
+        )
+        if research_health_max_age_seconds < research_cycle_seconds * 2:
+            raise ValueError(
+                "TRADING_RESEARCH_HEALTH_MAX_AGE_SECONDS must be at "
+                "least twice TRADING_RESEARCH_CYCLE_SECONDS"
             )
         market_data_feed = os.getenv(
             "TRADING_MARKET_DATA_FEED", "iex"
@@ -203,6 +222,25 @@ class Settings:
             ),
             market_max_bar_age_seconds=_int_env(
                 "TRADING_MARKET_MAX_BAR_AGE_SECONDS", "900", 60, 86400
+            ),
+            research_cycle_seconds=research_cycle_seconds,
+            research_health_path=Path(
+                os.getenv(
+                    "TRADING_RESEARCH_HEALTH_PATH",
+                    "var/research-health.json",
+                )
+            ),
+            research_health_max_age_seconds=(
+                research_health_max_age_seconds
+            ),
+            research_program_path=Path(
+                os.getenv(
+                    "TRADING_RESEARCH_PROGRAM",
+                    "config/research_program.json",
+                )
+            ),
+            research_lookback_days=_int_env(
+                "TRADING_RESEARCH_LOOKBACK_DAYS", "550", 400, 1500
             ),
             dashboard_host=os.getenv(
                 "DASHBOARD_HOST", "127.0.0.1"
