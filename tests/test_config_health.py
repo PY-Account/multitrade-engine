@@ -1,0 +1,101 @@
+import os
+from datetime import datetime, timedelta, timezone
+from pathlib import Path
+from tempfile import TemporaryDirectory
+from unittest import TestCase
+from unittest.mock import patch
+
+from multitrade.config import Settings, load_env_file
+from multitrade.health import check_health, write_health
+
+
+class EnvironmentFileTests(TestCase):
+    def test_env_file_loads_values_without_overriding_process_env(self) -> None:
+        with TemporaryDirectory() as temporary_directory:
+            env_path = Path(temporary_directory) / ".env"
+            env_path.write_text(
+                "FROM_FILE=paper\n"
+                "EXISTING_VALUE=must-not-win\n"
+                "QUOTED_VALUE=\"quoted\"\n",
+                encoding="utf-8",
+            )
+            with patch.dict(
+                os.environ,
+                {"EXISTING_VALUE": "process-wins"},
+                clear=True,
+            ):
+                load_env_file(env_path)
+                self.assertEqual(os.environ["FROM_FILE"], "paper")
+                self.assertEqual(
+                    os.environ["EXISTING_VALUE"], "process-wins"
+                )
+                self.assertEqual(os.environ["QUOTED_VALUE"], "quoted")
+
+    def test_health_age_must_cover_two_heartbeat_intervals(self) -> None:
+        with patch.dict(
+            os.environ,
+            {
+                "TRADING_HEARTBEAT_SECONDS": "30",
+                "TRADING_HEALTH_MAX_AGE_SECONDS": "59",
+            },
+            clear=True,
+        ):
+            with self.assertRaisesRegex(ValueError, "at least twice"):
+                Settings.from_env()
+
+    def test_dashboard_password_requires_minimum_length(self) -> None:
+        with patch.dict(
+            os.environ,
+            {
+                "DASHBOARD_USERNAME": "operator",
+                "DASHBOARD_PASSWORD": "too-short",
+            },
+            clear=True,
+        ):
+            settings = Settings.from_env()
+            with self.assertRaisesRegex(ValueError, "at least 16"):
+                settings.require_dashboard_credentials()
+
+
+class HealthFileTests(TestCase):
+    def test_fresh_successful_heartbeat_is_healthy(self) -> None:
+        with TemporaryDirectory() as temporary_directory:
+            health_path = Path(temporary_directory) / "health.json"
+            payload = write_health(health_path, "ok", {"environment": "paper"})
+            now = datetime.fromisoformat(payload["updated_at"])
+
+            healthy, result = check_health(
+                health_path, max_age_seconds=120, now=now
+            )
+
+            self.assertTrue(healthy)
+            self.assertEqual(result["status"], "ok")
+
+    def test_stale_heartbeat_is_unhealthy(self) -> None:
+        with TemporaryDirectory() as temporary_directory:
+            health_path = Path(temporary_directory) / "health.json"
+            payload = write_health(health_path, "ok")
+            updated_at = datetime.fromisoformat(payload["updated_at"])
+
+            healthy, result = check_health(
+                health_path,
+                max_age_seconds=120,
+                now=updated_at + timedelta(seconds=121),
+            )
+
+            self.assertFalse(healthy)
+            self.assertEqual(result["reason"], "heartbeat_is_stale")
+
+    def test_failed_heartbeat_is_unhealthy(self) -> None:
+        with TemporaryDirectory() as temporary_directory:
+            health_path = Path(temporary_directory) / "health.json"
+            write_health(health_path, "error", {"error_type": "TimeoutError"})
+
+            healthy, result = check_health(
+                health_path,
+                max_age_seconds=120,
+                now=datetime.now(timezone.utc),
+            )
+
+            self.assertFalse(healthy)
+            self.assertEqual(result["reason"], "latest_heartbeat_failed")

@@ -1,0 +1,73 @@
+name: multitrade
+
+services:
+  engine:
+    build: .
+    image: multitrade-engine:local
+    restart: unless-stopped
+    init: true
+    env_file:
+      - .env
+    volumes:
+      - engine-data:/app/var
+    command: ["multitrade", "run"]
+    read_only: true
+    tmpfs:
+      - /tmp:size=64m,mode=1777
+    security_opt:
+      - no-new-privileges:true
+    cap_drop:
+      - ALL
+    stop_grace_period: 20s
+    healthcheck:
+      test: ["CMD", "multitrade", "healthcheck"]
+      interval: 30s
+      timeout: 10s
+      start_period: 45s
+      retries: 3
+    logging:
+      driver: json-file
+      options:
+        max-size: "10m"
+        max-file: "5"
+
+  dashboard:
+    build: .
+    image: multitrade-engine:local
+    restart: unless-stopped
+    init: true
+    env_file:
+      - .env
+    environment:
+      DASHBOARD_HOST: 0.0.0.0
+      DASHBOARD_PORT: "8080"
+    volumes:
+      - engine-data:/app/var
+    command: ["multitrade", "dashboard"]
+    read_only: true
+    tmpfs:
+      - /tmp:size=64m,mode=1777
+    security_opt:
+      - no-new-privileges:true
+    cap_drop:
+      - ALL
+    stop_grace_period: 10s
+    expose:
+      - "8080"
+    depends_on:
+      engine:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "multitrade", "dashboard-healthcheck"]
+      interval: 30s
+      timeout: 5s
+      start_period: 15s
+      retries: 3
+    logging:
+      driver: json-file
+      options:
+        max-size: "10m"
+        max-file: "5"
+
+volumes:
+  engine-data:
