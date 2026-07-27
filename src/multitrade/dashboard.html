@@ -4,10 +4,21 @@
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width,initial-scale=1">
   <title>MultiTrade Operations</title>
+  <script nonce="{{NONCE}}">
+    try {
+      const savedTheme = localStorage.getItem("multitrade-theme");
+      if (savedTheme === "light" || savedTheme === "dark") {
+        document.documentElement.dataset.theme = savedTheme;
+      }
+    } catch (error) {
+      // System appearance remains the safe fallback.
+    }
+  </script>
   <style nonce="{{NONCE}}">
     :root {
       color-scheme: dark;
       --bg: #071018;
+      --glow: #123044;
       --panel: #0e1a24;
       --panel-2: #132330;
       --text: #edf6f8;
@@ -17,12 +28,48 @@
       --warn: #f5c451;
       --bad: #ff6b6b;
       --accent: #62b8ff;
+      --code: #b8d7e4;
+      --shadow: rgb(0 0 0 / 18%);
+    }
+    :root[data-theme="light"] {
+      color-scheme: light;
+      --bg: #f3f7f9;
+      --glow: #d8edf8;
+      --panel: #ffffff;
+      --panel-2: #edf4f7;
+      --text: #10212a;
+      --muted: #58717c;
+      --line: #cedde4;
+      --ok: #087746;
+      --warn: #946300;
+      --bad: #bd3434;
+      --accent: #006ebd;
+      --code: #315d70;
+      --shadow: rgb(25 55 70 / 10%);
+    }
+    @media (prefers-color-scheme: light) {
+      :root:not([data-theme]) {
+        color-scheme: light;
+        --bg: #f3f7f9;
+        --glow: #d8edf8;
+        --panel: #ffffff;
+        --panel-2: #edf4f7;
+        --text: #10212a;
+        --muted: #58717c;
+        --line: #cedde4;
+        --ok: #087746;
+        --warn: #946300;
+        --bad: #bd3434;
+        --accent: #006ebd;
+        --code: #315d70;
+        --shadow: rgb(25 55 70 / 10%);
+      }
     }
     * { box-sizing: border-box; }
     body {
       margin: 0;
       background:
-        radial-gradient(circle at 92% 0, #123044 0, transparent 34rem),
+        radial-gradient(circle at 92% 0, var(--glow) 0, transparent 34rem),
         var(--bg);
       color: var(--text);
       font-family: Inter, ui-sans-serif, system-ui, sans-serif;
@@ -34,6 +81,17 @@
     .eyebrow { color: var(--accent); font-size: .72rem; font-weight: 800; letter-spacing: .16em; }
     .muted, #updated, .subcopy { color: var(--muted); }
     .subcopy { margin: 6px 0 0; font-size: .83rem; }
+    .header-tools { display: flex; align-items: end; flex-direction: column; gap: 12px; }
+    .theme-control { display: flex; align-items: center; gap: 9px; color: var(--muted); font-size: .76rem; }
+    select {
+      border: 1px solid var(--line);
+      border-radius: 9px;
+      background: var(--panel);
+      color: var(--text);
+      padding: 7px 30px 7px 10px;
+      font: inherit;
+    }
+    select:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
     .summary-grid {
       display: grid;
       grid-template-columns: repeat(6, 1fr);
@@ -44,7 +102,7 @@
       background: color-mix(in srgb, var(--panel) 94%, transparent);
       border: 1px solid var(--line);
       border-radius: 16px;
-      box-shadow: 0 18px 45px rgb(0 0 0 / 18%);
+      box-shadow: 0 18px 45px var(--shadow);
     }
     .card { padding: 17px; min-height: 108px; }
     .label { color: var(--muted); font-size: .69rem; text-transform: uppercase; letter-spacing: .09em; }
@@ -70,19 +128,29 @@
     th, td { padding: 11px 9px; border-top: 1px solid var(--line); text-align: left; vertical-align: top; }
     th { color: var(--muted); font-size: .66rem; text-transform: uppercase; letter-spacing: .08em; }
     td.number, th.number { text-align: right; }
-    code { color: #b8d7e4; white-space: pre-wrap; overflow-wrap: anywhere; font-size: .72rem; }
+    code { color: var(--code); white-space: pre-wrap; overflow-wrap: anywhere; font-size: .72rem; }
     details summary { color: var(--accent); cursor: pointer; margin-bottom: 6px; }
     .empty { color: var(--muted); text-align: center; padding: 24px; }
+    footer {
+      display: flex;
+      justify-content: space-between;
+      gap: 18px;
+      margin-top: 18px;
+      color: var(--muted);
+      font-size: .74rem;
+    }
     @media (max-width: 1100px) {
       .summary-grid { grid-template-columns: repeat(3, 1fr); }
     }
     @media (max-width: 820px) {
       header { align-items: start; flex-direction: column; }
+      .header-tools { align-items: start; }
       .two-column { grid-template-columns: 1fr; }
     }
     @media (max-width: 560px) {
       .summary-grid { grid-template-columns: repeat(2, 1fr); }
       .facts { grid-template-columns: 1fr; }
+      footer { flex-direction: column; }
     }
   </style>
 </head>
@@ -94,7 +162,17 @@
       <h1>MultiTrade Operations</h1>
       <p class="muted">Read-only broker reconciliation, risk, and audit monitoring.</p>
     </div>
-    <div id="updated">Waiting for reconciliation...</div>
+    <div class="header-tools">
+      <label class="theme-control" for="theme-choice">
+        <span>Appearance</span>
+        <select id="theme-choice">
+          <option value="system">System</option>
+          <option value="dark">Dark</option>
+          <option value="light">Light</option>
+        </select>
+      </label>
+      <div id="updated">Waiting for reconciliation...</div>
+    </div>
   </header>
 
   <section class="summary-grid" aria-label="System summary">
@@ -173,8 +251,25 @@
       </table>
     </div>
   </section>
+
+  <footer>
+    <span id="time-zone-note">All timestamps use Israel time and a 24-hour clock.</span>
+    <span>Read-only Paper environment</span>
+  </footer>
 </main>
 <script nonce="{{NONCE}}">
+  const OPERATOR_TIME_ZONE = "Asia/Jerusalem";
+  const THEME_STORAGE_KEY = "multitrade-theme";
+  const dateTimeFormatter = new Intl.DateTimeFormat("en-GB", {
+    timeZone: OPERATOR_TIME_ZONE,
+    day: "2-digit",
+    month: "2-digit",
+    year: "numeric",
+    hour: "2-digit",
+    minute: "2-digit",
+    second: "2-digit",
+    hourCycle: "h23",
+  });
   const money = value => value == null
     ? "--"
     : new Intl.NumberFormat("en-US", {style:"currency", currency:"USD"}).format(Number(value));
@@ -182,9 +277,57 @@
     ? "--"
     : new Intl.NumberFormat("en-US", {maximumFractionDigits:8}).format(Number(value));
   const percent = value => `${(Number(value || 0) * 100).toFixed(2)}%`;
-  const localTime = value => value ? new Date(value).toLocaleString() : "--";
+  const localTime = value => {
+    if (!value) return "--";
+    const parsed = new Date(value);
+    return Number.isNaN(parsed.getTime()) ? "--" : dateTimeFormatter.format(parsed);
+  };
 
   function setText(id, value) { document.getElementById(id).textContent = value; }
+  function updateTimeZoneNote() {
+    let offset = "automatic UTC offset";
+    try {
+      const offsetPart = new Intl.DateTimeFormat("en-US", {
+        timeZone: OPERATOR_TIME_ZONE,
+        timeZoneName: "longOffset",
+      }).formatToParts(new Date()).find(part => part.type === "timeZoneName");
+      if (offsetPart) offset = offsetPart.value.replace("GMT", "UTC");
+    } catch (error) {
+      // The named IANA zone still applies if an older browser cannot label it.
+    }
+    setText(
+      "time-zone-note",
+      `All timestamps: Israel time (${OPERATOR_TIME_ZONE}, ${offset}), 24-hour format.`
+    );
+  }
+  function initializeThemeChoice() {
+    const choice = document.getElementById("theme-choice");
+    let savedTheme = "system";
+    try {
+      const stored = localStorage.getItem(THEME_STORAGE_KEY);
+      if (stored === "light" || stored === "dark") savedTheme = stored;
+    } catch (error) {
+      // Keep the system setting when storage is unavailable.
+    }
+    choice.value = savedTheme;
+    choice.addEventListener("change", () => {
+      const selected = choice.value;
+      if (selected === "system") {
+        delete document.documentElement.dataset.theme;
+      } else {
+        document.documentElement.dataset.theme = selected;
+      }
+      try {
+        if (selected === "system") {
+          localStorage.removeItem(THEME_STORAGE_KEY);
+        } else {
+          localStorage.setItem(THEME_STORAGE_KEY, selected);
+        }
+      } catch (error) {
+        // The visual choice still applies for the current page.
+      }
+    });
+  }
   function setStatus(id, value, state) {
     const element = document.getElementById(id);
     element.textContent = value;
@@ -369,6 +512,8 @@
     }
   }
 
+  initializeThemeChoice();
+  updateTimeZoneNote();
   refresh();
   setInterval(refresh, 15000);
 </script>

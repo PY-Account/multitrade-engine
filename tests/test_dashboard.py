@@ -156,6 +156,11 @@ class DashboardTests(TestCase):
                     ]
 
                 self.assertIn("Open positions", html)
+                self.assertIn('id="theme-choice"', html)
+                self.assertIn('value="light"', html)
+                self.assertIn('value="dark"', html)
+                self.assertIn('hourCycle: "h23"', html)
+                self.assertIn('Asia/Jerusalem', html)
                 self.assertNotIn("{{NONCE}}", html)
                 self.assertIn("script-src 'nonce-", policy)
             finally:
