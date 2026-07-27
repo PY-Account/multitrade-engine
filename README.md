@@ -86,6 +86,10 @@ connections. It requires `DASHBOARD_USERNAME` and `DASHBOARD_PASSWORD`, and it
 is available only inside the Docker network. No dashboard port is published
 until a later HTTPS reverse-proxy milestone is explicitly approved.
 
+The repository includes an opt-in `public-dashboard` Compose profile backed by
+Caddy. The profile is disabled by default and is documented in
+[`docs/HTTPS_DASHBOARD.md`](docs/HTTPS_DASHBOARD.md).
+
 ## Hostinger
 
 The server setup is documented in

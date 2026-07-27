@@ -1,0 +1,23 @@
+{
+	admin off
+}
+
+{$DASHBOARD_DOMAIN} {
+	encode zstd gzip
+
+	header {
+		Strict-Transport-Security "max-age=31536000"
+		-Server
+	}
+
+	reverse_proxy dashboard:8080 {
+		health_uri /healthz
+		health_interval 30s
+		health_timeout 5s
+	}
+
+	log {
+		output stdout
+		format json
+	}
+}

@@ -14,6 +14,10 @@ It keeps the initial system Paper-only and exposes no application port.
 It does not publish the dashboard to the internet, submit orders, or contain
 live credentials.
 
+Public HTTPS dashboard activation is a separate, opt-in procedure documented
+in [`HTTPS_DASHBOARD.md`](HTTPS_DASHBOARD.md). A normal `docker compose up`
+does not start the public reverse proxy.
+
 ## Secret-handling rules
 
 - Never paste a root password, private SSH key, or Alpaca secret into chat.
