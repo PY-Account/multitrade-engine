@@ -6,7 +6,11 @@
   <title>MultiTrade Operations</title>
   <script nonce="{{NONCE}}">
     try {
-      const savedTheme = localStorage.getItem("multitrade-theme");
+      const savedPreferences = JSON.parse(
+        localStorage.getItem("multitrade-preferences-v1") || "{}"
+      );
+      const savedTheme = savedPreferences.theme
+        || localStorage.getItem("multitrade-theme");
       if (savedTheme === "light" || savedTheme === "dark") {
         document.documentElement.dataset.theme = savedTheme;
       }
@@ -82,19 +86,22 @@
     .muted, #updated, .subcopy { color: var(--muted); }
     .subcopy { margin: 6px 0 0; font-size: .83rem; }
     .header-tools { display: flex; align-items: end; flex-direction: column; gap: 12px; }
-    .theme-control { display: flex; align-items: center; gap: 9px; color: var(--muted); font-size: .76rem; }
-    select {
+    .header-actions { display: flex; align-items: center; gap: 9px; }
+    button, select {
       border: 1px solid var(--line);
       border-radius: 9px;
       background: var(--panel);
       color: var(--text);
-      padding: 7px 30px 7px 10px;
+      padding: 8px 11px;
       font: inherit;
     }
-    select:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+    button { cursor: pointer; }
+    button:hover { border-color: var(--accent); }
+    button.primary { color: white; background: var(--accent); border-color: var(--accent); }
+    button:focus-visible, select:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
     .summary-grid {
       display: grid;
-      grid-template-columns: repeat(6, 1fr);
+      grid-template-columns: repeat(4, 1fr);
       gap: 12px;
       margin: 26px 0 14px;
     }
@@ -131,6 +138,23 @@
     code { color: var(--code); white-space: pre-wrap; overflow-wrap: anywhere; font-size: .72rem; }
     details summary { color: var(--accent); cursor: pointer; margin-bottom: 6px; }
     .empty { color: var(--muted); text-align: center; padding: 24px; }
+    .badge { display: inline-block; border: 1px solid var(--line); border-radius: 999px; padding: 4px 7px; font-size: .68rem; }
+    .chart-wrap { min-height: 260px; border: 1px solid var(--line); border-radius: 12px; background: var(--panel-2); padding: 8px; }
+    #price-chart { display: block; width: 100%; height: 260px; }
+    dialog {
+      width: min(560px, 92vw);
+      color: var(--text);
+      background: var(--panel);
+      border: 1px solid var(--line);
+      border-radius: 16px;
+      box-shadow: 0 24px 80px rgb(0 0 0 / 35%);
+      padding: 0;
+    }
+    dialog::backdrop { background: rgb(0 0 0 / 55%); }
+    .dialog-body { padding: 22px; }
+    .preference-grid { display: grid; grid-template-columns: repeat(2, 1fr); gap: 14px; margin: 18px 0; }
+    .preference-grid label { display: grid; gap: 7px; color: var(--muted); font-size: .76rem; }
+    .dialog-actions { display: flex; justify-content: flex-end; gap: 9px; }
     footer {
       display: flex;
       justify-content: space-between;
@@ -146,6 +170,7 @@
       header { align-items: start; flex-direction: column; }
       .header-tools { align-items: start; }
       .two-column { grid-template-columns: 1fr; }
+      .preference-grid { grid-template-columns: 1fr; }
     }
     @media (max-width: 560px) {
       .summary-grid { grid-template-columns: repeat(2, 1fr); }
@@ -163,20 +188,16 @@
       <p class="muted">Read-only broker reconciliation, risk, and audit monitoring.</p>
     </div>
     <div class="header-tools">
-      <label class="theme-control" for="theme-choice">
-        <span>Appearance</span>
-        <select id="theme-choice">
-          <option value="system">System</option>
-          <option value="dark">Dark</option>
-          <option value="light">Light</option>
-        </select>
-      </label>
+      <div class="header-actions">
+        <button id="preferences-open" type="button">Preferences</button>
+      </div>
       <div id="updated">Waiting for reconciliation...</div>
     </div>
   </header>
 
   <section class="summary-grid" aria-label="System summary">
     <article class="card"><div class="label">Engine</div><div class="value" id="engine">--</div></article>
+    <article class="card"><div class="label">Strategy service</div><div class="value" id="automation">--</div></article>
     <article class="card"><div class="label">US market</div><div class="value" id="market">--</div></article>
     <article class="card"><div class="label">Paper equity</div><div class="value" id="equity">--</div></article>
     <article class="card"><div class="label">Buying power</div><div class="value" id="buying-power">--</div></article>
@@ -230,6 +251,63 @@
 
   <section class="panel">
     <div class="panel-head">
+      <div><h2>Strategy bots</h2><p class="subcopy">Latest closed-bar evaluation for each strategy and symbol.</p></div>
+    </div>
+    <div class="table-wrap">
+      <table>
+        <thead><tr><th>Strategy</th><th>Symbol</th><th>State</th><th>Regime</th><th class="number">Close</th><th class="number">Relative volume</th><th>Evaluated</th></tr></thead>
+        <tbody id="strategy-runtime"></tbody>
+      </table>
+    </div>
+  </section>
+
+  <section class="panel">
+    <div class="panel-head">
+      <div><h2>Strategy signals</h2><p class="subcopy">Deterministic, versioned signals with decision-time evidence.</p></div>
+    </div>
+    <div class="table-wrap">
+      <table>
+        <thead><tr><th>Time</th><th>Strategy</th><th>Symbol</th><th>Action</th><th class="number">Confidence</th><th>Status</th><th>Reason</th></tr></thead>
+        <tbody id="signals"></tbody>
+      </table>
+    </div>
+  </section>
+
+  <section class="panel">
+    <div class="panel-head">
+      <div><h2>Trade decisions</h2><p class="subcopy">Risk-reviewed dry runs and Paper orders. Select a record to visualize its price context.</p></div>
+    </div>
+    <div class="table-wrap">
+      <table>
+        <thead><tr><th>Time</th><th>Strategy</th><th>Symbol</th><th>Side</th><th>State</th><th class="number">Quantity</th><th class="number">Risk</th><th class="number">Realized P/L</th><th>Analysis</th><th>Chart</th></tr></thead>
+        <tbody id="trade-records"></tbody>
+      </table>
+    </div>
+  </section>
+
+  <section class="panel">
+    <div class="panel-head">
+      <div><h2>Price context</h2><p class="subcopy" id="chart-copy">Choose a trade decision to display stored market bars, entry reference, stop, and target.</p></div>
+    </div>
+    <div class="chart-wrap">
+      <svg id="price-chart" viewBox="0 0 1000 260" role="img" aria-label="Trade price context chart"></svg>
+    </div>
+  </section>
+
+  <section class="panel">
+    <div class="panel-head">
+      <div><h2>Backtest validation</h2><p class="subcopy">Results include slippage and conservative same-bar stop handling. A result is not proof of future performance.</p></div>
+    </div>
+    <div class="table-wrap">
+      <table>
+        <thead><tr><th>Completed</th><th>Strategy</th><th>Symbol</th><th>Timeframe</th><th class="number">Trades</th><th class="number">Return</th><th class="number">Drawdown</th><th class="number">Profit factor</th><th>Walk-forward</th></tr></thead>
+        <tbody id="backtests"></tbody>
+      </table>
+    </div>
+  </section>
+
+  <section class="panel">
+    <div class="panel-head">
       <div><h2>Open orders</h2><p class="subcopy" id="orders-copy">No data yet.</p></div>
     </div>
     <div class="table-wrap">
@@ -253,34 +331,150 @@
   </section>
 
   <footer>
-    <span id="time-zone-note">All timestamps use Israel time and a 24-hour clock.</span>
+    <span id="time-zone-note">All timestamps follow your browser location and use a 24-hour clock.</span>
     <span>Read-only Paper environment</span>
   </footer>
+
+  <dialog id="preferences-dialog">
+    <form id="preferences-form" method="dialog">
+      <div class="dialog-body">
+        <div class="panel-head">
+          <div>
+            <h2>User preferences</h2>
+            <p class="subcopy">Saved only in this browser. Trading behavior is unaffected.</p>
+          </div>
+        </div>
+        <div class="preference-grid">
+          <label>Theme
+            <select id="preference-theme">
+              <option value="system">System</option>
+              <option value="dark">Dark</option>
+              <option value="light">Light</option>
+            </select>
+          </label>
+          <label>Locale
+            <select id="preference-locale">
+              <option value="auto">Browser location</option>
+              <option value="en-US">English (United States)</option>
+              <option value="en-GB">English (United Kingdom)</option>
+              <option value="he-IL">Hebrew (Israel)</option>
+            </select>
+          </label>
+          <label>Date order
+            <select id="preference-date-format">
+              <option value="locale">Location default</option>
+              <option value="dmy">DD/MM/YYYY</option>
+              <option value="mdy">MM/DD/YYYY</option>
+              <option value="iso">YYYY-MM-DD</option>
+            </select>
+          </label>
+          <label>Time zone
+            <select id="preference-time-zone">
+              <option value="auto">Browser location</option>
+              <option value="Asia/Jerusalem">Israel &mdash; Jerusalem</option>
+              <option value="America/New_York">US market &mdash; New York</option>
+              <option value="UTC">UTC</option>
+            </select>
+          </label>
+        </div>
+        <div class="dialog-actions">
+          <button id="preferences-cancel" type="button">Cancel</button>
+          <button class="primary" value="save" type="submit">Save preferences</button>
+        </div>
+      </div>
+    </form>
+  </dialog>
 </main>
 <script nonce="{{NONCE}}">
-  const OPERATOR_TIME_ZONE = "Asia/Jerusalem";
-  const THEME_STORAGE_KEY = "multitrade-theme";
-  const dateTimeFormatter = new Intl.DateTimeFormat("en-GB", {
-    timeZone: OPERATOR_TIME_ZONE,
-    day: "2-digit",
-    month: "2-digit",
-    year: "numeric",
-    hour: "2-digit",
-    minute: "2-digit",
-    second: "2-digit",
-    hourCycle: "h23",
-  });
+  const PREFERENCES_STORAGE_KEY = "multitrade-preferences-v1";
+  const DEFAULT_PREFERENCES = {
+    theme: "system",
+    locale: "auto",
+    dateFormat: "locale",
+    timeZone: "auto",
+  };
+  let preferences = {...DEFAULT_PREFERENCES};
+  let resolvedLocale = navigator.language || "en-US";
+  let resolvedTimeZone = Intl.DateTimeFormat().resolvedOptions().timeZone || "UTC";
+  let dateTimeFormatter;
+  let dateTimePartsFormatter;
+  let moneyFormatter;
+  let quantityFormatter;
+
+  function loadPreferences() {
+    try {
+      const saved = JSON.parse(localStorage.getItem(PREFERENCES_STORAGE_KEY) || "{}");
+      preferences = {...DEFAULT_PREFERENCES, ...saved};
+      const legacyTheme = localStorage.getItem("multitrade-theme");
+      if (!saved.theme && ["light", "dark"].includes(legacyTheme)) {
+        preferences.theme = legacyTheme;
+      }
+    } catch (error) {
+      preferences = {...DEFAULT_PREFERENCES};
+    }
+  }
+  function applyTheme(theme) {
+    if (theme === "light" || theme === "dark") {
+      document.documentElement.dataset.theme = theme;
+    } else {
+      delete document.documentElement.dataset.theme;
+    }
+  }
+  function configureFormatters() {
+    resolvedLocale = preferences.locale === "auto"
+      ? (navigator.language || "en-US")
+      : preferences.locale;
+    resolvedTimeZone = preferences.timeZone === "auto"
+      ? (Intl.DateTimeFormat().resolvedOptions().timeZone || "UTC")
+      : preferences.timeZone;
+    const formatLocale = preferences.dateFormat === "dmy"
+      ? "en-GB"
+      : preferences.dateFormat === "mdy"
+        ? "en-US"
+        : resolvedLocale;
+    const options = {
+      timeZone: resolvedTimeZone,
+      day: "2-digit",
+      month: "2-digit",
+      year: "numeric",
+      hour: "2-digit",
+      minute: "2-digit",
+      second: "2-digit",
+      hourCycle: "h23",
+    };
+    dateTimeFormatter = new Intl.DateTimeFormat(formatLocale, options);
+    dateTimePartsFormatter = new Intl.DateTimeFormat("en-US", options);
+    moneyFormatter = new Intl.NumberFormat(resolvedLocale, {
+      style: "currency",
+      currency: "USD",
+    });
+    quantityFormatter = new Intl.NumberFormat(resolvedLocale, {
+      maximumFractionDigits: 8,
+    });
+    applyTheme(preferences.theme);
+    updateTimeZoneNote();
+  }
   const money = value => value == null
     ? "--"
-    : new Intl.NumberFormat("en-US", {style:"currency", currency:"USD"}).format(Number(value));
+    : moneyFormatter.format(Number(value));
   const quantity = value => value == null
     ? "--"
-    : new Intl.NumberFormat("en-US", {maximumFractionDigits:8}).format(Number(value));
+    : quantityFormatter.format(Number(value));
   const percent = value => `${(Number(value || 0) * 100).toFixed(2)}%`;
   const localTime = value => {
     if (!value) return "--";
     const parsed = new Date(value);
-    return Number.isNaN(parsed.getTime()) ? "--" : dateTimeFormatter.format(parsed);
+    if (Number.isNaN(parsed.getTime())) return "--";
+    if (preferences.dateFormat !== "iso") {
+      return dateTimeFormatter.format(parsed);
+    }
+    const parts = Object.fromEntries(
+      dateTimePartsFormatter
+        .formatToParts(parsed)
+        .filter(part => part.type !== "literal")
+        .map(part => [part.type, part.value])
+    );
+    return `${parts.year}-${parts.month}-${parts.day} ${parts.hour}:${parts.minute}:${parts.second}`;
   };
 
   function setText(id, value) { document.getElementById(id).textContent = value; }
@@ -288,7 +482,7 @@
     let offset = "automatic UTC offset";
     try {
       const offsetPart = new Intl.DateTimeFormat("en-US", {
-        timeZone: OPERATOR_TIME_ZONE,
+        timeZone: resolvedTimeZone,
         timeZoneName: "longOffset",
       }).formatToParts(new Date()).find(part => part.type === "timeZoneName");
       if (offsetPart) offset = offsetPart.value.replace("GMT", "UTC");
@@ -297,35 +491,46 @@
     }
     setText(
       "time-zone-note",
-      `All timestamps: Israel time (${OPERATOR_TIME_ZONE}, ${offset}), 24-hour format.`
+      `All timestamps: ${resolvedTimeZone} (${offset}), ${resolvedLocale} date rules, 24-hour clock.`
     );
   }
-  function initializeThemeChoice() {
-    const choice = document.getElementById("theme-choice");
-    let savedTheme = "system";
-    try {
-      const stored = localStorage.getItem(THEME_STORAGE_KEY);
-      if (stored === "light" || stored === "dark") savedTheme = stored;
-    } catch (error) {
-      // Keep the system setting when storage is unavailable.
-    }
-    choice.value = savedTheme;
-    choice.addEventListener("change", () => {
-      const selected = choice.value;
-      if (selected === "system") {
-        delete document.documentElement.dataset.theme;
-      } else {
-        document.documentElement.dataset.theme = selected;
+  function initializePreferences() {
+    loadPreferences();
+    configureFormatters();
+    const dialog = document.getElementById("preferences-dialog");
+    const form = document.getElementById("preferences-form");
+    const fields = {
+      theme: document.getElementById("preference-theme"),
+      locale: document.getElementById("preference-locale"),
+      dateFormat: document.getElementById("preference-date-format"),
+      timeZone: document.getElementById("preference-time-zone"),
+    };
+    document.getElementById("preferences-open").addEventListener("click", () => {
+      for (const [name, field] of Object.entries(fields)) {
+        field.value = preferences[name];
       }
+      dialog.showModal();
+    });
+    document.getElementById("preferences-cancel").addEventListener("click", () => {
+      dialog.close();
+    });
+    form.addEventListener("submit", event => {
+      event.preventDefault();
+      preferences = {
+        theme: fields.theme.value,
+        locale: fields.locale.value,
+        dateFormat: fields.dateFormat.value,
+        timeZone: fields.timeZone.value,
+      };
       try {
-        if (selected === "system") {
-          localStorage.removeItem(THEME_STORAGE_KEY);
-        } else {
-          localStorage.setItem(THEME_STORAGE_KEY, selected);
-        }
+        localStorage.setItem(PREFERENCES_STORAGE_KEY, JSON.stringify(preferences));
+        localStorage.removeItem("multitrade-theme");
       } catch (error) {
-        // The visual choice still applies for the current page.
+        // Preferences still apply for the current page.
       }
+      configureFormatters();
+      dialog.close();
+      refresh();
     });
   }
   function setStatus(id, value, state) {
@@ -419,6 +624,233 @@
     }
   }
 
+  function renderStrategyRuntime(runtime) {
+    const body = document.getElementById("strategy-runtime");
+    body.replaceChildren();
+    if (!runtime.length) {
+      emptyRow(body, 7, "Strategy service has not completed an evaluation yet.");
+      return;
+    }
+    for (const item of runtime) {
+      const details = item.details || {};
+      const row = document.createElement("tr");
+      const values = [
+        [item.strategy_id, ""],
+        [item.symbol, ""],
+        [item.state, ""],
+        [details.regime || "--", ""],
+        [details.close == null ? "--" : money(details.close), "number"],
+        [details.relative_volume == null ? "--" : quantity(details.relative_volume), "number"],
+        [localTime(item.evaluated_at), ""],
+      ];
+      for (const [value, className] of values) row.appendChild(cell(value, className));
+      body.appendChild(row);
+    }
+  }
+
+  function renderSignals(signals) {
+    const body = document.getElementById("signals");
+    body.replaceChildren();
+    if (!signals.length) {
+      emptyRow(body, 7, "No strategy signals have been generated.");
+      return;
+    }
+    for (const signal of signals) {
+      const row = document.createElement("tr");
+      const reasons = (signal.reason_codes || []).join(", ") || "--";
+      const values = [
+        [localTime(signal.created_at), ""],
+        [`${signal.strategy_id} v${signal.strategy_version}`, ""],
+        [signal.symbol, ""],
+        [signal.action, ""],
+        [`${(Number(signal.confidence || 0) * 100).toFixed(1)}%`, "number"],
+        [signal.status, ""],
+        [reasons, ""],
+      ];
+      for (const [value, className] of values) row.appendChild(cell(value, className));
+      body.appendChild(row);
+    }
+  }
+
+  function explanationDetails(value, record) {
+    const container = document.createElement("div");
+    const reasonText = document.createElement("p");
+    const reasons = (value?.reason_codes || [])
+      .map(item => String(item).replaceAll("_", " "))
+      .join("; ");
+    const lifecycle = record.exit_reason
+      ? ` Exit: ${String(record.exit_reason).replaceAll("_", " ")}.`
+      : "";
+    reasonText.textContent = reasons
+      ? `Entry evidence: ${reasons}.${lifecycle}`
+      : `Decision-time evidence is stored.${lifecycle}`;
+    const details = document.createElement("details");
+    const summary = document.createElement("summary");
+    summary.textContent = "Evidence";
+    const code = document.createElement("code");
+    code.textContent = JSON.stringify(value || {});
+    details.append(summary, code);
+    container.append(reasonText, details);
+    return container;
+  }
+
+  function renderTradeRecords(records) {
+    const body = document.getElementById("trade-records");
+    body.replaceChildren();
+    if (!records.length) {
+      emptyRow(body, 10, "No risk-reviewed trade decisions yet.");
+      return;
+    }
+    for (const record of records) {
+      const row = document.createElement("tr");
+      const values = [
+        [localTime(record.created_at), ""],
+        [record.strategy_id, ""],
+        [record.symbol, ""],
+        [record.side, ""],
+        [record.state, ""],
+        [quantity(record.approved_quantity), "number"],
+        [money(record.reserved_risk), "number"],
+        [
+          record.realized_pnl == null
+            ? "--"
+            : money(record.realized_pnl),
+          record.realized_pnl == null
+            ? "number"
+            : `number ${Number(record.realized_pnl) >= 0 ? "ok" : "bad"}`,
+        ],
+      ];
+      for (const [value, className] of values) row.appendChild(cell(value, className));
+      const analysis = document.createElement("td");
+      analysis.appendChild(
+        explanationDetails(record.explanation, record)
+      );
+      row.appendChild(analysis);
+      const chartCell = document.createElement("td");
+      const chartButton = document.createElement("button");
+      chartButton.type = "button";
+      chartButton.textContent = "View";
+      chartButton.addEventListener("click", () => loadTradeChart(record));
+      chartCell.appendChild(chartButton);
+      row.appendChild(chartCell);
+      body.appendChild(row);
+    }
+  }
+
+  function renderBacktests(backtests, validations) {
+    const body = document.getElementById("backtests");
+    body.replaceChildren();
+    if (!backtests.length) {
+      emptyRow(body, 9, "No backtest or validation run has been stored.");
+      return;
+    }
+    const validationByRun = new Map(
+      validations.map(item => [item.out_of_sample_run_id, item])
+    );
+    for (const run of backtests) {
+      const metrics = run.metrics || {};
+      const validation = validationByRun.get(run.run_id);
+      const profitFactor = metrics.profit_factor == null
+        ? "--"
+        : Number(metrics.profit_factor).toFixed(2);
+      const values = [
+        [localTime(run.completed_at), ""],
+        [`${run.strategy_id} v${run.strategy_version}`, ""],
+        [run.symbol, ""],
+        [run.timeframe, ""],
+        [metrics.trade_count ?? "--", "number"],
+        [percent(metrics.total_return), "number"],
+        [percent(metrics.maximum_drawdown), "number"],
+        [profitFactor, "number"],
+        [
+          validation
+            ? (validation.passed ? "Passed" : "Failed")
+            : "Not validated",
+          validation ? (validation.passed ? "ok" : "bad") : "warn",
+        ],
+      ];
+      const row = document.createElement("tr");
+      for (const [value, className] of values) row.appendChild(cell(value, className));
+      body.appendChild(row);
+    }
+  }
+
+  function svgNode(name, attributes = {}) {
+    const node = document.createElementNS("http://www.w3.org/2000/svg", name);
+    for (const [key, value] of Object.entries(attributes)) {
+      node.setAttribute(key, value);
+    }
+    return node;
+  }
+
+  function drawPriceChart(bars, trade) {
+    const svg = document.getElementById("price-chart");
+    svg.replaceChildren();
+    if (!bars.length) {
+      const label = svgNode("text", {x: "500", y: "130", "text-anchor": "middle", fill: "currentColor"});
+      label.textContent = "No stored bars for this symbol.";
+      svg.appendChild(label);
+      return;
+    }
+    const prices = bars.flatMap(bar => [Number(bar.low), Number(bar.high)]);
+    for (const value of [trade.reference_price, trade.stop_price, trade.target_price]) {
+      if (value != null) prices.push(Number(value));
+    }
+    const minimum = Math.min(...prices);
+    const maximum = Math.max(...prices);
+    const span = Math.max(0.000001, maximum - minimum);
+    const x = index => 28 + index * (944 / Math.max(1, bars.length - 1));
+    const y = price => 236 - ((Number(price) - minimum) / span) * 210;
+    const path = bars
+      .map((bar, index) => `${index ? "L" : "M"} ${x(index).toFixed(2)} ${y(bar.close).toFixed(2)}`)
+      .join(" ");
+    svg.appendChild(svgNode("path", {
+      d: path,
+      fill: "none",
+      stroke: "var(--accent)",
+      "stroke-width": "2.5",
+      "vector-effect": "non-scaling-stroke",
+    }));
+    const levels = [
+      ["Entry reference", trade.reference_price, "var(--accent)"],
+      ["Stop", trade.stop_price, "var(--bad)"],
+      ["Target", trade.target_price, "var(--ok)"],
+    ];
+    for (const [labelText, price, color] of levels) {
+      if (price == null) continue;
+      const levelY = y(price);
+      svg.appendChild(svgNode("line", {
+        x1: "28", x2: "972", y1: levelY, y2: levelY,
+        stroke: color, "stroke-dasharray": "7 5", opacity: "0.85",
+      }));
+      const label = svgNode("text", {
+        x: "32", y: Math.max(14, levelY - 5), fill: color, "font-size": "12",
+      });
+      label.textContent = `${labelText}: ${Number(price).toFixed(2)}`;
+      svg.appendChild(label);
+    }
+  }
+
+  async function loadTradeChart(trade) {
+    setText("chart-copy", `Loading ${trade.symbol} price context...`);
+    try {
+      const response = await fetch(
+        `/api/chart?symbol=${encodeURIComponent(trade.symbol)}&timeframe=5Min&limit=160`,
+        {cache: "no-store"}
+      );
+      if (!response.ok) throw new Error(`HTTP ${response.status}`);
+      const data = await response.json();
+      drawPriceChart(data.bars || [], trade);
+      setText(
+        "chart-copy",
+        `${trade.symbol} / ${data.timeframe} / ${data.bars?.[0]?.feed || "unknown feed"} \u2014 entry, stop, and target are decision-time levels.`
+      );
+    } catch (error) {
+      drawPriceChart([], trade);
+      setText("chart-copy", "Stored price context is unavailable.");
+    }
+  }
+
   function eventSummary(event) {
     const payload = event.payload || {};
     if (event.event_type === "broker_reconciled") {
@@ -431,6 +863,13 @@
     if (event.event_type === "risk_released") return `Reserved risk released: ${payload.reason || "completed"}.`;
     if (event.event_type === "order_submitted") return "Paper order submitted to the broker.";
     if (event.event_type === "account_heartbeat") return "Legacy account heartbeat completed.";
+    if (event.event_type === "strategy_signal_generated") return "A strategy generated a versioned trade signal.";
+    if (event.event_type === "strategy_signal_status") return `Signal status changed to ${payload.status || "unknown"}.`;
+    if (event.event_type === "strategy_cycle_completed") return "The guarded strategy cycle completed.";
+    if (event.event_type === "backtest_completed") return "A reproducible backtest completed.";
+    if (event.event_type === "strategy_validation_completed") {
+      return `Walk-forward validation ${payload.passed ? "passed" : "failed"} its configured gates.`;
+    }
     return "Audit event recorded.";
   }
 
@@ -470,6 +909,11 @@
 
       setStatus("engine", data.engine.healthy ? "Healthy" : "Attention", data.engine.healthy ? "ok" : "bad");
       setStatus(
+        "automation",
+        data.automation.healthy ? "Healthy" : "Attention",
+        data.automation.healthy ? "ok" : "bad"
+      );
+      setStatus(
         "market",
         market == null ? "Unavailable" : (market.is_open ? "Open" : "Closed"),
         market == null ? "bad" : (market.is_open ? "ok" : "warn")
@@ -497,7 +941,15 @@
       );
 
       const utilization = Number(data.risk.utilization_percent || 0);
-      setText("risk-copy", `${utilization.toFixed(2)}% of the aggregate ceiling is reserved. Paper order submission remains disabled.`);
+      const mode = data.operating_mode || {};
+      const executionCopy = mode.paper_execution_enabled
+        ? "Guarded Alpaca Paper execution is enabled."
+        : mode.emergency_stop
+          ? "Emergency stop is active; no new Paper orders can be sent."
+        : mode.automation_enabled
+          ? "Automation is running in risk-evaluated dry-run mode."
+          : "Signals are observation-only; no orders can be sent.";
+      setText("risk-copy", `${utilization.toFixed(2)}% of the aggregate ceiling is reserved. ${executionCopy}`);
       setText("risk-capacity", money(data.risk.aggregate_capacity_amount));
       setText("trade-capacity", money(data.risk.per_trade_capacity_amount));
       document.getElementById("risk-bar").style.width = `${Math.min(100, Math.max(0, utilization))}%`;
@@ -505,6 +957,10 @@
       renderControls(account);
       renderPositions(data.positions || []);
       renderOrders(data.open_orders || []);
+      renderStrategyRuntime(data.strategy_runtime || []);
+      renderSignals(data.signals || []);
+      renderTradeRecords(data.trade_records || []);
+      renderBacktests(data.backtests || [], data.validations || []);
       renderEvents(data.events || []);
     } catch (error) {
       setStatus("engine", "Unavailable", "bad");
@@ -512,8 +968,7 @@
     }
   }
 
-  initializeThemeChoice();
-  updateTimeZoneNote();
+  initializePreferences();
   refresh();
   setInterval(refresh, 15000);
 </script>

@@ -91,10 +91,20 @@ class Settings:
     alpaca_secret_key: str
     alpaca_base_url: str
     enable_paper_orders: bool
+    emergency_stop: bool
     db_path: Path
     heartbeat_seconds: int
     health_path: Path
     health_max_age_seconds: int
+    automation_enabled: bool
+    strategy_cycle_seconds: int
+    strategy_health_path: Path
+    strategy_health_max_age_seconds: int
+    portfolio_config_path: Path
+    market_data_feed: str
+    option_data_feed: str
+    market_lookback_days: int
+    market_max_bar_age_seconds: int
     dashboard_host: str
     dashboard_port: int
     dashboard_username: str
@@ -106,7 +116,7 @@ class Settings:
         base_url = os.getenv("ALPACA_BASE_URL", PAPER_URL).rstrip("/")
         if base_url != PAPER_URL:
             raise ValueError(
-                "This MVP is Paper-only; ALPACA_BASE_URL must be "
+                "This release is Paper-only; ALPACA_BASE_URL must be "
                 f"{PAPER_URL}"
             )
 
@@ -121,6 +131,31 @@ class Settings:
                 "TRADING_HEALTH_MAX_AGE_SECONDS must be at least twice "
                 "TRADING_HEARTBEAT_SECONDS"
             )
+        strategy_cycle_seconds = _int_env(
+            "TRADING_STRATEGY_CYCLE_SECONDS", "300", 60
+        )
+        strategy_health_max_age_seconds = _int_env(
+            "TRADING_STRATEGY_HEALTH_MAX_AGE_SECONDS", "900", 180
+        )
+        if strategy_health_max_age_seconds < strategy_cycle_seconds * 2:
+            raise ValueError(
+                "TRADING_STRATEGY_HEALTH_MAX_AGE_SECONDS must be at "
+                "least twice TRADING_STRATEGY_CYCLE_SECONDS"
+            )
+        market_data_feed = os.getenv(
+            "TRADING_MARKET_DATA_FEED", "iex"
+        ).strip().lower()
+        if market_data_feed not in {"iex", "sip"}:
+            raise ValueError(
+                "TRADING_MARKET_DATA_FEED must be iex or sip"
+            )
+        option_data_feed = os.getenv(
+            "TRADING_OPTION_DATA_FEED", "indicative"
+        ).strip().lower()
+        if option_data_feed not in {"indicative", "opra"}:
+            raise ValueError(
+                "TRADING_OPTION_DATA_FEED must be indicative or opra"
+            )
 
         return cls(
             alpaca_key_id=os.getenv("ALPACA_API_KEY_ID", "").strip(),
@@ -131,6 +166,9 @@ class Settings:
             enable_paper_orders=_bool_env(
                 "TRADING_ENABLE_PAPER_ORDERS", False
             ),
+            emergency_stop=_bool_env(
+                "TRADING_EMERGENCY_STOP", False
+            ),
             db_path=Path(
                 os.getenv("TRADING_DB_PATH", "var/trading.db")
             ),
@@ -139,6 +177,33 @@ class Settings:
                 os.getenv("TRADING_HEALTH_PATH", "var/health.json")
             ),
             health_max_age_seconds=health_max_age_seconds,
+            automation_enabled=_bool_env(
+                "TRADING_AUTOMATION_ENABLED", False
+            ),
+            strategy_cycle_seconds=strategy_cycle_seconds,
+            strategy_health_path=Path(
+                os.getenv(
+                    "TRADING_STRATEGY_HEALTH_PATH",
+                    "var/strategy-health.json",
+                )
+            ),
+            strategy_health_max_age_seconds=(
+                strategy_health_max_age_seconds
+            ),
+            portfolio_config_path=Path(
+                os.getenv(
+                    "TRADING_PORTFOLIO_CONFIG",
+                    "config/paper_portfolio.json",
+                )
+            ),
+            market_data_feed=market_data_feed,
+            option_data_feed=option_data_feed,
+            market_lookback_days=_int_env(
+                "TRADING_MARKET_LOOKBACK_DAYS", "10", 2, 90
+            ),
+            market_max_bar_age_seconds=_int_env(
+                "TRADING_MARKET_MAX_BAR_AGE_SECONDS", "900", 60, 86400
+            ),
             dashboard_host=os.getenv(
                 "DASHBOARD_HOST", "127.0.0.1"
             ).strip(),
@@ -200,3 +265,11 @@ class Settings:
             raise ValueError(
                 "DASHBOARD_PASSWORD must contain at least 16 characters"
             )
+
+    @property
+    def paper_execution_enabled(self) -> bool:
+        return (
+            self.automation_enabled
+            and self.enable_paper_orders
+            and not self.emergency_stop
+        )

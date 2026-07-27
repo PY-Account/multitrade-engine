@@ -66,6 +66,14 @@ class BrokerOpenOrder:
     stop_price: Decimal | None
     submitted_at: str
     legs_count: int
+    filled_average_price: Decimal | None = None
+    filled_at: str = ""
+    canceled_at: str = ""
+    expired_at: str = ""
+    has_active_legs: bool = False
+    exit_leg_type: str = ""
+    exit_filled_average_price: Decimal | None = None
+    exit_filled_at: str = ""
 
 
 @dataclass(frozen=True, slots=True)
@@ -85,6 +93,7 @@ class BrokerReconciliation:
     market: BrokerMarketClock
     positions: tuple[BrokerPosition, ...]
     open_orders: tuple[BrokerOpenOrder, ...]
+    recent_orders: tuple[BrokerOpenOrder, ...] = ()
     request_ids: tuple[str, ...] = ()
 
     def account_snapshot(self) -> AccountSnapshot:

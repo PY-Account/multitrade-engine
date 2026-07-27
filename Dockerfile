@@ -8,6 +8,7 @@ WORKDIR /app
 
 COPY pyproject.toml README.md ./
 COPY src ./src
+COPY config ./config
 
 RUN pip install --no-cache-dir . \
     && useradd --create-home --uid 10001 trader \

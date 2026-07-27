@@ -6,10 +6,13 @@ import signal
 import sys
 import threading
 from dataclasses import asdict
+from datetime import datetime, timedelta, timezone
 from decimal import Decimal
 from typing import Any
 
 from multitrade.audit import SqliteAuditStore
+from multitrade.automation import PaperAutomationService
+from multitrade.backtest import Backtester, StrategyValidator
 from multitrade.brokers.alpaca import AlpacaPaperBroker
 from multitrade.config import Settings, load_env_file
 from multitrade.dashboard import (
@@ -27,7 +30,14 @@ from multitrade.domain import (
 )
 from multitrade.engine import TradingEngine
 from multitrade.health import check_health, write_health
+from multitrade.market import AlpacaMarketDataClient, closed_bars
+from multitrade.options import (
+    AlpacaOptionChainClient,
+    OptionLiquidityPolicy,
+)
+from multitrade.portfolio import load_account_plans
 from multitrade.risk import RiskEngine
+from multitrade.strategies import default_equity_strategies
 
 
 def _json_default(value: Any) -> Any:
@@ -109,10 +119,25 @@ def _doctor() -> int:
     except ValueError as exc:
         dashboard_credentials_valid = False
         dashboard_configuration_error = str(exc)
+    try:
+        plans = load_account_plans(settings.portfolio_config_path)
+        portfolio_configuration_valid = True
+        portfolio_configuration_error = None
+        enabled_accounts = [
+            plan.account_id for plan in plans if plan.enabled
+        ]
+    except (OSError, ValueError, json.JSONDecodeError) as exc:
+        portfolio_configuration_valid = False
+        portfolio_configuration_error = str(exc)
+        enabled_accounts = []
 
     checks = {
         "paper_endpoint_locked": True,
+        "automation_enabled": settings.automation_enabled,
         "paper_order_submission_enabled": settings.enable_paper_orders,
+        "emergency_stop": settings.emergency_stop,
+        "paper_execution_enabled": settings.paper_execution_enabled,
+        "paper_execution_requires_all_controls": True,
         "api_key_present": bool(settings.alpaca_key_id),
         "api_secret_present": bool(settings.alpaca_secret_key),
         "database_path": str(settings.db_path),
@@ -129,6 +154,14 @@ def _doctor() -> int:
         "dashboard_listen": (
             f"{settings.dashboard_host}:{settings.dashboard_port}"
         ),
+        "market_data_feed": settings.market_data_feed,
+        "option_data_feed": settings.option_data_feed,
+        "portfolio_config_path": str(settings.portfolio_config_path),
+        "portfolio_configuration_valid": portfolio_configuration_valid,
+        "portfolio_configuration_error": (
+            portfolio_configuration_error
+        ),
+        "enabled_accounts": enabled_accounts,
     }
     print(json.dumps(checks, indent=2, sort_keys=True))
     return (
@@ -137,6 +170,8 @@ def _doctor() -> int:
             checks["api_key_present"]
             and checks["api_secret_present"]
             and checks["dashboard_credentials_valid"]
+            and checks["portfolio_configuration_valid"]
+            and len(checks["enabled_accounts"]) == 1
         )
         else 1
     )
@@ -164,7 +199,14 @@ def _run(once: bool) -> int:
     while True:
         try:
             reconciliation = broker.reconcile()
-            snapshot = reconciliation.account_snapshot()
+            snapshot = store.apply_account_equity_state(
+                "alpaca-paper",
+                reconciliation.account_snapshot(),
+                reconciliation.observed_at,
+            )
+            store.record_order_reconciliation(
+                "alpaca-paper", reconciliation
+            )
             active_risk = store.active_risk()
             summary = {
                 "account_status": reconciliation.account.status,
@@ -262,6 +304,213 @@ def _healthcheck() -> int:
     return 0 if healthy else 1
 
 
+def _automate(once: bool) -> int:
+    settings = Settings.from_env()
+    service = PaperAutomationService.from_settings(settings)
+    stop_event = threading.Event()
+
+    def request_shutdown(signum, frame) -> None:
+        del signum, frame
+        stop_event.set()
+
+    if not once:
+        signal.signal(signal.SIGTERM, request_shutdown)
+        signal.signal(signal.SIGINT, request_shutdown)
+
+    while True:
+        try:
+            result = service.run_cycle()
+            print(
+                json.dumps(
+                    asdict(result),
+                    default=_json_default,
+                    sort_keys=True,
+                ),
+                flush=True,
+            )
+        except Exception as exc:
+            try:
+                service.store.record_event(
+                    "strategy_cycle_failed",
+                    service.account_plan.account_id,
+                    {
+                        "error_type": type(exc).__name__,
+                        "message": str(exc),
+                    },
+                )
+            finally:
+                write_health(
+                    settings.strategy_health_path,
+                    "error",
+                    {"error_type": type(exc).__name__},
+                )
+            print(
+                json.dumps(
+                    {
+                        "status": "error",
+                        "component": "paper_automation",
+                        "error_type": type(exc).__name__,
+                        "message": str(exc),
+                    },
+                    sort_keys=True,
+                ),
+                file=sys.stderr,
+                flush=True,
+            )
+            if once:
+                return 1
+        if once:
+            return 0
+        if stop_event.wait(settings.strategy_cycle_seconds):
+            print(
+                json.dumps(
+                    {
+                        "status": "stopped",
+                        "component": "paper_automation",
+                    },
+                    sort_keys=True,
+                ),
+                flush=True,
+            )
+            return 0
+
+
+def _automation_healthcheck() -> int:
+    settings = Settings.from_env()
+    healthy, result = check_health(
+        settings.strategy_health_path,
+        settings.strategy_health_max_age_seconds,
+    )
+    print(json.dumps(result, sort_keys=True))
+    return 0 if healthy else 1
+
+
+def _parse_boundary(value: str | None, fallback: datetime) -> datetime:
+    if value is None:
+        return fallback
+    try:
+        parsed = datetime.fromisoformat(value.replace("Z", "+00:00"))
+    except ValueError as exc:
+        raise ValueError(
+            "Backtest boundaries must be ISO-8601 dates or timestamps"
+        ) from exc
+    if parsed.tzinfo is None:
+        parsed = parsed.replace(tzinfo=timezone.utc)
+    return parsed.astimezone(timezone.utc)
+
+
+def _store_backtest(store: SqliteAuditStore, result) -> None:
+    store.record_backtest(
+        run_id=result.run_id,
+        strategy_id=result.strategy_id,
+        strategy_version=result.strategy_version,
+        symbol=result.symbol,
+        timeframe=result.timeframe,
+        started_at=result.started_at,
+        completed_at=result.completed_at,
+        config=asdict(result.config),
+        metrics=asdict(result.metrics),
+        trades=[asdict(trade) for trade in result.trades],
+    )
+
+
+def _backtest(
+    strategy_id: str,
+    symbol: str,
+    timeframe: str,
+    start_value: str | None,
+    end_value: str | None,
+    validate: bool,
+) -> int:
+    settings = Settings.from_env()
+    settings.require_alpaca_credentials()
+    strategies = default_equity_strategies()
+    if strategy_id not in strategies:
+        raise ValueError(
+            "Unknown strategy. Available: "
+            + ", ".join(sorted(strategies))
+        )
+    end = _parse_boundary(
+        end_value, datetime.now(timezone.utc) - timedelta(minutes=1)
+    )
+    start = _parse_boundary(
+        start_value,
+        end - timedelta(days=settings.market_lookback_days),
+    )
+    client = AlpacaMarketDataClient(
+        settings.alpaca_key_id,
+        settings.alpaca_secret_key,
+        feed=settings.market_data_feed,
+    )
+    fetched = client.fetch_stock_bars(
+        [symbol.upper()], timeframe, start, end
+    )
+    bars = closed_bars(fetched.get(symbol.upper(), ()), now=end)
+    if not bars:
+        raise ValueError("No closed bars were returned for the backtest")
+    store = SqliteAuditStore(settings.db_path)
+    strategy = strategies[strategy_id]
+    if validate:
+        report = StrategyValidator(strategy).validate(bars)
+        _store_backtest(store, report.in_sample)
+        _store_backtest(store, report.out_of_sample)
+        store.record_validation(
+            validation_id=report.out_of_sample.run_id,
+            strategy_id=report.strategy_id,
+            strategy_version=report.strategy_version,
+            symbol=report.out_of_sample.symbol,
+            timeframe=report.out_of_sample.timeframe,
+            passed=report.passed,
+            gates=report.gates,
+            warnings=report.warnings,
+            in_sample_run_id=report.in_sample.run_id,
+            out_of_sample_run_id=report.out_of_sample.run_id,
+            completed_at=report.out_of_sample.completed_at,
+        )
+        output = {
+            "mode": "walk_forward_validation",
+            "strategy_id": report.strategy_id,
+            "strategy_version": report.strategy_version,
+            "passed": report.passed,
+            "gates": report.gates,
+            "warnings": report.warnings,
+            "in_sample": {
+                "run_id": report.in_sample.run_id,
+                "metrics": asdict(report.in_sample.metrics),
+            },
+            "out_of_sample": {
+                "run_id": report.out_of_sample.run_id,
+                "metrics": asdict(report.out_of_sample.metrics),
+            },
+            "feed": settings.market_data_feed,
+            "request_ids": client.request_ids,
+        }
+    else:
+        result = Backtester(strategy).run(bars)
+        _store_backtest(store, result)
+        output = {
+            "mode": "backtest",
+            "run_id": result.run_id,
+            "strategy_id": result.strategy_id,
+            "strategy_version": result.strategy_version,
+            "symbol": result.symbol,
+            "timeframe": result.timeframe,
+            "metrics": asdict(result.metrics),
+            "warnings": result.warnings,
+            "feed": settings.market_data_feed,
+            "request_ids": client.request_ids,
+        }
+    print(
+        json.dumps(
+            output,
+            default=_json_default,
+            indent=2,
+            sort_keys=True,
+        )
+    )
+    return 0
+
+
 def _dashboard() -> int:
     settings = Settings.from_env()
     settings.require_dashboard_credentials()
@@ -271,6 +520,13 @@ def _dashboard() -> int:
         health_max_age_seconds=settings.health_max_age_seconds,
         max_total_open=settings.risk_policy.max_total_open,
         max_per_trade=settings.risk_policy.max_per_trade,
+        strategy_health_path=settings.strategy_health_path,
+        strategy_health_max_age_seconds=(
+            settings.strategy_health_max_age_seconds
+        ),
+        automation_enabled=settings.automation_enabled,
+        paper_order_submission_enabled=settings.enable_paper_orders,
+        emergency_stop=settings.emergency_stop,
     )
     server = create_dashboard_server(
         host=settings.dashboard_host,
@@ -302,6 +558,72 @@ def _dashboard() -> int:
     return 0
 
 
+def _option_scan(
+    underlying: str, minimum_dte: int, maximum_dte: int
+) -> int:
+    if minimum_dte < 1 or maximum_dte < minimum_dte:
+        raise ValueError("Option DTE range is invalid")
+    settings = Settings.from_env()
+    settings.require_alpaca_credentials()
+    today = datetime.now(timezone.utc).date()
+    client = AlpacaOptionChainClient(
+        settings.alpaca_key_id,
+        settings.alpaca_secret_key,
+        feed=settings.option_data_feed,
+    )
+    chain = client.fetch_chain(
+        underlying,
+        expiration_gte=today + timedelta(days=minimum_dte),
+        expiration_lte=today + timedelta(days=maximum_dte),
+    )
+    liquidity = OptionLiquidityPolicy()
+    liquid = tuple(item for item in chain if liquidity.accepts(item))
+    sample = sorted(
+        liquid,
+        key=lambda item: (
+            item.relative_spread
+            if item.relative_spread is not None
+            else Decimal("999"),
+            item.expiration,
+        ),
+    )[:20]
+    print(
+        json.dumps(
+            {
+                "mode": "read_only_option_chain_scan",
+                "underlying": underlying.upper(),
+                "feed": settings.option_data_feed,
+                "execution_allowed": False,
+                "minimum_dte": minimum_dte,
+                "maximum_dte": maximum_dte,
+                "contracts_received": len(chain),
+                "contracts_passing_basic_liquidity": len(liquid),
+                "sample": [
+                    {
+                        "symbol": item.symbol,
+                        "expiration": item.expiration,
+                        "right": item.right,
+                        "strike": item.strike,
+                        "bid": item.bid,
+                        "ask": item.ask,
+                        "relative_spread": item.relative_spread,
+                        "delta": item.delta,
+                        "implied_volatility": (
+                            item.implied_volatility
+                        ),
+                    }
+                    for item in sample
+                ],
+                "request_ids": client.request_ids,
+            },
+            default=_json_default,
+            indent=2,
+            sort_keys=True,
+        )
+    )
+    return 0
+
+
 def _dashboard_healthcheck() -> int:
     settings = Settings.from_env()
     healthy, status = dashboard_healthcheck(settings.dashboard_port)
@@ -327,6 +649,38 @@ def build_parser() -> argparse.ArgumentParser:
     subparsers.add_parser(
         "healthcheck", help="Check whether the latest Paper heartbeat is fresh"
     )
+    automate_parser = subparsers.add_parser(
+        "automate",
+        help="Run the strategy and guarded Alpaca Paper cycle",
+    )
+    automate_parser.add_argument(
+        "--once", action="store_true", help="Run one strategy cycle and exit"
+    )
+    subparsers.add_parser(
+        "automation-healthcheck",
+        help="Check whether the latest strategy cycle is fresh",
+    )
+    backtest_parser = subparsers.add_parser(
+        "backtest",
+        help="Backtest or walk-forward validate a strategy",
+    )
+    backtest_parser.add_argument("--strategy", required=True)
+    backtest_parser.add_argument("--symbol", required=True)
+    backtest_parser.add_argument("--timeframe", default="5Min")
+    backtest_parser.add_argument("--start")
+    backtest_parser.add_argument("--end")
+    backtest_parser.add_argument(
+        "--validate",
+        action="store_true",
+        help="Run a chronological in/out-of-sample validation",
+    )
+    option_scan_parser = subparsers.add_parser(
+        "option-scan",
+        help="Inspect an Alpaca option chain without constructing an order",
+    )
+    option_scan_parser.add_argument("--underlying", required=True)
+    option_scan_parser.add_argument("--minimum-dte", type=int, default=21)
+    option_scan_parser.add_argument("--maximum-dte", type=int, default=60)
     subparsers.add_parser(
         "dashboard", help="Run the authenticated read-only dashboard"
     )
@@ -354,11 +708,30 @@ def main(argv: list[str] | None = None) -> int:
             return _run(args.once)
         if args.command == "healthcheck":
             return _healthcheck()
+        if args.command == "automate":
+            return _automate(args.once)
+        if args.command == "automation-healthcheck":
+            return _automation_healthcheck()
+        if args.command == "backtest":
+            return _backtest(
+                args.strategy,
+                args.symbol,
+                args.timeframe,
+                args.start,
+                args.end,
+                args.validate,
+            )
+        if args.command == "option-scan":
+            return _option_scan(
+                args.underlying,
+                args.minimum_dte,
+                args.maximum_dte,
+            )
         if args.command == "dashboard":
             return _dashboard()
         if args.command == "dashboard-healthcheck":
             return _dashboard_healthcheck()
-    except (ValueError, OSError) as exc:
+    except (ValueError, OSError, RuntimeError) as exc:
         print(f"fatal: {exc}", file=sys.stderr)
         return 2
     return 2

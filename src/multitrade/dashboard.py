@@ -2,8 +2,11 @@ from __future__ import annotations
 
 import base64
 import json
+import re
 import secrets
 import sqlite3
+import threading
+import time
 from datetime import datetime, timezone
 from decimal import Decimal, InvalidOperation
 from hmac import compare_digest
@@ -31,12 +34,30 @@ class DashboardData:
         health_max_age_seconds: int,
         max_total_open: Decimal,
         max_per_trade: Decimal,
+        strategy_health_path: str | Path | None = None,
+        strategy_health_max_age_seconds: int = 900,
+        automation_enabled: bool = False,
+        paper_order_submission_enabled: bool = False,
+        emergency_stop: bool = False,
     ) -> None:
         self.reader = SqliteAuditReader(db_path)
         self.health_path = Path(health_path)
         self.health_max_age_seconds = health_max_age_seconds
         self.max_total_open = max_total_open
         self.max_per_trade = max_per_trade
+        self.strategy_health_path = (
+            Path(strategy_health_path)
+            if strategy_health_path is not None
+            else None
+        )
+        self.strategy_health_max_age_seconds = (
+            strategy_health_max_age_seconds
+        )
+        self.automation_enabled = automation_enabled
+        self.paper_order_submission_enabled = (
+            paper_order_submission_enabled
+        )
+        self.emergency_stop = emergency_stop
 
     @staticmethod
     def _decimal(value: Any) -> Decimal:
@@ -49,26 +70,57 @@ class DashboardData:
         healthy, health = check_health(
             self.health_path, self.health_max_age_seconds
         )
+        if self.strategy_health_path is not None:
+            automation_healthy, automation_health = check_health(
+                self.strategy_health_path,
+                self.strategy_health_max_age_seconds,
+            )
+        else:
+            automation_healthy = False
+            automation_health = {"status": "not_configured"}
         try:
             state = self.reader.latest_broker_state("alpaca-paper")
             active_risk = self.reader.active_risk()
             reservations = self.reader.reservation_summary()
             events = self.reader.recent_events(event_limit)
+            signals = self.reader.recent_signals(event_limit)
+            strategy_runtime = self.reader.strategy_runtime()
+            trade_records = self.reader.recent_trade_records(event_limit)
+            backtests = self.reader.recent_backtests(20)
+            validations = self.reader.recent_validations(20)
             storage: dict[str, Any] = {"status": "ok"}
         except (FileNotFoundError, OSError, sqlite3.Error):
             state = None
             active_risk = Decimal("0")
             reservations = {}
             events = []
+            signals = []
+            strategy_runtime = []
+            trade_records = []
+            backtests = []
+            validations = []
             storage = {"status": "unavailable"}
 
         account: dict[str, Any] | None = None
         market: dict[str, Any] | None = None
         positions: list[dict[str, Any]] = []
         open_orders: list[dict[str, Any]] = []
+        operating_mode = {
+            "automation_enabled": self.automation_enabled,
+            "paper_order_submission_enabled": (
+                self.paper_order_submission_enabled
+            ),
+            "emergency_stop": self.emergency_stop,
+            "paper_execution_enabled": (
+                self.automation_enabled
+                and self.paper_order_submission_enabled
+                and not self.emergency_stop
+            ),
+        }
         connection: dict[str, Any] = {
             "broker": "alpaca",
             "environment": "paper",
+            "operating_mode": operating_mode,
             "observed_at": None,
             "request_ids": [],
         }
@@ -82,6 +134,7 @@ class DashboardData:
             connection = {
                 "broker": payload.get("broker", "alpaca"),
                 "environment": payload.get("environment", "paper"),
+                "operating_mode": operating_mode,
                 "observed_at": state["observed_at"],
                 "request_ids": payload.get("request_ids") or [],
             }
@@ -107,8 +160,13 @@ class DashboardData:
             "generated_at": datetime.now(timezone.utc).isoformat(),
             "environment": "paper",
             "engine": {"healthy": healthy, "details": health},
+            "automation": {
+                "healthy": automation_healthy,
+                "details": automation_health,
+            },
             "storage": storage,
             "connection": connection,
+            "operating_mode": operating_mode,
             "account": account,
             "market": market,
             "positions": positions,
@@ -131,14 +189,45 @@ class DashboardData:
                 "reservations": reservations,
             },
             "events": events,
+            "signals": signals,
+            "strategy_runtime": strategy_runtime,
+            "trade_records": trade_records,
+            "backtests": backtests,
+            "validations": validations,
+        }
+
+    def chart(
+        self,
+        symbol: str,
+        timeframe: str,
+        *,
+        limit: int = 160,
+    ) -> dict[str, Any]:
+        normalized_symbol = symbol.strip().upper()
+        if not re.fullmatch(r"[A-Z][A-Z0-9./-]{0,19}", normalized_symbol):
+            raise ValueError("invalid_symbol")
+        if not re.fullmatch(
+            r"(?:[1-9][0-9]?(?:Min|T)|[1-9][0-9]?(?:Hour|H)|1(?:Day|D))",
+            timeframe,
+        ):
+            raise ValueError("invalid_timeframe")
+        return {
+            "symbol": normalized_symbol,
+            "timeframe": timeframe,
+            "bars": self.reader.market_bars(
+                normalized_symbol, timeframe, limit=limit
+            ),
         }
 
 
 class DashboardRequestHandler(BaseHTTPRequestHandler):
-    server_version = "MultiTradeDashboard/0.2"
+    server_version = "MultiTradeDashboard/0.3"
     sys_version = ""
     data_service: DashboardData
     expected_authorization: str
+    auth_lock = threading.Lock()
+    auth_failures: dict[str, list[float]] = {}
+    auth_blocked_until: dict[str, float] = {}
 
     def do_GET(self) -> None:
         parsed = urlparse(self.path)
@@ -176,11 +265,53 @@ class DashboardRequestHandler(BaseHTTPRequestHandler):
                 return
             self._send_json(200, self.data_service.overview(limit))
             return
+        if parsed.path == "/api/chart":
+            values = parse_qs(parsed.query)
+            symbol = values.get("symbol", [""])[0]
+            timeframe = values.get("timeframe", ["5Min"])[0]
+            try:
+                limit = max(
+                    20,
+                    min(int(values.get("limit", ["160"])[0]), 500),
+                )
+                chart = self.data_service.chart(
+                    symbol, timeframe, limit=limit
+                )
+            except ValueError as exc:
+                self._send_json(400, {"error": str(exc)})
+                return
+            self._send_json(200, chart)
+            return
         self._send_json(404, {"error": "not_found"})
 
     def _authorized(self) -> bool:
+        client = self.client_address[0]
+        now = time.monotonic()
+        with self.auth_lock:
+            blocked_until = self.auth_blocked_until.get(client, 0)
+            if blocked_until > now:
+                return False
+            if blocked_until:
+                self.auth_blocked_until.pop(client, None)
         supplied = self.headers.get("Authorization", "")
-        return compare_digest(supplied, self.expected_authorization)
+        authorized = compare_digest(
+            supplied, self.expected_authorization
+        )
+        with self.auth_lock:
+            if authorized:
+                self.auth_failures.pop(client, None)
+                return True
+            recent = [
+                timestamp
+                for timestamp in self.auth_failures.get(client, [])
+                if now - timestamp <= 300
+            ]
+            recent.append(now)
+            self.auth_failures[client] = recent
+            if len(recent) >= 5:
+                self.auth_blocked_until[client] = now + 900
+                self.auth_failures.pop(client, None)
+        return False
 
     def _security_headers(self, nonce: str | None = None) -> None:
         script_source = f"'nonce-{nonce}'" if nonce else "'none'"
@@ -228,6 +359,9 @@ def create_dashboard_server(
 
     ConfiguredHandler.data_service = data_service
     ConfiguredHandler.expected_authorization = f"Basic {credentials}"
+    ConfiguredHandler.auth_lock = threading.Lock()
+    ConfiguredHandler.auth_failures = {}
+    ConfiguredHandler.auth_blocked_until = {}
     return ThreadingHTTPServer((host, port), ConfiguredHandler)
 
 

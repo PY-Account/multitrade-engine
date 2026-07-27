@@ -20,7 +20,7 @@ else
 fi
 
 "${compose[@]}" config --quiet
-"${compose[@]}" build --pull engine dashboard
+"${compose[@]}" build --pull engine dashboard automation
 "${compose[@]}" run --rm --no-deps engine multitrade doctor
 "${compose[@]}" up -d --remove-orphans
 "${compose[@]}" ps

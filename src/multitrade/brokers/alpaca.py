@@ -65,6 +65,22 @@ def _asset_class(value: Any) -> AssetClass:
 
 
 class AlpacaPaperBroker:
+    _ACTIVE_ORDER_STATES = frozenset(
+        {
+            "accepted",
+            "new",
+            "pending_new",
+            "partially_filled",
+            "held",
+            "pending_cancel",
+            "pending_replace",
+            "accepted_for_bidding",
+            "stopped",
+            "suspended",
+            "calculated",
+        }
+    )
+
     def __init__(
         self,
         key_id: str,
@@ -93,7 +109,7 @@ class AlpacaPaperBroker:
             "GET",
             "/v2/orders",
             query={
-                "status": "open",
+                "status": "all",
                 "limit": "500",
                 "nested": "true",
                 "direction": "desc",
@@ -162,8 +178,14 @@ class AlpacaPaperBroker:
             next_open=str(clock_payload.get("next_open", "")),
             next_close=str(clock_payload.get("next_close", "")),
         )
-        open_orders = tuple(
+        recent_orders = tuple(
             self._parse_open_order(row) for row in orders_payload
+        )
+        open_orders = tuple(
+            order
+            for order in recent_orders
+            if order.status in self._ACTIVE_ORDER_STATES
+            or order.has_active_legs
         )
         return BrokerReconciliation(
             broker="alpaca",
@@ -173,6 +195,7 @@ class AlpacaPaperBroker:
             market=market,
             positions=positions,
             open_orders=open_orders,
+            recent_orders=recent_orders,
             request_ids=tuple(self._request_ids),
         )
 
@@ -201,6 +224,18 @@ class AlpacaPaperBroker:
     @staticmethod
     def _parse_open_order(row: dict[str, Any]) -> BrokerOpenOrder:
         legs = row.get("legs") or []
+        order_class = str(
+            row.get("order_class", "simple")
+        ).lower()
+        filled_exit_leg = next(
+            (
+                leg
+                for leg in legs
+                if order_class == "bracket"
+                and str(leg.get("status", "")).lower() == "filled"
+            ),
+            None,
+        )
         asset_class = row.get("asset_class")
         if not asset_class and legs:
             asset_class = legs[0].get("asset_class")
@@ -216,7 +251,7 @@ class AlpacaPaperBroker:
             asset_class=_asset_class(asset_class),
             side=str(row.get("side", "")).lower(),
             order_type=str(row.get("type", "")).lower(),
-            order_class=str(row.get("order_class", "simple")).lower(),
+            order_class=order_class,
             status=str(row.get("status", "unknown")).lower(),
             quantity=abs(_decimal(row.get("qty"))),
             filled_quantity=abs(_decimal(row.get("filled_qty"))),
@@ -224,6 +259,34 @@ class AlpacaPaperBroker:
             stop_price=_optional_decimal(row.get("stop_price")),
             submitted_at=str(row.get("submitted_at", "")),
             legs_count=len(legs),
+            filled_average_price=_optional_decimal(
+                row.get("filled_avg_price")
+            ),
+            filled_at=str(row.get("filled_at") or ""),
+            canceled_at=str(row.get("canceled_at") or ""),
+            expired_at=str(row.get("expired_at") or ""),
+            has_active_legs=any(
+                str(leg.get("status", "")).lower()
+                in AlpacaPaperBroker._ACTIVE_ORDER_STATES
+                for leg in legs
+            ),
+            exit_leg_type=(
+                str(filled_exit_leg.get("type") or "").lower()
+                if filled_exit_leg is not None
+                else ""
+            ),
+            exit_filled_average_price=(
+                _optional_decimal(
+                    filled_exit_leg.get("filled_avg_price")
+                )
+                if filled_exit_leg is not None
+                else None
+            ),
+            exit_filled_at=(
+                str(filled_exit_leg.get("filled_at") or "")
+                if filled_exit_leg is not None
+                else ""
+            ),
         )
 
     def submit_order(
@@ -243,7 +306,7 @@ class AlpacaPaperBroker:
     ) -> dict[str, Any]:
         if intent.order_type not in {OrderType.MARKET, OrderType.LIMIT}:
             raise ValueError(
-                "The MVP submits only market or limit opening orders"
+                "This release submits only market or limit opening orders"
             )
         payload: dict[str, Any] = {
             "qty": _decimal_text(approved_quantity),
@@ -282,6 +345,20 @@ class AlpacaPaperBroker:
 
         payload["symbol"] = intent.symbol
         payload["side"] = intent.side.value
+        if (
+            intent.asset_class is AssetClass.STOCK
+            and intent.stop_price is not None
+            and intent.take_profit_price is not None
+        ):
+            payload["order_class"] = "bracket"
+            payload["take_profit"] = {
+                "limit_price": _decimal_text(
+                    intent.take_profit_price
+                )
+            }
+            payload["stop_loss"] = {
+                "stop_price": _decimal_text(intent.stop_price)
+            }
         return payload
 
     def _request(

@@ -30,7 +30,9 @@ jobs:
       - name: Run unit tests
         env:
           PYTHONPATH: src
-        run: python -m unittest discover -s tests -v
+        run: |
+          python -m compileall -q src tests
+          python -m unittest discover -s tests -v
 
       - name: Validate Compose configuration
         run: |

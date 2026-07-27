@@ -99,6 +99,9 @@ class DashboardTests(TestCase):
             self.assertEqual(result["environment"], "paper")
             self.assertTrue(result["engine"]["healthy"])
             self.assertEqual(result["storage"]["status"], "ok")
+            self.assertFalse(
+                result["operating_mode"]["paper_execution_enabled"]
+            )
             self.assertEqual(result["account"]["equity"], "100000")
             self.assertTrue(result["market"]["is_open"])
             self.assertEqual(len(result["positions"]), 1)
@@ -156,11 +159,15 @@ class DashboardTests(TestCase):
                     ]
 
                 self.assertIn("Open positions", html)
-                self.assertIn('id="theme-choice"', html)
+                self.assertIn('id="preferences-dialog"', html)
+                self.assertIn('id="preference-theme"', html)
+                self.assertIn('id="preference-date-format"', html)
+                self.assertIn('Browser location', html)
                 self.assertIn('value="light"', html)
                 self.assertIn('value="dark"', html)
                 self.assertIn('hourCycle: "h23"', html)
                 self.assertIn('Asia/Jerusalem', html)
+                self.assertIn('Strategy bots', html)
                 self.assertNotIn("{{NONCE}}", html)
                 self.assertIn("script-src 'nonce-", policy)
             finally:

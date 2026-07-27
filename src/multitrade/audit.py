@@ -8,7 +8,7 @@ from datetime import date, datetime, timezone
 from decimal import Decimal
 from enum import Enum
 from pathlib import Path
-from typing import Any
+from typing import TYPE_CHECKING, Any, Iterable
 
 from multitrade.domain import (
     AccountSnapshot,
@@ -18,8 +18,19 @@ from multitrade.domain import (
 )
 from multitrade.risk import RiskEngine
 
+if TYPE_CHECKING:
+    from multitrade.brokers.base import BrokerReconciliation
+    from multitrade.engine import EngineResult
+    from multitrade.market import MarketBar
+    from multitrade.strategies.base import StrategySignal
 
-ACTIVE_RESERVATION_STATES = ("reserved", "submitted", "open")
+
+ACTIVE_RESERVATION_STATES = (
+    "reserved",
+    "submitted",
+    "open",
+    "closing_pending",
+)
 
 
 def _json_default(value: Any) -> Any:
@@ -68,6 +79,17 @@ class SqliteAuditStore:
         if connection is not self._memory_connection:
             connection.close()
 
+    def close(self) -> None:
+        if self._memory_connection is not None:
+            self._memory_connection.close()
+            self._memory_connection = None
+
+    def __del__(self) -> None:
+        try:
+            self.close()
+        except Exception:
+            pass
+
     def _initialize(self) -> None:
         connection = self._connect()
         try:
@@ -102,10 +124,217 @@ class SqliteAuditStore:
                     payload_json TEXT NOT NULL,
                     updated_at TEXT NOT NULL
                 );
+
+                CREATE TABLE IF NOT EXISTS market_bars (
+                    asset_class TEXT NOT NULL,
+                    symbol TEXT NOT NULL,
+                    timeframe TEXT NOT NULL,
+                    feed TEXT NOT NULL,
+                    bar_timestamp TEXT NOT NULL,
+                    open_price TEXT NOT NULL,
+                    high_price TEXT NOT NULL,
+                    low_price TEXT NOT NULL,
+                    close_price TEXT NOT NULL,
+                    volume TEXT NOT NULL,
+                    trade_count INTEGER NOT NULL,
+                    vwap TEXT,
+                    ingested_at TEXT NOT NULL,
+                    PRIMARY KEY (
+                        asset_class, symbol, timeframe, feed, bar_timestamp
+                    )
+                );
+
+                CREATE INDEX IF NOT EXISTS idx_market_bars_symbol_time
+                ON market_bars(symbol, timeframe, bar_timestamp DESC);
+
+                CREATE TABLE IF NOT EXISTS strategy_signals (
+                    signal_id TEXT PRIMARY KEY,
+                    account_id TEXT NOT NULL,
+                    strategy_id TEXT NOT NULL,
+                    strategy_version TEXT NOT NULL,
+                    symbol TEXT NOT NULL,
+                    action TEXT NOT NULL,
+                    bar_timestamp TEXT NOT NULL,
+                    confidence TEXT NOT NULL,
+                    reference_price TEXT NOT NULL,
+                    stop_price TEXT NOT NULL,
+                    target_price TEXT NOT NULL,
+                    reason_codes_json TEXT NOT NULL,
+                    evidence_json TEXT NOT NULL,
+                    status TEXT NOT NULL,
+                    status_details_json TEXT NOT NULL,
+                    created_at TEXT NOT NULL,
+                    expires_at TEXT NOT NULL,
+                    updated_at TEXT NOT NULL
+                );
+
+                CREATE INDEX IF NOT EXISTS idx_strategy_signals_recent
+                ON strategy_signals(created_at DESC);
+
+                CREATE TABLE IF NOT EXISTS strategy_runtime (
+                    account_id TEXT NOT NULL,
+                    strategy_id TEXT NOT NULL,
+                    symbol TEXT NOT NULL,
+                    state TEXT NOT NULL,
+                    bar_timestamp TEXT,
+                    details_json TEXT NOT NULL,
+                    evaluated_at TEXT NOT NULL,
+                    PRIMARY KEY (account_id, strategy_id, symbol)
+                );
+
+                CREATE TABLE IF NOT EXISTS trade_records (
+                    signal_id TEXT PRIMARY KEY,
+                    intent_id TEXT NOT NULL UNIQUE,
+                    account_id TEXT NOT NULL,
+                    strategy_id TEXT NOT NULL,
+                    symbol TEXT NOT NULL,
+                    side TEXT NOT NULL,
+                    state TEXT NOT NULL,
+                    requested_quantity TEXT NOT NULL,
+                    approved_quantity TEXT NOT NULL,
+                    reserved_risk TEXT NOT NULL,
+                    reference_price TEXT,
+                    stop_price TEXT,
+                    target_price TEXT,
+                    broker_order_id TEXT,
+                    entry_price TEXT,
+                    exit_price TEXT,
+                    realized_pnl TEXT,
+                    exit_reason TEXT,
+                    closed_at TEXT,
+                    explanation_json TEXT NOT NULL,
+                    created_at TEXT NOT NULL,
+                    updated_at TEXT NOT NULL
+                );
+
+                CREATE INDEX IF NOT EXISTS idx_trade_records_recent
+                ON trade_records(created_at DESC);
+
+                CREATE TABLE IF NOT EXISTS backtest_runs (
+                    run_id TEXT PRIMARY KEY,
+                    strategy_id TEXT NOT NULL,
+                    strategy_version TEXT NOT NULL,
+                    symbol TEXT NOT NULL,
+                    timeframe TEXT NOT NULL,
+                    started_at TEXT NOT NULL,
+                    completed_at TEXT NOT NULL,
+                    config_json TEXT NOT NULL,
+                    metrics_json TEXT NOT NULL,
+                    trades_json TEXT NOT NULL
+                );
+
+                CREATE TABLE IF NOT EXISTS broker_order_snapshots (
+                    broker_order_id TEXT PRIMARY KEY,
+                    account_id TEXT NOT NULL,
+                    client_order_id TEXT NOT NULL,
+                    symbol TEXT NOT NULL,
+                    asset_class TEXT NOT NULL,
+                    side TEXT NOT NULL,
+                    order_type TEXT NOT NULL,
+                    order_class TEXT NOT NULL,
+                    status TEXT NOT NULL,
+                    quantity TEXT NOT NULL,
+                    filled_quantity TEXT NOT NULL,
+                    filled_average_price TEXT,
+                    submitted_at TEXT,
+                    filled_at TEXT,
+                    canceled_at TEXT,
+                    expired_at TEXT,
+                    has_active_legs INTEGER NOT NULL,
+                    exit_leg_type TEXT,
+                    exit_filled_average_price TEXT,
+                    exit_filled_at TEXT,
+                    observed_at TEXT NOT NULL,
+                    raw_json TEXT NOT NULL
+                );
+
+                CREATE INDEX IF NOT EXISTS idx_broker_orders_client
+                ON broker_order_snapshots(client_order_id);
+
+                CREATE INDEX IF NOT EXISTS idx_broker_orders_recent
+                ON broker_order_snapshots(observed_at DESC);
+
+                CREATE TABLE IF NOT EXISTS strategy_validations (
+                    validation_id TEXT PRIMARY KEY,
+                    strategy_id TEXT NOT NULL,
+                    strategy_version TEXT NOT NULL,
+                    symbol TEXT NOT NULL,
+                    timeframe TEXT NOT NULL,
+                    passed INTEGER NOT NULL,
+                    gates_json TEXT NOT NULL,
+                    warnings_json TEXT NOT NULL,
+                    in_sample_run_id TEXT NOT NULL,
+                    out_of_sample_run_id TEXT NOT NULL,
+                    completed_at TEXT NOT NULL
+                );
+
+                CREATE INDEX IF NOT EXISTS idx_strategy_validation_recent
+                ON strategy_validations(completed_at DESC);
+
+                CREATE TABLE IF NOT EXISTS account_equity_state (
+                    account_id TEXT PRIMARY KEY,
+                    trading_day TEXT NOT NULL,
+                    start_of_day_equity TEXT NOT NULL,
+                    peak_equity TEXT NOT NULL,
+                    latest_equity TEXT NOT NULL,
+                    observed_at TEXT NOT NULL
+                );
                 """
+            )
+            self._ensure_column(
+                connection, "trade_records", "entry_price", "TEXT"
+            )
+            self._ensure_column(
+                connection, "trade_records", "exit_price", "TEXT"
+            )
+            self._ensure_column(
+                connection, "trade_records", "realized_pnl", "TEXT"
+            )
+            self._ensure_column(
+                connection, "trade_records", "exit_reason", "TEXT"
+            )
+            self._ensure_column(
+                connection, "trade_records", "closed_at", "TEXT"
+            )
+            self._ensure_column(
+                connection,
+                "broker_order_snapshots",
+                "exit_leg_type",
+                "TEXT",
+            )
+            self._ensure_column(
+                connection,
+                "broker_order_snapshots",
+                "exit_filled_average_price",
+                "TEXT",
+            )
+            self._ensure_column(
+                connection,
+                "broker_order_snapshots",
+                "exit_filled_at",
+                "TEXT",
             )
         finally:
             self._close_if_needed(connection)
+
+    @staticmethod
+    def _ensure_column(
+        connection: sqlite3.Connection,
+        table: str,
+        column: str,
+        declaration: str,
+    ) -> None:
+        columns = {
+            row["name"]
+            for row in connection.execute(
+                f"PRAGMA table_info({table})"
+            ).fetchall()
+        }
+        if column not in columns:
+            connection.execute(
+                f"ALTER TABLE {table} ADD COLUMN "
+                f"{column} {declaration}"
+            )
 
     def evaluate_and_reserve(
         self,
@@ -221,7 +450,10 @@ class SqliteAuditStore:
                 """
                 UPDATE risk_reservations
                 SET state = 'released', updated_at = ?
-                WHERE intent_id = ? AND state IN ('reserved', 'submitted')
+                WHERE intent_id = ?
+                  AND state IN (
+                      'reserved', 'submitted', 'open', 'closing_pending'
+                  )
                 """,
                 (datetime.now(timezone.utc).isoformat(), intent_id),
             )
@@ -236,6 +468,414 @@ class SqliteAuditStore:
             if connection.in_transaction:
                 connection.execute("ROLLBACK")
             raise
+        finally:
+            self._close_if_needed(connection)
+
+    def record_order_reconciliation(
+        self,
+        account_id: str,
+        reconciliation: "BrokerReconciliation",
+    ) -> None:
+        """Persist broker order state and release risk only on safe evidence.
+
+        A filled entry remains risk-active while the reconciled symbol has a
+        position. A previously-open reservation is released only after that
+        position disappears, or when the opening order is terminal without a
+        fill. Unknown/missing broker rows never cause a release.
+        """
+        terminal_without_position = {
+            "canceled",
+            "expired",
+            "rejected",
+            "replaced",
+            "done_for_day",
+        }
+        active_states = {
+            "accepted",
+            "new",
+            "pending_new",
+            "partially_filled",
+            "held",
+            "pending_cancel",
+            "pending_replace",
+            "accepted_for_bidding",
+            "stopped",
+            "suspended",
+            "calculated",
+        }
+        position_symbols = {
+            position.symbol for position in reconciliation.positions
+        }
+        observed_at = reconciliation.observed_at.isoformat()
+        connection = self._connect()
+        try:
+            connection.execute("BEGIN IMMEDIATE")
+            for order in reconciliation.recent_orders:
+                connection.execute(
+                    """
+                    INSERT INTO broker_order_snapshots (
+                        broker_order_id, account_id, client_order_id,
+                        symbol, asset_class, side, order_type, order_class,
+                        status, quantity, filled_quantity,
+                        filled_average_price, submitted_at, filled_at,
+                        canceled_at, expired_at, has_active_legs,
+                        exit_leg_type, exit_filled_average_price,
+                        exit_filled_at, observed_at, raw_json
+                    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?,
+                              ?, ?, ?, ?, ?, ?, ?)
+                    ON CONFLICT(broker_order_id) DO UPDATE SET
+                        status = excluded.status,
+                        filled_quantity = excluded.filled_quantity,
+                        filled_average_price =
+                            excluded.filled_average_price,
+                        filled_at = excluded.filled_at,
+                        canceled_at = excluded.canceled_at,
+                        expired_at = excluded.expired_at,
+                        has_active_legs = excluded.has_active_legs,
+                        exit_leg_type = excluded.exit_leg_type,
+                        exit_filled_average_price =
+                            excluded.exit_filled_average_price,
+                        exit_filled_at = excluded.exit_filled_at,
+                        observed_at = excluded.observed_at,
+                        raw_json = excluded.raw_json
+                    """,
+                    (
+                        order.broker_order_id,
+                        account_id,
+                        order.client_order_id,
+                        order.symbol,
+                        order.asset_class.value,
+                        order.side,
+                        order.order_type,
+                        order.order_class,
+                        order.status,
+                        format(order.quantity, "f"),
+                        format(order.filled_quantity, "f"),
+                        (
+                            format(order.filled_average_price, "f")
+                            if order.filled_average_price is not None
+                            else None
+                        ),
+                        order.submitted_at,
+                        order.filled_at,
+                        order.canceled_at,
+                        order.expired_at,
+                        int(order.has_active_legs),
+                        order.exit_leg_type,
+                        (
+                            format(
+                                order.exit_filled_average_price, "f"
+                            )
+                            if order.exit_filled_average_price is not None
+                            else None
+                        ),
+                        order.exit_filled_at,
+                        observed_at,
+                        _json(asdict(order)),
+                    ),
+                )
+                if not order.client_order_id:
+                    continue
+                reservation = connection.execute(
+                    """
+                    SELECT state, symbol FROM risk_reservations
+                    WHERE intent_id = ?
+                    """,
+                    (order.client_order_id,),
+                ).fetchone()
+                if reservation is None:
+                    continue
+
+                previous_state = reservation["state"]
+                if previous_state == "released":
+                    continue
+                symbol = reservation["symbol"]
+                has_position = symbol in position_symbols
+                is_active = (
+                    order.status in active_states or order.has_active_legs
+                )
+                reservation_state = previous_state
+                trade_state: str | None = None
+                release_reason: str | None = None
+                if has_position or is_active:
+                    reservation_state = "open"
+                    trade_state = (
+                        "position_open"
+                        if has_position
+                        else f"broker_{order.status}"
+                    )
+                elif order.status in terminal_without_position:
+                    reservation_state = "released"
+                    trade_state = order.status
+                    release_reason = f"broker_order_{order.status}"
+                elif (
+                    order.status == "filled"
+                    and previous_state == "closing_pending"
+                ):
+                    reservation_state = "released"
+                    trade_state = "position_closed"
+                    release_reason = "reconciled_position_closed"
+                elif (
+                    order.status == "filled"
+                    and previous_state == "open"
+                ):
+                    reservation_state = "closing_pending"
+                    trade_state = "position_close_pending"
+                elif order.status == "filled":
+                    trade_state = "broker_filled"
+
+                if reservation_state != previous_state:
+                    connection.execute(
+                        """
+                        UPDATE risk_reservations
+                        SET state = ?, updated_at = ?
+                        WHERE intent_id = ?
+                        """,
+                        (
+                            reservation_state,
+                            observed_at,
+                            order.client_order_id,
+                        ),
+                    )
+                    self._insert_event(
+                        connection,
+                        (
+                            "risk_released"
+                            if reservation_state == "released"
+                            else "order_lifecycle_changed"
+                        ),
+                        order.client_order_id,
+                        {
+                            "previous_state": previous_state,
+                            "state": reservation_state,
+                            "broker_order_id": order.broker_order_id,
+                            "broker_status": order.status,
+                            "reason": release_reason,
+                        },
+                    )
+                if trade_state is not None:
+                    trade = connection.execute(
+                        """
+                        SELECT side, approved_quantity, entry_price, state
+                        FROM trade_records WHERE intent_id = ?
+                        """,
+                        (order.client_order_id,),
+                    ).fetchone()
+                    entry_price = (
+                        order.filled_average_price
+                        if order.filled_average_price is not None
+                        else (
+                            Decimal(trade["entry_price"])
+                            if trade is not None
+                            and trade["entry_price"] is not None
+                            else None
+                        )
+                    )
+                    exit_price = (
+                        order.exit_filled_average_price
+                        if trade_state == "position_closed"
+                        else None
+                    )
+                    realized_pnl: Decimal | None = None
+                    if (
+                        trade is not None
+                        and entry_price is not None
+                        and exit_price is not None
+                    ):
+                        quantity = Decimal(
+                            trade["approved_quantity"]
+                        )
+                        direction = (
+                            Decimal("1")
+                            if trade["side"] == "buy"
+                            else Decimal("-1")
+                        )
+                        realized_pnl = (
+                            (exit_price - entry_price)
+                            * quantity
+                            * direction
+                        )
+                    exit_reason = (
+                        (
+                            "stop_loss"
+                            if "stop" in order.exit_leg_type
+                            else "take_profit"
+                            if order.exit_leg_type == "limit"
+                            else "broker_exit_fill"
+                        )
+                        if trade_state == "position_closed"
+                        else None
+                    )
+                    connection.execute(
+                        """
+                        UPDATE trade_records
+                        SET state = ?, broker_order_id = ?,
+                            entry_price = COALESCE(?, entry_price),
+                            exit_price = COALESCE(?, exit_price),
+                            realized_pnl = COALESCE(?, realized_pnl),
+                            exit_reason = COALESCE(?, exit_reason),
+                            closed_at = COALESCE(?, closed_at),
+                            updated_at = ?
+                        WHERE intent_id = ?
+                        """,
+                        (
+                            trade_state,
+                            order.broker_order_id,
+                            (
+                                format(entry_price, "f")
+                                if entry_price is not None
+                                else None
+                            ),
+                            (
+                                format(exit_price, "f")
+                                if exit_price is not None
+                                else None
+                            ),
+                            (
+                                format(realized_pnl, "f")
+                                if realized_pnl is not None
+                                else None
+                            ),
+                            exit_reason,
+                            (
+                                order.exit_filled_at or observed_at
+                                if trade_state == "position_closed"
+                                else None
+                            ),
+                            observed_at,
+                            order.client_order_id,
+                        ),
+                    )
+            connection.execute("COMMIT")
+        except Exception:
+            if connection.in_transaction:
+                connection.execute("ROLLBACK")
+            raise
+        finally:
+            self._close_if_needed(connection)
+
+    def submitted_orders_since(
+        self, account_id: str, since: datetime
+    ) -> int:
+        connection = self._connect()
+        try:
+            row = connection.execute(
+                """
+                SELECT COUNT(*) AS count
+                FROM trade_records
+                WHERE account_id = ?
+                  AND broker_order_id IS NOT NULL
+                  AND created_at >= ?
+                """,
+                (account_id, since.isoformat()),
+            ).fetchone()
+            return int(row["count"])
+        finally:
+            self._close_if_needed(connection)
+
+    def apply_account_equity_state(
+        self,
+        account_id: str,
+        snapshot: AccountSnapshot,
+        observed_at: datetime,
+    ) -> AccountSnapshot:
+        trading_day = observed_at.astimezone(timezone.utc).date().isoformat()
+        connection = self._connect()
+        try:
+            connection.execute("BEGIN IMMEDIATE")
+            row = connection.execute(
+                """
+                SELECT trading_day, start_of_day_equity, peak_equity
+                FROM account_equity_state WHERE account_id = ?
+                """,
+                (account_id,),
+            ).fetchone()
+            if row is None or row["trading_day"] != trading_day:
+                start_equity = snapshot.start_of_day_equity
+                peak_equity = max(start_equity, snapshot.equity)
+            else:
+                start_equity = Decimal(row["start_of_day_equity"])
+                peak_equity = max(
+                    Decimal(row["peak_equity"]), snapshot.equity
+                )
+            connection.execute(
+                """
+                INSERT INTO account_equity_state (
+                    account_id, trading_day, start_of_day_equity,
+                    peak_equity, latest_equity, observed_at
+                ) VALUES (?, ?, ?, ?, ?, ?)
+                ON CONFLICT(account_id) DO UPDATE SET
+                    trading_day = excluded.trading_day,
+                    start_of_day_equity =
+                        excluded.start_of_day_equity,
+                    peak_equity = excluded.peak_equity,
+                    latest_equity = excluded.latest_equity,
+                    observed_at = excluded.observed_at
+                """,
+                (
+                    account_id,
+                    trading_day,
+                    format(start_equity, "f"),
+                    format(peak_equity, "f"),
+                    format(snapshot.equity, "f"),
+                    observed_at.isoformat(),
+                ),
+            )
+            connection.execute("COMMIT")
+            return replace(
+                snapshot,
+                start_of_day_equity=start_equity,
+                peak_equity=peak_equity,
+            )
+        except Exception:
+            if connection.in_transaction:
+                connection.execute("ROLLBACK")
+            raise
+        finally:
+            self._close_if_needed(connection)
+
+    def active_reservation_identity(
+        self,
+    ) -> tuple[set[str], set[str]]:
+        connection = self._connect()
+        try:
+            placeholders = ",".join(
+                "?" for _ in ACTIVE_RESERVATION_STATES
+            )
+            rows = connection.execute(
+                f"""
+                SELECT intent_id, symbol FROM risk_reservations
+                WHERE state IN ({placeholders})
+                """,
+                ACTIVE_RESERVATION_STATES,
+            ).fetchall()
+            return (
+                {row["intent_id"] for row in rows},
+                {row["symbol"] for row in rows},
+            )
+        finally:
+            self._close_if_needed(connection)
+
+    def last_submitted_at(
+        self, account_id: str, symbol: str
+    ) -> datetime | None:
+        connection = self._connect()
+        try:
+            row = connection.execute(
+                """
+                SELECT created_at
+                FROM trade_records
+                WHERE account_id = ? AND symbol = ?
+                  AND broker_order_id IS NOT NULL
+                ORDER BY created_at DESC LIMIT 1
+                """,
+                (account_id, symbol),
+            ).fetchone()
+            return (
+                datetime.fromisoformat(row["created_at"])
+                if row is not None
+                else None
+            )
         finally:
             self._close_if_needed(connection)
 
@@ -289,6 +929,409 @@ class SqliteAuditStore:
                 "broker_reconciled",
                 connection_id,
                 summary,
+            )
+            connection.execute("COMMIT")
+        except Exception:
+            if connection.in_transaction:
+                connection.execute("ROLLBACK")
+            raise
+        finally:
+            self._close_if_needed(connection)
+
+    def record_market_bars(
+        self, bars: Iterable["MarketBar"]
+    ) -> int:
+        materialized = tuple(bars)
+        if not materialized:
+            return 0
+        connection = self._connect()
+        try:
+            connection.execute("BEGIN IMMEDIATE")
+            ingested_at = datetime.now(timezone.utc).isoformat()
+            connection.executemany(
+                """
+                INSERT INTO market_bars (
+                    asset_class, symbol, timeframe, feed, bar_timestamp,
+                    open_price, high_price, low_price, close_price,
+                    volume, trade_count, vwap, ingested_at
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                ON CONFLICT (
+                    asset_class, symbol, timeframe, feed, bar_timestamp
+                ) DO UPDATE SET
+                    open_price = excluded.open_price,
+                    high_price = excluded.high_price,
+                    low_price = excluded.low_price,
+                    close_price = excluded.close_price,
+                    volume = excluded.volume,
+                    trade_count = excluded.trade_count,
+                    vwap = excluded.vwap,
+                    ingested_at = excluded.ingested_at
+                """,
+                [
+                    (
+                        bar.asset_class.value,
+                        bar.symbol,
+                        bar.timeframe,
+                        bar.feed,
+                        bar.timestamp.isoformat(),
+                        format(bar.open, "f"),
+                        format(bar.high, "f"),
+                        format(bar.low, "f"),
+                        format(bar.close, "f"),
+                        format(bar.volume, "f"),
+                        bar.trade_count,
+                        (
+                            format(bar.vwap, "f")
+                            if bar.vwap is not None
+                            else None
+                        ),
+                        ingested_at,
+                    )
+                    for bar in materialized
+                ],
+            )
+            connection.execute("COMMIT")
+            return len(materialized)
+        except Exception:
+            if connection.in_transaction:
+                connection.execute("ROLLBACK")
+            raise
+        finally:
+            self._close_if_needed(connection)
+
+    def record_signal(self, signal: "StrategySignal") -> bool:
+        connection = self._connect()
+        try:
+            connection.execute("BEGIN IMMEDIATE")
+            cursor = connection.execute(
+                """
+                INSERT OR IGNORE INTO strategy_signals (
+                    signal_id, account_id, strategy_id, strategy_version,
+                    symbol, action, bar_timestamp, confidence,
+                    reference_price, stop_price, target_price,
+                    reason_codes_json, evidence_json, status,
+                    status_details_json, created_at, expires_at, updated_at
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?,
+                          'generated', '{}', ?, ?, ?)
+                """,
+                (
+                    signal.signal_id,
+                    signal.account_id,
+                    signal.strategy_id,
+                    signal.strategy_version,
+                    signal.symbol,
+                    signal.action.value,
+                    signal.bar_timestamp.isoformat(),
+                    format(signal.confidence, "f"),
+                    format(signal.reference_price, "f"),
+                    format(signal.stop_price, "f"),
+                    format(signal.target_price, "f"),
+                    _json(signal.reason_codes),
+                    _json(signal.evidence),
+                    signal.created_at.isoformat(),
+                    signal.expires_at.isoformat(),
+                    datetime.now(timezone.utc).isoformat(),
+                ),
+            )
+            inserted = cursor.rowcount == 1
+            if inserted:
+                self._insert_event(
+                    connection,
+                    "strategy_signal_generated",
+                    signal.signal_id,
+                    {
+                        "account_id": signal.account_id,
+                        "strategy_id": signal.strategy_id,
+                        "strategy_version": signal.strategy_version,
+                        "symbol": signal.symbol,
+                        "action": signal.action,
+                        "confidence": signal.confidence,
+                        "reference_price": signal.reference_price,
+                        "stop_price": signal.stop_price,
+                        "target_price": signal.target_price,
+                        "reason_codes": signal.reason_codes,
+                    },
+                )
+            connection.execute("COMMIT")
+            return inserted
+        except Exception:
+            if connection.in_transaction:
+                connection.execute("ROLLBACK")
+            raise
+        finally:
+            self._close_if_needed(connection)
+
+    def update_signal_status(
+        self,
+        signal_id: str,
+        status: str,
+        details: Any | None = None,
+    ) -> None:
+        connection = self._connect()
+        try:
+            connection.execute("BEGIN IMMEDIATE")
+            cursor = connection.execute(
+                """
+                UPDATE strategy_signals
+                SET status = ?, status_details_json = ?, updated_at = ?
+                WHERE signal_id = ?
+                """,
+                (
+                    status,
+                    _json(details or {}),
+                    datetime.now(timezone.utc).isoformat(),
+                    signal_id,
+                ),
+            )
+            if cursor.rowcount != 1:
+                raise ValueError("Strategy signal was not found")
+            self._insert_event(
+                connection,
+                "strategy_signal_status",
+                signal_id,
+                {"status": status, "details": details or {}},
+            )
+            connection.execute("COMMIT")
+        except Exception:
+            if connection.in_transaction:
+                connection.execute("ROLLBACK")
+            raise
+        finally:
+            self._close_if_needed(connection)
+
+    def record_strategy_runtime(
+        self,
+        account_id: str,
+        strategy_id: str,
+        symbol: str,
+        state: str,
+        bar_timestamp: str | None,
+        details: Any,
+        evaluated_at: datetime,
+    ) -> None:
+        connection = self._connect()
+        try:
+            connection.execute("BEGIN IMMEDIATE")
+            connection.execute(
+                """
+                INSERT INTO strategy_runtime (
+                    account_id, strategy_id, symbol, state,
+                    bar_timestamp, details_json, evaluated_at
+                ) VALUES (?, ?, ?, ?, ?, ?, ?)
+                ON CONFLICT(account_id, strategy_id, symbol) DO UPDATE SET
+                    state = excluded.state,
+                    bar_timestamp = excluded.bar_timestamp,
+                    details_json = excluded.details_json,
+                    evaluated_at = excluded.evaluated_at
+                """,
+                (
+                    account_id,
+                    strategy_id,
+                    symbol,
+                    state,
+                    bar_timestamp,
+                    _json(details),
+                    evaluated_at.isoformat(),
+                ),
+            )
+            connection.execute("COMMIT")
+        except Exception:
+            if connection.in_transaction:
+                connection.execute("ROLLBACK")
+            raise
+        finally:
+            self._close_if_needed(connection)
+
+    def record_trade_result(
+        self,
+        signal: "StrategySignal",
+        intent: TradeIntent,
+        result: "EngineResult",
+    ) -> None:
+        state = (
+            "rejected"
+            if not result.decision.approved
+            else "dry_run"
+            if result.dry_run
+            else "submitted"
+        )
+        broker_order_id = (
+            result.order.broker_order_id if result.order else None
+        )
+        connection = self._connect()
+        try:
+            connection.execute("BEGIN IMMEDIATE")
+            now = datetime.now(timezone.utc).isoformat()
+            connection.execute(
+                """
+                INSERT INTO trade_records (
+                    signal_id, intent_id, account_id, strategy_id,
+                    symbol, side, state, requested_quantity,
+                    approved_quantity, reserved_risk, reference_price,
+                    stop_price, target_price, broker_order_id,
+                    explanation_json, created_at, updated_at
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                ON CONFLICT(signal_id) DO UPDATE SET
+                    state = excluded.state,
+                    approved_quantity = excluded.approved_quantity,
+                    reserved_risk = excluded.reserved_risk,
+                    broker_order_id = excluded.broker_order_id,
+                    updated_at = excluded.updated_at
+                """,
+                (
+                    signal.signal_id,
+                    intent.intent_id,
+                    intent.account_id,
+                    intent.strategy_id,
+                    intent.symbol,
+                    intent.side.value,
+                    state,
+                    format(intent.requested_quantity, "f"),
+                    format(result.decision.approved_quantity, "f"),
+                    format(result.decision.reserved_risk, "f"),
+                    (
+                        format(intent.reference_price, "f")
+                        if intent.reference_price is not None
+                        else None
+                    ),
+                    (
+                        format(intent.stop_price, "f")
+                        if intent.stop_price is not None
+                        else None
+                    ),
+                    (
+                        format(intent.take_profit_price, "f")
+                        if intent.take_profit_price is not None
+                        else None
+                    ),
+                    broker_order_id,
+                    _json(intent.explanation),
+                    signal.created_at.isoformat(),
+                    now,
+                ),
+            )
+            connection.execute("COMMIT")
+        except Exception:
+            if connection.in_transaction:
+                connection.execute("ROLLBACK")
+            raise
+        finally:
+            self._close_if_needed(connection)
+
+    def record_backtest(
+        self,
+        *,
+        run_id: str,
+        strategy_id: str,
+        strategy_version: str,
+        symbol: str,
+        timeframe: str,
+        started_at: datetime,
+        completed_at: datetime,
+        config: Any,
+        metrics: Any,
+        trades: Any,
+    ) -> None:
+        connection = self._connect()
+        try:
+            connection.execute("BEGIN IMMEDIATE")
+            connection.execute(
+                """
+                INSERT INTO backtest_runs (
+                    run_id, strategy_id, strategy_version, symbol,
+                    timeframe, started_at, completed_at, config_json,
+                    metrics_json, trades_json
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                """,
+                (
+                    run_id,
+                    strategy_id,
+                    strategy_version,
+                    symbol,
+                    timeframe,
+                    started_at.isoformat(),
+                    completed_at.isoformat(),
+                    _json(config),
+                    _json(metrics),
+                    _json(trades),
+                ),
+            )
+            self._insert_event(
+                connection,
+                "backtest_completed",
+                run_id,
+                {
+                    "strategy_id": strategy_id,
+                    "strategy_version": strategy_version,
+                    "symbol": symbol,
+                    "timeframe": timeframe,
+                    "metrics": metrics,
+                },
+            )
+            connection.execute("COMMIT")
+        except Exception:
+            if connection.in_transaction:
+                connection.execute("ROLLBACK")
+            raise
+        finally:
+            self._close_if_needed(connection)
+
+    def record_validation(
+        self,
+        *,
+        validation_id: str,
+        strategy_id: str,
+        strategy_version: str,
+        symbol: str,
+        timeframe: str,
+        passed: bool,
+        gates: Any,
+        warnings: Any,
+        in_sample_run_id: str,
+        out_of_sample_run_id: str,
+        completed_at: datetime,
+    ) -> None:
+        connection = self._connect()
+        try:
+            connection.execute("BEGIN IMMEDIATE")
+            connection.execute(
+                """
+                INSERT INTO strategy_validations (
+                    validation_id, strategy_id, strategy_version,
+                    symbol, timeframe, passed, gates_json,
+                    warnings_json, in_sample_run_id,
+                    out_of_sample_run_id, completed_at
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                """,
+                (
+                    validation_id,
+                    strategy_id,
+                    strategy_version,
+                    symbol,
+                    timeframe,
+                    int(passed),
+                    _json(gates),
+                    _json(warnings),
+                    in_sample_run_id,
+                    out_of_sample_run_id,
+                    completed_at.isoformat(),
+                ),
+            )
+            self._insert_event(
+                connection,
+                "strategy_validation_completed",
+                validation_id,
+                {
+                    "strategy_id": strategy_id,
+                    "strategy_version": strategy_version,
+                    "symbol": symbol,
+                    "timeframe": timeframe,
+                    "passed": passed,
+                    "gates": gates,
+                    "warnings": warnings,
+                    "in_sample_run_id": in_sample_run_id,
+                    "out_of_sample_run_id": out_of_sample_run_id,
+                },
             )
             connection.execute("COMMIT")
         except Exception:
@@ -472,3 +1515,215 @@ class SqliteAuditReader:
             "updated_at": row["updated_at"],
             "payload": json.loads(row["payload_json"]),
         }
+
+    def recent_signals(self, limit: int = 100) -> list[dict[str, Any]]:
+        safe_limit = max(1, min(limit, 200))
+        with closing(self._connect()) as connection:
+            rows = connection.execute(
+                """
+                SELECT signal_id, account_id, strategy_id,
+                       strategy_version, symbol, action, bar_timestamp,
+                       confidence, reference_price, stop_price,
+                       target_price, reason_codes_json, evidence_json,
+                       status, status_details_json, created_at,
+                       expires_at, updated_at
+                FROM strategy_signals
+                ORDER BY created_at DESC LIMIT ?
+                """,
+                (safe_limit,),
+            ).fetchall()
+        return [
+            {
+                "signal_id": row["signal_id"],
+                "account_id": row["account_id"],
+                "strategy_id": row["strategy_id"],
+                "strategy_version": row["strategy_version"],
+                "symbol": row["symbol"],
+                "action": row["action"],
+                "bar_timestamp": row["bar_timestamp"],
+                "confidence": row["confidence"],
+                "reference_price": row["reference_price"],
+                "stop_price": row["stop_price"],
+                "target_price": row["target_price"],
+                "reason_codes": json.loads(row["reason_codes_json"]),
+                "evidence": json.loads(row["evidence_json"]),
+                "status": row["status"],
+                "status_details": json.loads(
+                    row["status_details_json"]
+                ),
+                "created_at": row["created_at"],
+                "expires_at": row["expires_at"],
+                "updated_at": row["updated_at"],
+            }
+            for row in rows
+        ]
+
+    def strategy_runtime(self) -> list[dict[str, Any]]:
+        with closing(self._connect()) as connection:
+            rows = connection.execute(
+                """
+                SELECT account_id, strategy_id, symbol, state,
+                       bar_timestamp, details_json, evaluated_at
+                FROM strategy_runtime
+                ORDER BY strategy_id, symbol
+                """
+            ).fetchall()
+        return [
+            {
+                "account_id": row["account_id"],
+                "strategy_id": row["strategy_id"],
+                "symbol": row["symbol"],
+                "state": row["state"],
+                "bar_timestamp": row["bar_timestamp"],
+                "details": json.loads(row["details_json"]),
+                "evaluated_at": row["evaluated_at"],
+            }
+            for row in rows
+        ]
+
+    def recent_trade_records(
+        self, limit: int = 100
+    ) -> list[dict[str, Any]]:
+        safe_limit = max(1, min(limit, 200))
+        with closing(self._connect()) as connection:
+            rows = connection.execute(
+                """
+                SELECT signal_id, intent_id, account_id, strategy_id,
+                       symbol, side, state, requested_quantity,
+                       approved_quantity, reserved_risk, reference_price,
+                       stop_price, target_price, broker_order_id,
+                       entry_price, exit_price, realized_pnl,
+                       exit_reason, closed_at, explanation_json,
+                       created_at, updated_at
+                FROM trade_records
+                ORDER BY created_at DESC LIMIT ?
+                """,
+                (safe_limit,),
+            ).fetchall()
+        return [
+            {
+                "signal_id": row["signal_id"],
+                "intent_id": row["intent_id"],
+                "account_id": row["account_id"],
+                "strategy_id": row["strategy_id"],
+                "symbol": row["symbol"],
+                "side": row["side"],
+                "state": row["state"],
+                "requested_quantity": row["requested_quantity"],
+                "approved_quantity": row["approved_quantity"],
+                "reserved_risk": row["reserved_risk"],
+                "reference_price": row["reference_price"],
+                "stop_price": row["stop_price"],
+                "target_price": row["target_price"],
+                "broker_order_id": row["broker_order_id"],
+                "entry_price": row["entry_price"],
+                "exit_price": row["exit_price"],
+                "realized_pnl": row["realized_pnl"],
+                "exit_reason": row["exit_reason"],
+                "closed_at": row["closed_at"],
+                "explanation": json.loads(row["explanation_json"]),
+                "created_at": row["created_at"],
+                "updated_at": row["updated_at"],
+            }
+            for row in rows
+        ]
+
+    def recent_backtests(
+        self, limit: int = 20
+    ) -> list[dict[str, Any]]:
+        safe_limit = max(1, min(limit, 100))
+        with closing(self._connect()) as connection:
+            rows = connection.execute(
+                """
+                SELECT run_id, strategy_id, strategy_version, symbol,
+                       timeframe, started_at, completed_at,
+                       config_json, metrics_json
+                FROM backtest_runs
+                ORDER BY completed_at DESC LIMIT ?
+                """,
+                (safe_limit,),
+            ).fetchall()
+        return [
+            {
+                "run_id": row["run_id"],
+                "strategy_id": row["strategy_id"],
+                "strategy_version": row["strategy_version"],
+                "symbol": row["symbol"],
+                "timeframe": row["timeframe"],
+                "started_at": row["started_at"],
+                "completed_at": row["completed_at"],
+                "config": json.loads(row["config_json"]),
+                "metrics": json.loads(row["metrics_json"]),
+            }
+            for row in rows
+        ]
+
+    def recent_validations(
+        self, limit: int = 20
+    ) -> list[dict[str, Any]]:
+        safe_limit = max(1, min(limit, 100))
+        with closing(self._connect()) as connection:
+            rows = connection.execute(
+                """
+                SELECT validation_id, strategy_id, strategy_version,
+                       symbol, timeframe, passed, gates_json,
+                       warnings_json, in_sample_run_id,
+                       out_of_sample_run_id, completed_at
+                FROM strategy_validations
+                ORDER BY completed_at DESC LIMIT ?
+                """,
+                (safe_limit,),
+            ).fetchall()
+        return [
+            {
+                "validation_id": row["validation_id"],
+                "strategy_id": row["strategy_id"],
+                "strategy_version": row["strategy_version"],
+                "symbol": row["symbol"],
+                "timeframe": row["timeframe"],
+                "passed": bool(row["passed"]),
+                "gates": json.loads(row["gates_json"]),
+                "warnings": json.loads(row["warnings_json"]),
+                "in_sample_run_id": row["in_sample_run_id"],
+                "out_of_sample_run_id": row["out_of_sample_run_id"],
+                "completed_at": row["completed_at"],
+            }
+            for row in rows
+        ]
+
+    def market_bars(
+        self,
+        symbol: str,
+        timeframe: str,
+        *,
+        limit: int = 200,
+    ) -> list[dict[str, Any]]:
+        safe_limit = max(10, min(limit, 1000))
+        with closing(self._connect()) as connection:
+            rows = connection.execute(
+                """
+                SELECT symbol, timeframe, feed, bar_timestamp,
+                       open_price, high_price, low_price, close_price,
+                       volume, trade_count, vwap
+                FROM market_bars
+                WHERE symbol = ? AND timeframe = ?
+                ORDER BY bar_timestamp DESC LIMIT ?
+                """,
+                (symbol, timeframe, safe_limit),
+            ).fetchall()
+        return [
+            {
+                "symbol": row["symbol"],
+                "timeframe": row["timeframe"],
+                "feed": row["feed"],
+                "timestamp": row["bar_timestamp"],
+                "open": row["open_price"],
+                "high": row["high_price"],
+                "low": row["low_price"],
+                "close": row["close_price"],
+                "volume": row["volume"],
+                "trade_count": row["trade_count"],
+                "vwap": row["vwap"],
+            }
+            for row in reversed(rows)
+        ]

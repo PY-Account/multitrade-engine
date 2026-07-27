@@ -120,7 +120,7 @@ class AlpacaPayloadTests(TestCase):
                     "GET",
                     "/v2/orders",
                     query={
-                        "status": "open",
+                        "status": "all",
                         "limit": "500",
                         "nested": "true",
                         "direction": "desc",

@@ -80,6 +80,27 @@ class RiskEngineTests(TestCase):
             decision.reason, "portfolio_risk_budget_exhausted"
         )
 
+    def test_strategy_budget_can_be_stricter_than_hard_ceiling(
+        self,
+    ) -> None:
+        intent = TradeIntent(
+            strategy_id="allocated-strategy",
+            asset_class=AssetClass.STOCK,
+            symbol="AAPL",
+            side=Side.BUY,
+            requested_quantity=Decimal("1000"),
+            order_type=OrderType.MARKET,
+            time_in_force=TimeInForce.DAY,
+            reference_price=Decimal("100"),
+            stop_price=Decimal("95"),
+            risk_budget_fraction=Decimal("0.005"),
+        )
+
+        decision = RiskEngine().evaluate(intent, snapshot())
+
+        self.assertTrue(decision.approved)
+        self.assertLessEqual(decision.reserved_risk, Decimal("500"))
+
     def test_daily_loss_kill_switch(self) -> None:
         intent = TradeIntent(
             strategy_id="stock-test",

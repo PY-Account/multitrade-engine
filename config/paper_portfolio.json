@@ -1,0 +1,50 @@
+{
+  "accounts": [
+    {
+      "account_id": "alpaca-paper",
+      "broker": "alpaca",
+      "environment": "paper",
+      "enabled": true,
+      "asset_classes": ["stock"],
+      "watchlist": ["SPY", "QQQ", "AAPL", "MSFT"],
+      "timeframe": "5Min",
+      "maximum_positions": 4,
+      "maximum_daily_orders": 6,
+      "symbol_cooldown_minutes": 60,
+      "strategies": [
+        {
+          "strategy_id": "breakout_retest",
+          "enabled": true,
+          "capital_weight": "0.20",
+          "risk_fraction": "0.005",
+          "minimum_confidence": "0.60",
+          "paper_execution_allowed": false
+        },
+        {
+          "strategy_id": "trend_pullback",
+          "enabled": true,
+          "capital_weight": "0.15",
+          "risk_fraction": "0.004",
+          "minimum_confidence": "0.60",
+          "paper_execution_allowed": false
+        },
+        {
+          "strategy_id": "volatility_contraction",
+          "enabled": true,
+          "capital_weight": "0.15",
+          "risk_fraction": "0.004",
+          "minimum_confidence": "0.65",
+          "paper_execution_allowed": false
+        },
+        {
+          "strategy_id": "range_mean_reversion",
+          "enabled": false,
+          "capital_weight": "0.10",
+          "risk_fraction": "0.003",
+          "minimum_confidence": "0.55",
+          "paper_execution_allowed": false
+        }
+      ]
+    }
+  ]
+}

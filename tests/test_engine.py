@@ -85,3 +85,32 @@ class TradingEngineTests(TestCase):
         self.assertTrue(first.approved)
         self.assertFalse(second.approved)
         self.assertEqual(second.reason, "duplicate_intent_reserved")
+
+    def test_strategy_approval_is_required_even_when_global_gate_is_on(
+        self,
+    ) -> None:
+        broker = FakeBroker()
+        store = SqliteAuditStore(":memory:")
+        engine = TradingEngine(
+            broker=broker,
+            risk_engine=RiskEngine(),
+            audit_store=store,
+            enable_order_submission=True,
+        )
+
+        result = engine.process(
+            make_intent(), allow_submission=False
+        )
+
+        self.assertTrue(result.decision.approved)
+        self.assertTrue(result.dry_run)
+        self.assertEqual(broker.submissions, 0)
+        dry_run = next(
+            event
+            for event in store.recent_events()
+            if event["event_type"] == "dry_run"
+        )
+        self.assertEqual(
+            dry_run["payload"]["reason"],
+            "strategy_paper_execution_not_approved",
+        )

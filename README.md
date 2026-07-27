@@ -1,132 +1,173 @@
 # MultiTrade Engine
 
-MultiTrade is a Paper-first foundation for a multi-account, multi-strategy
-trading platform. The current milestone connects only to Alpaca Paper and
-provides centralized risk checks, audit logging, broker payload construction,
-and always-on read-only broker reconciliation.
+MultiTrade is a Paper-only, always-on foundation for operating a small
+algorithmic-trading organization. It separates market analysis, strategy
+signals, portfolio allocation, central risk approval, broker execution,
+reconciliation, audit, backtesting, and monitoring.
 
-This repository does not contain a profitable strategy and does not support
-live trading.
+Release 0.3 is designed for controlled Alpaca Paper observation and dry-run
+testing. It does not support live trading and it does not claim that any
+strategy is profitable.
 
 ## Safety invariants
 
-- The Alpaca adapter rejects every endpoint except
+- The Alpaca trading adapter rejects every endpoint except
   `https://paper-api.alpaca.markets`.
-- Paper order submission is disabled unless
-  `TRADING_ENABLE_PAPER_ORDERS=true`.
-- Strategies produce trade intents; they never hold broker credentials.
-- Central risk limits are enforced before an order can reach the broker.
-- Per-trade risk is capped at 3% and total active risk at 10%.
-- Unlimited-loss option positions are rejected.
-- API secrets are excluded from Git, container images, and logs.
+- A deterministic `client_order_id` makes repeated strategy cycles
+  idempotent.
+- Global automation, global Paper submission, per-strategy Paper approval,
+  and the emergency stop are independent controls.
+- The default portfolio approves no strategy for order submission.
+- Every opening stock order produced by automation is a broker-side bracket
+  with both stop-loss and take-profit children.
+- Per-trade risk cannot exceed 3% of equity; configured strategy budgets are
+  normally 0.3%-0.5%.
+- aggregate reserved/open risk cannot exceed 10% of equity.
+- Daily-loss and drawdown guards, maximum positions, daily order limits, and
+  per-symbol cooldowns are enforced.
+- Unlimited-loss option structures are rejected.
+- API secrets are excluded from Git, container images, responses, and logs.
 
-The 3% and 10% values are hard ceilings, not recommended operating targets.
-Normal strategy allocations will be lower.
+The 3% and 10% figures are hard ceilings, not operating targets.
 
-## Current components
+## Implemented components
 
-- Stock, defined-risk option, and spot-crypto trade-intent models.
-- Centralized position sizing and kill switches.
-- Atomic SQLite risk reservation for a single orchestrator.
-- Alpaca Paper account, position, and order adapter.
-- Read-only reconciliation of account controls, positions, open orders, and
-  the US market clock.
-- Multi-leg option order payloads with up to four legs.
-- Structured audit events.
-- Freshness-based container health checks.
-- Authenticated read-only operations dashboard.
-- Hardened Docker Compose deployment with no public ports.
+- Alpaca Paper account, controls, positions, recent orders, and US-market
+  clock reconciliation.
+- Paginated Alpaca stock bars using closed bars only, with explicit IEX/SIP
+  feed selection.
+- Feature service: moving averages, ATR, volume, volatility, Donchian levels,
+  trend strength, and market-regime classification.
+- Versioned and explainable stock strategy candidates:
+  breakout/retest, trend pullback, volatility-contraction breakout, and
+  range mean reversion.
+- Account-specific watchlists, strategy weights, confidence filters, risk
+  budgets, position limits, order limits, cooldowns, and Paper approvals.
+- Centralized sizing, atomic SQLite risk reservations, duplicate prevention,
+  and broker lifecycle reconciliation.
+- Conservative backtesting with next-bar entry, modeled costs, stop-first
+  handling when both levels touch in one bar, and chronological walk-forward
+  gates.
+- Alpaca option-chain normalization and liquidity-filtered bull-call and
+  bear-put debit-spread construction. This layer is research-only.
+- Authenticated HTTPS operations dashboard with account/risk state, strategy
+  runtime, signals, trade explanations, price context, validation results,
+  audit events, dark/light/system theme, and browser/locale/date/time-zone
+  preferences.
+- Dashboard authentication includes per-client failure throttling; Caddy adds
+  TLS and HSTS.
+- Docker Compose services for the heartbeat, strategy worker, dashboard, and
+  Caddy TLS proxy.
 
-SQLite is intentionally temporary. Before multiple workers, multiple accounts,
-or live trading, the account-scoped risk and reconciliation ledger must move
-to PostgreSQL.
+## Operating modes
 
-## Local verification
+The tracked defaults generate and record signals but cannot place orders:
+
+```dotenv
+TRADING_AUTOMATION_ENABLED=false
+TRADING_ENABLE_PAPER_ORDERS=false
+TRADING_EMERGENCY_STOP=false
+```
+
+Each strategy also has this default in `config/paper_portfolio.json`:
+
+```json
+"paper_execution_allowed": false
+```
+
+Behavior:
+
+| Controls | Result |
+|---|---|
+| Automation false | Signals are recorded as observation-only |
+| Automation true, Paper orders false | Risk-evaluated dry run |
+| Both true, strategy approval false | Per-strategy dry run |
+| Both true, strategy approval true | Guarded Alpaca Paper bracket submission |
+| Emergency stop true | No new Paper submission |
+
+The emergency stop does not cancel or close existing broker orders or
+positions. Those remain visible and must still be managed at Alpaca.
+
+## Verification
 
 PowerShell:
 
 ```powershell
 $env:PYTHONPATH="src"
+python -m compileall -q src tests
 python -m unittest discover -s tests -v
 python -m multitrade demo
 ```
 
-Create a local configuration:
+Configuration checks:
 
 ```powershell
 Copy-Item .env.example .env
-```
-
-Place Alpaca Paper credentials in `.env`, then run:
-
-```powershell
+# Add Alpaca Paper and dashboard credentials to .env.
 $env:PYTHONPATH="src"
 python -m multitrade doctor
 python -m multitrade run --once
+python -m multitrade automate --once
 ```
 
-The CLI loads `.env` without overriding environment variables already supplied
-by Docker, CI, or the operating system.
+Backtest one strategy:
 
-## Docker
-
-```bash
-cp .env.example .env
-# Add Alpaca Paper credentials to .env.
-docker compose build
-docker compose up -d
-docker compose ps
-docker compose logs --tail=100 engine
-docker compose logs --tail=100 dashboard
+```powershell
+python -m multitrade backtest `
+  --strategy breakout_retest `
+  --symbol SPY `
+  --timeframe 5Min `
+  --start 2026-04-01 `
+  --end 2026-07-25 `
+  --validate
 ```
 
-The default service performs read-only Paper reconciliation. It cannot submit
-orders while `TRADING_ENABLE_PAPER_ORDERS=false`.
+Read-only option-chain engineering check:
 
-The dashboard service reads the audit database through SQLite query-only
-connections. It requires `DASHBOARD_USERNAME` and `DASHBOARD_PASSWORD`, and it
-is available only inside the Docker network by default.
+```powershell
+python -m multitrade option-scan `
+  --underlying AAPL `
+  --minimum-dte 21 `
+  --maximum-dte 60
+```
 
-The repository includes an opt-in `public-dashboard` Compose profile backed by
-Caddy. The profile is disabled by default and is documented in
-[`docs/HTTPS_DASHBOARD.md`](docs/HTTPS_DASHBOARD.md).
+## VPS deployment and update
 
-## VPS updates
-
-Verified releases are pushed to the private `main` branch. On the VPS, updates
-use a fast-forward-only workflow and stop if tracked server files were edited:
+The `.env` file remains only on the VPS. Do not paste API keys into a shell
+command, GitHub, or this chat.
 
 ```bash
 cd /opt/multitrade/app
 bash ops/update.sh
 ```
 
-The updater detects `DASHBOARD_DOMAIN` and preserves the HTTPS profile. It
-validates configuration and credentials before recreating services. It never
-enables Paper order submission or modifies `.env`.
+The updater:
 
-## Hostinger
+1. Stops if tracked server files were changed.
+2. Fetches and fast-forwards private `main`.
+3. Preserves the existing `.env` and HTTPS profile.
+4. Builds the image and runs `multitrade doctor`.
+5. Recreates the heartbeat, automation, dashboard, and proxy services.
 
-The server setup is documented in
-[`docs/SERVER_SETUP.md`](docs/SERVER_SETUP.md). It uses Ubuntu 24.04, Docker
-Compose, a private Git repository, and Hostinger's browser terminal. Direct SSH
-from the current workstation is blocked by its Zscaler network path.
+After updating:
 
-## Implementation sequence
+```bash
+cd /opt/multitrade/app
+docker compose --profile public-dashboard ps
+docker compose --profile public-dashboard logs --tail=100 automation
+docker compose --profile public-dashboard logs --tail=100 engine
+```
 
-Completed foundation:
+The controlled testing sequence is documented in
+[`docs/PAPER_VALIDATION_RUNBOOK.md`](docs/PAPER_VALIDATION_RUNBOOK.md).
+Strategy definitions and limitations are documented in
+[`docs/STRATEGY_CATALOG.md`](docs/STRATEGY_CATALOG.md).
 
-1. Secure, reproducible Alpaca Paper deployment.
-2. HTTPS access to the authenticated, read-only operations dashboard.
-3. Account, position, open-order, and market-clock reconciliation.
+## Current boundary
 
-Next controlled releases:
-
-1. PostgreSQL account, allocation, risk, and audit model.
-2. Historical market-data and reproducible backtesting pipeline.
-3. Market-regime classification and versioned signal contracts.
-4. First researched strategy with out-of-sample and Paper validation.
-5. Multi-account strategy allocation and portfolio-level exposure controls.
-6. Controlled Paper order lifecycle and reconciliation.
-7. Additional broker adapters for dedicated crypto and forex accounts.
-8. Separate, explicitly approved live-trading program.
+This release supports one enabled Alpaca Paper account in the running worker.
+The configuration model is account-scoped, but true multi-account execution,
+PostgreSQL portfolio aggregation, dedicated crypto/forex broker adapters,
+role-based administration/MFA, and any live-trading program remain separate
+future releases. SQLite is safe here only because execution is intentionally a
+single account/single orchestrator.

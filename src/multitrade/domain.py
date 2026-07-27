@@ -4,7 +4,7 @@ from dataclasses import dataclass, field
 from datetime import date, datetime, timezone
 from decimal import Decimal
 from enum import StrEnum
-from typing import Mapping
+from typing import Any, Mapping
 from uuid import uuid4
 
 
@@ -76,6 +76,11 @@ class TradeIntent:
     limit_price: Decimal | None = None
     option_legs: tuple[OptionLeg, ...] = ()
     reduce_only: bool = False
+    take_profit_price: Decimal | None = None
+    risk_budget_fraction: Decimal | None = None
+    account_id: str = "alpaca-paper"
+    signal_id: str | None = None
+    explanation: Mapping[str, Any] = field(default_factory=dict)
     intent_id: str = field(default_factory=lambda: str(uuid4()))
     created_at: datetime = field(
         default_factory=lambda: datetime.now(timezone.utc)
@@ -92,6 +97,33 @@ class TradeIntent:
             raise ValueError("Option intents require at least one option leg")
         if self.asset_class is not AssetClass.OPTION and self.option_legs:
             raise ValueError("Only option intents may contain option legs")
+        if self.take_profit_price is not None:
+            if self.reference_price is None:
+                raise ValueError(
+                    "reference_price is required with take_profit_price"
+                )
+            if (
+                self.side is Side.BUY
+                and self.take_profit_price <= self.reference_price
+            ):
+                raise ValueError(
+                    "long take-profit must be above reference price"
+                )
+            if (
+                self.side is Side.SELL
+                and self.take_profit_price >= self.reference_price
+            ):
+                raise ValueError(
+                    "short take-profit must be below reference price"
+                )
+        if self.risk_budget_fraction is not None and not (
+            ZERO < self.risk_budget_fraction <= Decimal("1")
+        ):
+            raise ValueError(
+                "risk_budget_fraction must be in the interval (0, 1]"
+            )
+        if not self.account_id:
+            raise ValueError("account_id is required")
 
 
 @dataclass(frozen=True, slots=True)

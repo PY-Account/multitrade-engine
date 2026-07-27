@@ -75,7 +75,14 @@ class RiskEngine:
                 intent, "calculated_risk_must_be_positive", snapshot.active_risk
             )
 
-        trade_ceiling = snapshot.equity * self.policy.max_per_trade
+        requested_ceiling = (
+            intent.risk_budget_fraction
+            if intent.risk_budget_fraction is not None
+            else self.policy.max_per_trade
+        )
+        trade_ceiling = snapshot.equity * min(
+            self.policy.max_per_trade, requested_ceiling
+        )
         portfolio_ceiling = snapshot.equity * self.policy.max_total_open
         remaining_portfolio_risk = max(
             ZERO, portfolio_ceiling - snapshot.active_risk
