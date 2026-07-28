@@ -514,6 +514,18 @@
 
   <section class="panel workspace-view" data-primary="strategy-lab" data-secondary="trials">
     <div class="panel-head">
+      <div><h2>Preregistered strategy experiments</h2><p class="subcopy">Frozen candidate families, hypotheses, parameter snapshots, and prospective review boundaries. Meeting the observation count never grants execution or substitutes for a genuinely untouched final holdout.</p></div>
+    </div>
+    <div class="table-wrap">
+      <table>
+        <thead><tr><th>Family</th><th>Experiment</th><th>Strategy / variant</th><th>Hypothesis</th><th>Observation starts</th><th>Review not before</th><th class="number">Trials</th><th>Prospective evidence</th><th class="number">Family candidates</th><th class="number">Datasets</th><th>Holdout</th><th>Manifest</th><th>Status</th><th>Execution</th></tr></thead>
+        <tbody id="strategy-experiments"></tbody>
+      </table>
+    </div>
+  </section>
+
+  <section class="panel workspace-view" data-primary="strategy-lab" data-secondary="trials">
+    <div class="panel-head">
       <div><h2>Immutable model-trial registry</h2><p class="subcopy">Every evaluated candidate is append-only and identified by its implementation and parameters, laboratory configuration, and exact input dataset. Per-strategy hash chains expose conflicting mutation or broken lineage.</p></div>
     </div>
     <div class="table-wrap">
@@ -1328,6 +1340,71 @@
     }
   }
 
+  function renderStrategyExperiments(payload) {
+    const body = document.getElementById("strategy-experiments");
+    body.replaceChildren();
+    const configured = (
+      payload?.configuration?.experiments || []
+    );
+    const summaries = new Map(
+      (payload?.summaries || []).map(
+        summary => [summary.experiment_id, summary]
+      )
+    );
+    if (!configured.length) {
+      emptyRow(body, 14, "No preregistered strategy experiment is configured.");
+      return;
+    }
+    const familyCandidateDefaults = new Map();
+    for (const experiment of configured) {
+      familyCandidateDefaults.set(
+        experiment.family_id,
+        (familyCandidateDefaults.get(experiment.family_id) || 0) + 1
+      );
+    }
+    for (const experiment of configured) {
+      const summary = summaries.get(experiment.experiment_id);
+      const prospectiveTrials = summary?.prospective_trial_count || 0;
+      const prospectiveDays = summary?.prospective_days_observed || 0;
+      const requirementsMet = Boolean(
+        summary?.prospective_requirements_met
+      );
+      const status = requirementsMet && summary?.review_time_reached
+        ? "Review due"
+        : prospectiveTrials
+          ? "Collecting"
+          : "Awaiting prospective trial";
+      const manifestState = summary
+        ? (
+            summary.manifest_integrity_valid
+              ? "Verified"
+              : "Broken"
+          )
+        : "Awaiting registration";
+      const values = [
+        [experiment.family_id, ""],
+        [experiment.experiment_id, ""],
+        [`${experiment.strategy_id} v${experiment.strategy_version} / ${experiment.variant_id}`, ""],
+        [experiment.hypothesis, ""],
+        [localTime(experiment.prospective_observation_start), ""],
+        [localTime(experiment.review_not_before), ""],
+        [summary?.trial_count ?? 0, "number"],
+        [`${prospectiveTrials}/${experiment.minimum_prospective_trials} trials · ${prospectiveDays}/${experiment.minimum_prospective_days} days`, requirementsMet ? "ok" : "warn"],
+        [summary?.family_candidate_count ?? familyCandidateDefaults.get(experiment.family_id), "number"],
+        [summary?.distinct_dataset_count ?? 0, "number"],
+        [(experiment.final_holdout_status || "not_reserved").replaceAll("_", " "), experiment.final_holdout_status === "reserved" ? "ok" : "warn"],
+        [manifestState, summary?.manifest_integrity_valid ? "ok" : "warn"],
+        [status, requirementsMet ? "ok" : "warn"],
+        [experiment.execution_eligible ? "Eligible" : "Blocked", experiment.execution_eligible ? "bad" : "ok"],
+      ];
+      const row = document.createElement("tr");
+      for (const [value, className] of values) {
+        row.appendChild(cell(value, className));
+      }
+      body.appendChild(row);
+    }
+  }
+
   function renderStrategyModelTrials(trials) {
     const body = document.getElementById("strategy-model-trials");
     body.replaceChildren();
@@ -1850,6 +1927,7 @@
       renderPortfolioRiskReports(data.portfolio_risk_reports || []);
       renderStrategyLabReports(data.strategy_lab_reports || []);
       renderStrategyRobustness(data.strategy_lab_reports || []);
+      renderStrategyExperiments(data.strategy_experiments || {});
       renderStrategyModelTrials(data.strategy_model_trials || []);
       renderAssetCandidates(data.asset_universe_reports || []);
       renderUniverseAssignments(

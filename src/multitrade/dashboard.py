@@ -20,6 +20,10 @@ from urllib.request import urlopen
 
 from multitrade import __version__
 from multitrade.audit import SqliteAuditReader
+from multitrade.experiments import (
+    StrategyExperimentProgram,
+    experiment_program_payload,
+)
 from multitrade.health import check_health
 from multitrade.portfolio import AccountPlan
 from multitrade.research import evidence_catalog
@@ -52,6 +56,9 @@ class DashboardData:
         emergency_stop: bool = False,
         account_plans: tuple[AccountPlan, ...] = (),
         asset_universe_program: AssetUniverseProgram | None = None,
+        strategy_experiment_program: (
+            StrategyExperimentProgram | None
+        ) = None,
         release_version: str = __version__,
         build_commit: str | None = None,
     ) -> None:
@@ -99,6 +106,9 @@ class DashboardData:
         self.emergency_stop = emergency_stop
         self.account_plans = account_plans
         self.asset_universe_program = asset_universe_program
+        self.strategy_experiment_program = (
+            strategy_experiment_program
+        )
         self.release_version = release_version
         candidate_commit = (
             build_commit
@@ -179,6 +189,9 @@ class DashboardData:
             strategy_model_trials = (
                 self.reader.recent_strategy_model_trials(100)
             )
+            strategy_experiment_summaries = (
+                self.reader.strategy_experiment_summaries()
+            )
             asset_universe_reports = (
                 self.reader.recent_asset_universe_reports(20)
             )
@@ -198,6 +211,7 @@ class DashboardData:
             portfolio_risk_reports = []
             strategy_lab_reports = []
             strategy_model_trials = []
+            strategy_experiment_summaries = []
             asset_universe_reports = []
             storage = {"status": "unavailable"}
 
@@ -369,6 +383,18 @@ class DashboardData:
             "portfolio_risk_reports": portfolio_risk_reports,
             "strategy_lab_reports": strategy_lab_reports,
             "strategy_model_trials": strategy_model_trials,
+            "strategy_experiments": {
+                "configuration": (
+                    experiment_program_payload(
+                        self.strategy_experiment_program
+                    )
+                    if self.strategy_experiment_program
+                    is not None
+                    else None
+                ),
+                "summaries": strategy_experiment_summaries,
+                "execution_enabled": False,
+            },
             "asset_universe_reports": asset_universe_reports,
             "evidence_catalog": evidence_catalog(),
         }
@@ -398,7 +424,7 @@ class DashboardData:
 
 
 class DashboardRequestHandler(BaseHTTPRequestHandler):
-    server_version = "MultiTradeDashboard/0.9.0"
+    server_version = "MultiTradeDashboard/0.10.0"
     sys_version = ""
     data_service: DashboardData
     expected_authorization: str

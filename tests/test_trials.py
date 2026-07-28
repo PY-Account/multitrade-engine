@@ -173,7 +173,18 @@ class StrategyTrialDefinitionTests(TestCase):
                 }
             self.assertIn("strategy_model_trials", tables)
             self.assertIn(
+                "strategy_experiment_manifests", tables
+            )
+            self.assertIn(
                 "strategy_model_trials_no_update", triggers
+            )
+            self.assertIn(
+                "strategy_experiment_manifests_no_update",
+                triggers,
+            )
+            self.assertIn(
+                "strategy_experiment_manifests_no_delete",
+                triggers,
             )
             self.assertIn(
                 "strategy_lab_reports_with_trial_no_delete",

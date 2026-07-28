@@ -15,8 +15,8 @@ Each trial stores three separate SHA-256 fingerprints:
    parameters, and a source manifest covering the strategy module, feature
    engine, signal construction, backtester, and robustness simulator.
 2. **Configuration fingerprint:** account/environment identity, timeframe,
-   assigned symbols, allocation and risk inputs, and all Strategy Lab gates
-   and stress settings.
+   assigned symbols, allocation and risk inputs, all Strategy Lab gates and
+   stress settings, and the complete frozen experiment binding.
 3. **Dataset fingerprint:** every requested symbol, exact normalized OHLCV
    bars, timestamps, trade counts, VWAP, feed, adjustment, and missing-data
    state.
@@ -57,11 +57,23 @@ because reconstructing the exact historical code, configuration, and data
 would create false provenance. The first post-upgrade Strategy Lab cycle
 starts each strategy's verified chain.
 
+Version 0.10.0 adds immutable experiment manifests. The manifest is inserted
+in the same transaction as its first linked report and trial. An existing
+experiment ID cannot be reused with a different fingerprint, and ordinary SQL
+updates and deletes are blocked. Each later trial carries the experiment ID,
+family, phase, prospective flag, and manifest fingerprint inside its
+configuration evidence.
+
+The Git release is the code-reviewed publication point for these manifests;
+the local SQLite copy is not an independent public preregistration service.
+An administrator with schema and filesystem control can still replace it.
+
 ## Statistical boundary
 
-The registry supplies a prerequisite for the Probability of Backtest
-Overfitting and Deflated Sharpe Ratio, but does not make either statistic
-valid by itself. MultiTrade must still define economically related candidate
-families, accumulate enough distinct trials, preserve an untouched final
-holdout, and implement the published procedures without cherry-picking the
-family definition.
+The registry and experiment families supply prerequisites for the Probability
+of Backtest Overfitting and Deflated Sharpe Ratio, but do not make either
+statistic valid by themselves. MultiTrade must still accumulate enough
+genuinely distinct variants, reserve a final untouched holdout, and implement
+the published procedures without cherry-picking. Repeated runs of one frozen
+candidate do not create the cross-section of alternatives required for those
+statistics.

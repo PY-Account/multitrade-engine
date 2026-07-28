@@ -29,6 +29,9 @@ from multitrade.domain import (
     TradeIntent,
 )
 from multitrade.engine import TradingEngine
+from multitrade.experiments import (
+    load_strategy_experiment_program,
+)
 from multitrade.health import check_health, write_health
 from multitrade.market import AlpacaMarketDataClient, closed_bars
 from multitrade.options import (
@@ -167,6 +170,50 @@ def _doctor() -> int:
         asset_universe_configuration_valid = False
         asset_universe_configuration_error = str(exc)
         universe_policies = []
+    try:
+        experiment_program = load_strategy_experiment_program(
+            settings.strategy_experiment_program_path
+        )
+        strategies = default_equity_strategies()
+        configured_strategy_ids = set(
+            experiment_program.experiments_by_strategy
+        )
+        runtime_strategy_ids = set(strategies)
+        if configured_strategy_ids != runtime_strategy_ids:
+            missing = runtime_strategy_ids - configured_strategy_ids
+            extra = configured_strategy_ids - runtime_strategy_ids
+            details = []
+            if missing:
+                details.append(
+                    "missing=" + ",".join(sorted(missing))
+                )
+            if extra:
+                details.append(
+                    "unknown=" + ",".join(sorted(extra))
+                )
+            raise ValueError(
+                "Experiment strategy coverage differs from runtime: "
+                + "; ".join(details)
+            )
+        for strategy in strategies.values():
+            experiment_program.bind(
+                strategy,
+                evaluated_at=datetime.now(timezone.utc),
+            )
+        strategy_experiments_valid = True
+        strategy_experiments_error = None
+        strategy_experiment_families = sorted(
+            {
+                experiment.family_id
+                for experiment in (
+                    experiment_program.experiments_by_strategy.values()
+                )
+            }
+        )
+    except (OSError, ValueError, json.JSONDecodeError) as exc:
+        strategy_experiments_valid = False
+        strategy_experiments_error = str(exc)
+        strategy_experiment_families = []
 
     checks = {
         "paper_endpoint_locked": True,
@@ -215,6 +262,19 @@ def _doctor() -> int:
             settings.strategy_lab_stressed_cost_bps, "f"
         ),
         "strategy_lab_execution_enabled": False,
+        "strategy_experiment_program_path": str(
+            settings.strategy_experiment_program_path
+        ),
+        "strategy_experiments_valid": (
+            strategy_experiments_valid
+        ),
+        "strategy_experiments_error": (
+            strategy_experiments_error
+        ),
+        "strategy_experiment_families": (
+            strategy_experiment_families
+        ),
+        "strategy_experiment_execution_enabled": False,
         "asset_universe_config_path": str(
             settings.asset_universe_config_path
         ),
@@ -239,6 +299,7 @@ def _doctor() -> int:
             and checks["portfolio_configuration_valid"]
             and checks["research_configuration_valid"]
             and checks["asset_universe_configuration_valid"]
+            and checks["strategy_experiments_valid"]
             and len(checks["enabled_accounts"]) == 1
         )
         else 1
@@ -947,6 +1008,11 @@ def _dashboard() -> int:
         ),
         asset_universe_program=load_asset_universe_program(
             settings.asset_universe_config_path
+        ),
+        strategy_experiment_program=(
+            load_strategy_experiment_program(
+                settings.strategy_experiment_program_path
+            )
         ),
     )
     server = create_dashboard_server(

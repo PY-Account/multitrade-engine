@@ -96,6 +96,20 @@ removes one important source of selective reporting, but enough distinct
 candidate trials and an untouched final holdout must exist before PBO or the
 Deflated Sharpe Ratio can be calculated responsibly.
 
+Each current intraday strategy is also bound to a frozen experiment manifest
+before its prospective observation period starts. The manifest declares the
+hypothesis, mechanism, exact version and parameters, related candidate family,
+primary metric, earliest review time, and minimum prospective duration and
+trial count. Parameter drift stops the lab cycle instead of inheriting the
+old experiment identity. The dashboard counts only post-boundary trials as
+prospective evidence.
+
+This is a code-reviewed local preregistration discipline, not an externally
+timestamped registry. The current manifests explicitly state
+`final_holdout_status=not_reserved`; therefore neither the minimum observation
+count nor a passing gate permits a profitability claim, PBO/Deflated-Sharpe
+claim, or execution promotion.
+
 ## Daily-model validation rules
 
 The daily research simulator requests `adjustment=all` from Alpaca so splits,

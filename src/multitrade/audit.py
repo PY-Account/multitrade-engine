@@ -428,6 +428,49 @@ class SqliteAuditStore:
                 CREATE INDEX IF NOT EXISTS idx_strategy_lab_recent
                 ON strategy_lab_reports(evaluated_at DESC);
 
+                CREATE TABLE IF NOT EXISTS
+                    strategy_experiment_manifests (
+                    experiment_id TEXT PRIMARY KEY,
+                    family_id TEXT NOT NULL,
+                    strategy_id TEXT NOT NULL,
+                    strategy_version TEXT NOT NULL,
+                    variant_id TEXT NOT NULL,
+                    registered_at TEXT NOT NULL,
+                    prospective_observation_start TEXT NOT NULL,
+                    review_not_before TEXT NOT NULL,
+                    status TEXT NOT NULL,
+                    manifest_json TEXT NOT NULL,
+                    manifest_fingerprint TEXT NOT NULL UNIQUE,
+                    execution_eligible INTEGER NOT NULL
+                        CHECK (execution_eligible = 0)
+                );
+
+                CREATE INDEX IF NOT EXISTS
+                    idx_strategy_experiments_family
+                ON strategy_experiment_manifests(
+                    family_id, strategy_id
+                );
+
+                CREATE TRIGGER IF NOT EXISTS
+                    strategy_experiment_manifests_no_update
+                BEFORE UPDATE ON strategy_experiment_manifests
+                BEGIN
+                    SELECT RAISE(
+                        ABORT,
+                        'strategy experiment manifests are immutable'
+                    );
+                END;
+
+                CREATE TRIGGER IF NOT EXISTS
+                    strategy_experiment_manifests_no_delete
+                BEFORE DELETE ON strategy_experiment_manifests
+                BEGIN
+                    SELECT RAISE(
+                        ABORT,
+                        'strategy experiment manifests are immutable'
+                    );
+                END;
+
                 CREATE TABLE IF NOT EXISTS strategy_model_trials (
                     sequence INTEGER PRIMARY KEY AUTOINCREMENT,
                     trial_id TEXT NOT NULL UNIQUE,
@@ -1804,6 +1847,57 @@ class SqliteAuditStore:
                     int(report.execution_eligible),
                 ),
             )
+            binding = report.experiment_binding
+            if binding is not None:
+                existing_manifest = connection.execute(
+                    """
+                    SELECT manifest_fingerprint
+                    FROM strategy_experiment_manifests
+                    WHERE experiment_id = ?
+                    """,
+                    (binding.experiment_id,),
+                ).fetchone()
+                if existing_manifest is None:
+                    manifest = binding.manifest
+                    connection.execute(
+                        """
+                        INSERT INTO strategy_experiment_manifests (
+                            experiment_id, family_id, strategy_id,
+                            strategy_version, variant_id,
+                            registered_at,
+                            prospective_observation_start,
+                            review_not_before, status,
+                            manifest_json, manifest_fingerprint,
+                            execution_eligible
+                        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                        """,
+                        (
+                            binding.experiment_id,
+                            binding.family_id,
+                            report.strategy_id,
+                            report.strategy_version,
+                            binding.variant_id,
+                            str(manifest["registered_at"]),
+                            str(
+                                manifest[
+                                    "prospective_observation_start"
+                                ]
+                            ),
+                            str(manifest["review_not_before"]),
+                            str(manifest["status"]),
+                            _json(manifest),
+                            binding.manifest_fingerprint,
+                            int(binding.execution_eligible),
+                        ),
+                    )
+                elif (
+                    existing_manifest["manifest_fingerprint"]
+                    != binding.manifest_fingerprint
+                ):
+                    raise ValueError(
+                        "Experiment ID is already registered with "
+                        "different evidence"
+                    )
             previous = connection.execute(
                 """
                 SELECT trial_hash
@@ -2640,6 +2734,165 @@ class SqliteAuditReader:
                 }
             )
         return result
+
+    def strategy_experiment_summaries(
+        self,
+    ) -> list[dict[str, Any]]:
+        with closing(self._connect()) as connection:
+            manifest_rows = connection.execute(
+                """
+                SELECT experiment_id, family_id, strategy_id,
+                       strategy_version, variant_id, registered_at,
+                       prospective_observation_start,
+                       review_not_before, status, manifest_json,
+                       manifest_fingerprint, execution_eligible
+                FROM strategy_experiment_manifests
+                ORDER BY family_id, strategy_id, experiment_id
+                """
+            ).fetchall()
+            trial_rows = connection.execute(
+                """
+                SELECT candidate_fingerprint, dataset_fingerprint,
+                       evaluated_at, configuration_json, gates_json
+                FROM strategy_model_trials
+                ORDER BY sequence
+                """
+            ).fetchall()
+
+        trials_by_experiment: dict[str, list[dict[str, Any]]] = {}
+        family_candidates: dict[str, set[str]] = {}
+        for trial_row in trial_rows:
+            configuration = json.loads(
+                trial_row["configuration_json"]
+            )
+            experiment = configuration.get("experiment") or {}
+            experiment_id = experiment.get("experiment_id")
+            family_id = experiment.get("family_id")
+            if not experiment_id or not family_id:
+                continue
+            trial = {
+                "candidate_fingerprint": trial_row[
+                    "candidate_fingerprint"
+                ],
+                "dataset_fingerprint": trial_row[
+                    "dataset_fingerprint"
+                ],
+                "evaluated_at": trial_row["evaluated_at"],
+                "prospective": bool(
+                    experiment.get("prospective", False)
+                ),
+                "gates": json.loads(trial_row["gates_json"]),
+            }
+            trials_by_experiment.setdefault(
+                str(experiment_id), []
+            ).append(trial)
+            family_candidates.setdefault(
+                str(family_id), set()
+            ).add(trial["candidate_fingerprint"])
+
+        now = datetime.now(timezone.utc)
+        summaries: list[dict[str, Any]] = []
+        for row in manifest_rows:
+            manifest = json.loads(row["manifest_json"])
+            trials = trials_by_experiment.get(
+                row["experiment_id"], []
+            )
+            prospective = tuple(
+                trial for trial in trials if trial["prospective"]
+            )
+            prospective_dates = {
+                datetime.fromisoformat(
+                    trial["evaluated_at"]
+                ).date()
+                for trial in prospective
+            }
+            minimum_days = int(
+                manifest["minimum_prospective_days"]
+            )
+            minimum_trials = int(
+                manifest["minimum_prospective_trials"]
+            )
+            manifest_integrity_valid = (
+                hashlib.sha256(
+                    _json(manifest).encode("utf-8")
+                ).hexdigest()
+                == row["manifest_fingerprint"]
+            )
+            review_not_before = datetime.fromisoformat(
+                row["review_not_before"]
+            )
+            summaries.append(
+                {
+                    "experiment_id": row["experiment_id"],
+                    "family_id": row["family_id"],
+                    "strategy_id": row["strategy_id"],
+                    "strategy_version": row[
+                        "strategy_version"
+                    ],
+                    "variant_id": row["variant_id"],
+                    "registered_at": row["registered_at"],
+                    "prospective_observation_start": row[
+                        "prospective_observation_start"
+                    ],
+                    "review_not_before": row[
+                        "review_not_before"
+                    ],
+                    "status": row["status"],
+                    "hypothesis": manifest["hypothesis"],
+                    "mechanism": manifest["mechanism"],
+                    "primary_metric": manifest[
+                        "primary_metric"
+                    ],
+                    "final_holdout_status": manifest[
+                        "final_holdout_status"
+                    ],
+                    "minimum_prospective_days": minimum_days,
+                    "minimum_prospective_trials": minimum_trials,
+                    "trial_count": len(trials),
+                    "prospective_trial_count": len(prospective),
+                    "prospective_days_observed": len(
+                        prospective_dates
+                    ),
+                    "distinct_candidate_count": len(
+                        {
+                            trial["candidate_fingerprint"]
+                            for trial in trials
+                        }
+                    ),
+                    "family_candidate_count": len(
+                        family_candidates.get(
+                            row["family_id"], set()
+                        )
+                    ),
+                    "distinct_dataset_count": len(
+                        {
+                            trial["dataset_fingerprint"]
+                            for trial in trials
+                        }
+                    ),
+                    "passing_trial_count": sum(
+                        all(trial["gates"].values())
+                        for trial in trials
+                    ),
+                    "prospective_requirements_met": (
+                        len(prospective) >= minimum_trials
+                        and len(prospective_dates) >= minimum_days
+                    ),
+                    "review_time_reached": (
+                        now >= review_not_before
+                    ),
+                    "manifest_fingerprint": row[
+                        "manifest_fingerprint"
+                    ],
+                    "manifest_integrity_valid": (
+                        manifest_integrity_valid
+                    ),
+                    "execution_eligible": bool(
+                        row["execution_eligible"]
+                    ),
+                }
+            )
+        return summaries
 
     def recent_asset_universe_reports(
         self, limit: int = 30

@@ -5,7 +5,7 @@ algorithmic-trading organization. It separates market analysis, strategy
 signals, portfolio allocation, central risk approval, broker execution,
 reconciliation, audit, backtesting, and monitoring.
 
-Release 0.9 is designed for controlled Alpaca Paper observation and dry-run
+Release 0.10 is designed for controlled Alpaca Paper observation and dry-run
 testing. It does not support live trading and it does not claim that any
 strategy is profitable.
 
@@ -70,6 +70,10 @@ The 3% and 10% figures are hard ceilings, not operating targets.
   parameters, laboratory configuration, and exact market inputs; registered
   trials are hash-chained per account/strategy and independently verified by
   the read-only dashboard.
+- Frozen strategy-experiment manifests that preregister each intraday
+  hypothesis, mechanism, exact parameters, related candidate family,
+  prospective observation boundary, minimum evidence period, and explicit
+  final-holdout status. Runtime parameter drift fails closed.
 - An Asset Universe department combining operator seeds and Alpaca's
   most-active screener, then failing closed through price, active/tradable
   status, exchange, company-size evidence, evidence age, share-volume,
@@ -205,6 +209,11 @@ Evidence admission and the public-thesis boundary are documented in
 Asset selection, SEC company-size evidence, index snapshots, and manual versus
 recommended strategy assignments are documented in
 [`docs/ASSET_UNIVERSE.md`](docs/ASSET_UNIVERSE.md).
+The frozen experiment families and prospective evidence boundary are
+documented in
+[`docs/STRATEGY_EXPERIMENTS.md`](docs/STRATEGY_EXPERIMENTS.md).
+Trial fingerprints, hash chains, and their security limitations are documented
+in [`docs/MODEL_TRIAL_REGISTRY.md`](docs/MODEL_TRIAL_REGISTRY.md).
 
 ## Current boundary
 

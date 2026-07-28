@@ -118,6 +118,7 @@ class Settings:
     strategy_lab_stressed_cost_bps: Decimal
     strategy_lab_chronological_folds: int
     strategy_lab_trade_sequence_paths: int
+    strategy_experiment_program_path: Path
     asset_universe_cycle_seconds: int
     asset_universe_health_path: Path
     asset_universe_health_max_age_seconds: int
@@ -341,6 +342,12 @@ class Settings:
                 "500",
                 100,
                 5000,
+            ),
+            strategy_experiment_program_path=Path(
+                os.getenv(
+                    "TRADING_STRATEGY_EXPERIMENT_PROGRAM",
+                    "config/strategy_experiments.json",
+                )
             ),
             asset_universe_cycle_seconds=(
                 asset_universe_cycle_seconds

@@ -107,7 +107,7 @@ def _implementation_manifest(
     )
 
 
-def _strategy_parameters(strategy: Strategy) -> dict[str, Any]:
+def strategy_parameters(strategy: Strategy) -> dict[str, Any]:
     if is_dataclass(strategy):
         return _normalized(asdict(strategy))
     attributes = getattr(strategy, "__dict__", None)
@@ -215,6 +215,7 @@ def build_strategy_trial_definition(
     lab_config: Any,
     requested_symbols: tuple[str, ...],
     bars_by_symbol: dict[str, tuple[MarketBar, ...]],
+    experiment_binding: Any | None = None,
 ) -> StrategyTrialDefinition:
     (
         implementation_sha256,
@@ -231,7 +232,7 @@ def build_strategy_trial_definition(
         "source_scope": source_scope,
         "implementation_sha256": implementation_sha256,
         "implementation_manifest": implementation_manifest,
-        "parameters": _strategy_parameters(strategy),
+        "parameters": strategy_parameters(strategy),
     }
     configuration = {
         "account_id": account_plan.account_id,
@@ -241,6 +242,11 @@ def build_strategy_trial_definition(
         "requested_symbols": requested_symbols,
         "allocation": allocation,
         "strategy_lab": lab_config,
+        "experiment": (
+            experiment_binding
+            if experiment_binding is not None
+            else {"status": "unregistered"}
+        ),
     }
     dataset_summary = _dataset_summary(
         requested_symbols, bars_by_symbol

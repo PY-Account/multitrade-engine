@@ -10,6 +10,10 @@ from unittest import TestCase
 from multitrade.audit import SqliteAuditReader, SqliteAuditStore
 from multitrade.backtest import BacktestConfig, StrategyValidator
 from multitrade.domain import AssetClass
+from multitrade.experiments import (
+    StrategyExperiment,
+    StrategyExperimentProgram,
+)
 from multitrade.market import MarketBar
 from multitrade.portfolio import AccountPlan, StrategyAllocation
 from multitrade.strategies.base import (
@@ -22,6 +26,7 @@ from multitrade.strategy_lab import (
     StrategyLabConfig,
     StrategyLabEvaluator,
 )
+from multitrade.trials import strategy_parameters
 from multitrade.universe import (
     AssetUniverseProgram,
     StrategyUniverseAssignment,
@@ -108,6 +113,38 @@ def account_plan(
                 paper_execution_allowed=paper_execution_allowed,
             )
         },
+    )
+
+
+def experiment_program() -> StrategyExperimentProgram:
+    experiment = StrategyExperiment(
+        experiment_id="frequent_test_baseline_2026q3",
+        family_id="test_continuation",
+        strategy_id="frequent_test",
+        strategy_version="1.0.0",
+        variant_id="baseline_v1",
+        registered_at=datetime(
+            2026, 7, 27, tzinfo=timezone.utc
+        ),
+        prospective_observation_start=datetime(
+            2026, 7, 29, tzinfo=timezone.utc
+        ),
+        review_not_before=datetime(
+            2026, 8, 19, tzinfo=timezone.utc
+        ),
+        status="frozen_research",
+        hypothesis="The test continuation has positive expectancy.",
+        mechanism="The synthetic pattern repeats every 15 minutes.",
+        primary_metric="chronological_median_fold_return",
+        minimum_prospective_days=1,
+        minimum_prospective_trials=1,
+        final_holdout_status="not_reserved",
+        expected_parameters=strategy_parameters(
+            FrequentTestStrategy()
+        ),
+    )
+    return StrategyExperimentProgram(
+        {"frequent_test": experiment}
     )
 
 
@@ -362,6 +399,89 @@ class StrategyLabTests(TestCase):
             ).recent_strategy_model_trials()
             self.assertFalse(tampered[0]["self_hash_valid"])
             self.assertFalse(tampered[0]["integrity_valid"])
+
+    def test_preregistered_experiment_is_linked_and_immutable(
+        self,
+    ) -> None:
+        with TemporaryDirectory() as directory:
+            db_path = Path(directory) / "trading.db"
+            service = ContinuousStrategyLabService(
+                account_plan=account_plan(),
+                strategies={
+                    "frequent_test": FrequentTestStrategy()
+                },
+                market_data=FakeMarketData(),
+                store=SqliteAuditStore(db_path),
+                health_path=str(
+                    Path(directory) / "strategy-lab-health.json"
+                ),
+                experiment_program=experiment_program(),
+                config=StrategyLabConfig(
+                    base_slippage_bps=Decimal("0"),
+                    stressed_slippage_bps=Decimal("10"),
+                    minimum_out_of_sample_trades=20,
+                ),
+            )
+
+            service.run_cycle(
+                now=datetime(
+                    2026, 7, 30, 12, tzinfo=timezone.utc
+                )
+            )
+            reader = SqliteAuditReader(db_path)
+            trial = reader.recent_strategy_model_trials()[0]
+            summary = reader.strategy_experiment_summaries()[0]
+            experiment = trial["configuration"]["experiment"]
+
+            self.assertEqual(
+                experiment["experiment_id"],
+                "frequent_test_baseline_2026q3",
+            )
+            self.assertEqual(
+                experiment["evidence_phase"],
+                "prospective_observation",
+            )
+            self.assertTrue(experiment["prospective"])
+            self.assertEqual(summary["trial_count"], 1)
+            self.assertEqual(
+                summary["prospective_trial_count"], 1
+            )
+            self.assertEqual(
+                summary["prospective_days_observed"], 1
+            )
+            self.assertEqual(
+                summary["family_candidate_count"], 1
+            )
+            self.assertEqual(
+                summary["distinct_dataset_count"], 1
+            )
+            self.assertTrue(
+                summary["prospective_requirements_met"]
+            )
+            self.assertTrue(
+                summary["manifest_integrity_valid"]
+            )
+            self.assertFalse(summary["execution_eligible"])
+
+            with closing(sqlite3.connect(db_path)) as connection:
+                with self.assertRaises(sqlite3.IntegrityError):
+                    connection.execute(
+                        """
+                        UPDATE strategy_experiment_manifests
+                        SET status = 'retired'
+                        WHERE experiment_id = ?
+                        """,
+                        ("frequent_test_baseline_2026q3",),
+                    )
+            with closing(sqlite3.connect(db_path)) as connection:
+                with self.assertRaises(sqlite3.IntegrityError):
+                    connection.execute(
+                        """
+                        DELETE FROM strategy_experiment_manifests
+                        WHERE experiment_id = ?
+                        """,
+                        ("frequent_test_baseline_2026q3",),
+                    )
 
     def test_continuous_cycle_uses_strategy_specific_research_symbols(
         self,

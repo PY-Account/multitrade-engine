@@ -11,6 +11,11 @@ from multitrade.audit import SqliteAuditReader, SqliteAuditStore
 from multitrade.backtest import BacktestConfig, StrategyValidator
 from multitrade.config import Settings
 from multitrade.domain import ZERO
+from multitrade.experiments import (
+    StrategyExperimentBinding,
+    StrategyExperimentProgram,
+    load_strategy_experiment_program,
+)
 from multitrade.health import write_health
 from multitrade.market import (
     AlpacaMarketDataClient,
@@ -110,6 +115,7 @@ class StrategyLabReport:
     warnings: tuple[str, ...]
     readiness_status: str
     trial_definition: StrategyTrialDefinition
+    experiment_binding: StrategyExperimentBinding | None
     execution_eligible: bool = False
 
     def __post_init__(self) -> None:
@@ -188,8 +194,10 @@ class StrategyLabEvaluator:
         strategy: Strategy,
         bars_by_symbol: dict[str, tuple[MarketBar, ...]],
         symbols: Iterable[str] | None = None,
+        experiment_binding: StrategyExperimentBinding | None = None,
+        evaluated_at: datetime | None = None,
     ) -> StrategyLabReport:
-        evaluated_at = datetime.now(timezone.utc)
+        evaluated_at = evaluated_at or datetime.now(timezone.utc)
         allocation = account_plan.allocations[strategy.strategy_id]
         results: list[StrategySymbolResult] = []
         missing: list[str] = []
@@ -203,6 +211,7 @@ class StrategyLabEvaluator:
             allocation=allocation,
             account_plan=account_plan,
             lab_config=self.config,
+            experiment_binding=experiment_binding,
             requested_symbols=requested_symbols,
             bars_by_symbol=bars_by_symbol,
         )
@@ -457,6 +466,7 @@ class StrategyLabEvaluator:
             warnings=tuple(warnings),
             readiness_status=readiness,
             trial_definition=trial_definition,
+            experiment_binding=experiment_binding,
             execution_eligible=False,
         )
 
@@ -615,6 +625,7 @@ class ContinuousStrategyLabService:
         health_path: str,
         config: StrategyLabConfig | None = None,
         universe_program: AssetUniverseProgram | None = None,
+        experiment_program: StrategyExperimentProgram | None = None,
     ) -> None:
         self.account_plan = account_plan
         self.strategies = strategies
@@ -623,12 +634,25 @@ class ContinuousStrategyLabService:
         self.health_path = health_path
         self.config = config or StrategyLabConfig()
         self.universe_program = universe_program
+        self.experiment_program = experiment_program
         unknown = set(account_plan.allocations) - set(strategies)
         if unknown:
             raise ValueError(
                 "Unknown strategy allocations: "
                 + ", ".join(sorted(unknown))
             )
+        if self.experiment_program is not None:
+            missing_experiments = (
+                set(account_plan.allocations)
+                - set(
+                    self.experiment_program.experiments_by_strategy
+                )
+            )
+            if missing_experiments:
+                raise ValueError(
+                    "Missing strategy experiment manifests: "
+                    + ", ".join(sorted(missing_experiments))
+                )
 
     @classmethod
     def from_settings(
@@ -658,6 +682,9 @@ class ContinuousStrategyLabService:
             health_path=str(settings.strategy_lab_health_path),
             universe_program=load_asset_universe_program(
                 settings.asset_universe_config_path
+            ),
+            experiment_program=load_strategy_experiment_program(
+                settings.strategy_experiment_program_path
             ),
             config=StrategyLabConfig(
                 lookback_days=settings.strategy_lab_lookback_days,
@@ -726,11 +753,21 @@ class ContinuousStrategyLabService:
         reports: list[StrategyLabReport] = []
         for strategy_id in self.account_plan.allocations:
             strategy = self.strategies[strategy_id]
+            experiment_binding = (
+                self.experiment_program.bind(
+                    strategy,
+                    evaluated_at=evaluated_at,
+                )
+                if self.experiment_program is not None
+                else None
+            )
             report = evaluator.evaluate(
                 account_plan=self.account_plan,
                 strategy=strategy,
                 bars_by_symbol=usable,
                 symbols=symbols_by_strategy[strategy_id],
+                experiment_binding=experiment_binding,
+                evaluated_at=evaluated_at,
             )
             self.store.record_strategy_lab_report(report)
             reports.append(report)

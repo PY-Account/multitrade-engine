@@ -1,0 +1,103 @@
+{
+  "experiments": [
+    {
+      "experiment_id": "breakout_retest_baseline_2026q3",
+      "family_id": "intraday_breakout_continuation",
+      "strategy_id": "breakout_retest",
+      "strategy_version": "1.0.0",
+      "variant_id": "baseline_v1",
+      "registered_at": "2026-07-28T10:00:00+00:00",
+      "prospective_observation_start": "2026-07-29T00:00:00+00:00",
+      "review_not_before": "2026-08-19T00:00:00+00:00",
+      "status": "frozen_research",
+      "hypothesis": "A volume-confirmed breakout that retests prior resistance and closes back above it has positive expectancy after conservative costs across liquid US equities.",
+      "mechanism": "The retest requires supply at the former resistance to be absorbed before continuation, while the stop is anchored to the failed-retest structure.",
+      "primary_metric": "chronological_median_fold_return",
+      "minimum_prospective_days": 21,
+      "minimum_prospective_trials": 20,
+      "final_holdout_status": "not_reserved",
+      "expected_parameters": {
+        "strategy_id": "breakout_retest",
+        "version": "1.0.0",
+        "lookback": 20,
+        "retest_tolerance": "0.003",
+        "volume_multiplier": "1.15",
+        "reward_multiple": "2"
+      },
+      "execution_eligible": false
+    },
+    {
+      "experiment_id": "trend_pullback_baseline_2026q3",
+      "family_id": "intraday_trend_continuation",
+      "strategy_id": "trend_pullback",
+      "strategy_version": "1.0.0",
+      "variant_id": "baseline_v1",
+      "registered_at": "2026-07-28T10:00:00+00:00",
+      "prospective_observation_start": "2026-07-29T00:00:00+00:00",
+      "review_not_before": "2026-08-19T00:00:00+00:00",
+      "status": "frozen_research",
+      "hypothesis": "A bullish rejection of the fast moving average inside an established intraday uptrend has positive expectancy after costs.",
+      "mechanism": "The setup attempts to enter continuation after a temporary liquidity-driven pullback without paying the initial trend impulse.",
+      "primary_metric": "chronological_median_fold_return",
+      "minimum_prospective_days": 21,
+      "minimum_prospective_trials": 20,
+      "final_holdout_status": "not_reserved",
+      "expected_parameters": {
+        "strategy_id": "trend_pullback",
+        "version": "1.0.0",
+        "tolerance": "0.004",
+        "reward_multiple": "2"
+      },
+      "execution_eligible": false
+    },
+    {
+      "experiment_id": "volatility_contraction_baseline_2026q3",
+      "family_id": "intraday_breakout_continuation",
+      "strategy_id": "volatility_contraction",
+      "strategy_version": "1.0.0",
+      "variant_id": "baseline_v1",
+      "registered_at": "2026-07-28T10:00:00+00:00",
+      "prospective_observation_start": "2026-07-29T00:00:00+00:00",
+      "review_not_before": "2026-08-19T00:00:00+00:00",
+      "status": "frozen_research",
+      "hypothesis": "A volume-confirmed breakout after measurable intraday range contraction has positive expectancy after costs.",
+      "mechanism": "Range contraction represents temporary agreement and reduced supply; expansion through the local high with volume may identify renewed directional demand.",
+      "primary_metric": "chronological_median_fold_return",
+      "minimum_prospective_days": 21,
+      "minimum_prospective_trials": 20,
+      "final_holdout_status": "not_reserved",
+      "expected_parameters": {
+        "strategy_id": "volatility_contraction",
+        "version": "1.0.0",
+        "contraction_ratio": "0.70",
+        "volume_multiplier": "1.20",
+        "reward_multiple": "2.25"
+      },
+      "execution_eligible": false
+    },
+    {
+      "experiment_id": "range_mean_reversion_baseline_2026q3",
+      "family_id": "intraday_range_reversion",
+      "strategy_id": "range_mean_reversion",
+      "strategy_version": "1.0.0",
+      "variant_id": "baseline_v1",
+      "registered_at": "2026-07-28T10:00:00+00:00",
+      "prospective_observation_start": "2026-07-29T00:00:00+00:00",
+      "review_not_before": "2026-08-19T00:00:00+00:00",
+      "status": "frozen_research",
+      "hypothesis": "A bullish rejection below a lower statistical band in a verified range regime has positive expectancy after costs.",
+      "mechanism": "In the absence of directional regime evidence, temporary price displacement may revert toward the recent mean; regime transition remains the principal failure mode.",
+      "primary_metric": "chronological_median_fold_return",
+      "minimum_prospective_days": 21,
+      "minimum_prospective_trials": 20,
+      "final_holdout_status": "not_reserved",
+      "expected_parameters": {
+        "strategy_id": "range_mean_reversion",
+        "version": "1.0.0",
+        "deviation_multiple": "2",
+        "reward_multiple": "1.5"
+      },
+      "execution_eligible": false
+    }
+  ]
+}

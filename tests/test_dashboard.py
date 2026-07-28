@@ -11,6 +11,9 @@ from urllib.request import Request, urlopen
 
 from multitrade.audit import SqliteAuditStore
 from multitrade.dashboard import DashboardData, create_dashboard_server
+from multitrade.experiments import (
+    load_strategy_experiment_program,
+)
 from multitrade.health import write_health
 from multitrade.universe import load_asset_universe_program
 
@@ -91,6 +94,13 @@ class DashboardTests(TestCase):
                     / "config"
                     / "asset_universe.json"
                 ),
+                strategy_experiment_program=(
+                    load_strategy_experiment_program(
+                        Path(__file__).parents[1]
+                        / "config"
+                        / "strategy_experiments.json"
+                    )
+                ),
                 release_version="0.7.1",
                 build_commit="a" * 40,
             ),
@@ -130,6 +140,23 @@ class DashboardTests(TestCase):
             self.assertEqual(result["portfolio_risk_reports"], [])
             self.assertEqual(result["strategy_lab_reports"], [])
             self.assertEqual(result["strategy_model_trials"], [])
+            self.assertEqual(
+                len(
+                    result["strategy_experiments"][
+                        "configuration"
+                    ]["experiments"]
+                ),
+                4,
+            )
+            self.assertEqual(
+                result["strategy_experiments"]["summaries"],
+                [],
+            )
+            self.assertFalse(
+                result["strategy_experiments"][
+                    "execution_enabled"
+                ]
+            )
             self.assertEqual(result["asset_universe_reports"], [])
             self.assertFalse(
                 result["asset_universe"]["execution_enabled"]
@@ -217,6 +244,9 @@ class DashboardTests(TestCase):
                 self.assertIn("Trade-sequence stress", html)
                 self.assertIn(
                     "Immutable model-trial registry", html
+                )
+                self.assertIn(
+                    "Preregistered strategy experiments", html
                 )
                 self.assertIn("Trial Registry", html)
                 self.assertIn(

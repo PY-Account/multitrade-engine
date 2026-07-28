@@ -66,10 +66,12 @@ The current release does **not** claim to implement:
 Those methods require a complete, immutable registry of every economically
 related candidate and parameter trial. Version 0.9.0 starts that registry for
 new Strategy Lab cycles, but it does not retroactively invent trial history.
-MultiTrade must still accumulate enough distinct trials, define candidate
-families without using their outcomes, and preserve an untouched final
-holdout. Adding the formulas before those conditions exist would provide false
-precision. See `MODEL_TRIAL_REGISTRY.md`.
+Version 0.10.0 freezes the initial candidate-family definitions and prospective
+observation boundaries, but repeated observations of one baseline are not
+distinct candidate variants. MultiTrade must still accumulate enough genuine
+variants and preserve an untouched final holdout. Adding the formulas before
+those conditions exist would provide false precision. See
+`MODEL_TRIAL_REGISTRY.md` and `STRATEGY_EXPERIMENTS.md`.
 
 ## Operational interpretation
 

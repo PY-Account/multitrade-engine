@@ -4,6 +4,18 @@ These are deterministic research candidates, not promises of profitability.
 All are disabled for Paper submission by default and require walk-forward and
 multi-week Paper evidence before approval.
 
+The frozen experiment program groups the current candidates into three
+economically related research families:
+
+- `intraday_breakout_continuation`: breakout/retest and
+  volatility-contraction breakout.
+- `intraday_trend_continuation`: trend pullback.
+- `intraday_range_reversion`: range mean reversion.
+
+These labels define the comparison universe before prospective observation;
+they do not turn one baseline per strategy into enough variants for
+multiple-testing statistics. See `STRATEGY_EXPERIMENTS.md`.
+
 ## Breakout and retest (`breakout_retest` v1.0.0)
 
 Long-only stock candidate:

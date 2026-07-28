@@ -1,5 +1,29 @@
 # Changelog
 
+## 0.10.0 - 2026-07-28
+
+- Added frozen, versioned experiment manifests for all four configured
+  intraday strategy candidates.
+- Preregistered economic hypotheses, mechanisms, exact parameters, candidate
+  families, primary metrics, prospective observation boundaries, earliest
+  review dates, and minimum evidence counts.
+- Added fail-closed runtime binding: a missing manifest, changed strategy
+  version, changed parameter, retired experiment, or invalid timestamp stops
+  Strategy Lab evidence registration.
+- Linked the complete experiment binding to each trial configuration
+  fingerprint and hash-chained evidence row.
+- Added immutable SQLite manifest storage, fingerprint verification, and
+  prospective trial/day, dataset, and family-candidate summaries.
+- Added a read-only Strategy Lab dashboard table that distinguishes
+  pre-observation evidence, prospective collection, minimum evidence
+  completion, and review eligibility.
+- Explicitly recorded that no final untouched holdout is currently reserved,
+  so observation counts and passing gates cannot authorize execution or
+  support a profitability, PBO, or Deflated-Sharpe claim.
+
+This release remains Alpaca Paper-only. Experiment registration organizes
+evidence; it does not create an edge, approve a strategy, or place an order.
+
 ## 0.9.0 - 2026-07-28
 
 - Added an append-only model-trial registry for every new Strategy Lab
