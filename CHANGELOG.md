@@ -1,5 +1,18 @@
 # Changelog
 
+## 0.17.2 - 2026-07-28
+
+- Split large Alpaca stock-bar requests into independent batches of at most
+  25 symbols so a large effective strategy universe no longer shares one
+  pagination ceiling.
+- Retained the 60-page limit per symbol batch and added a separate 240-page
+  ceiling for the complete retrieval operation.
+- Added regression coverage for a 50-symbol dataset requiring 62 total pages
+  across two bounded batches.
+
+This patch changes retrieval partitioning only. Candidate definitions,
+validation gates, risk limits, and all execution permissions are unchanged.
+
 ## 0.17.1 - 2026-07-28
 
 - Raised the bounded Alpaca stock-bar pagination budget from 20 to 60 pages

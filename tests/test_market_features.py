@@ -186,6 +186,48 @@ class MarketDataTests(TestCase):
                 start + timedelta(days=120),
             )
 
+    def test_large_universe_uses_independent_bounded_batches(
+        self,
+    ) -> None:
+        client = AlpacaMarketDataClient(
+            "paper-key", "paper-secret", feed="iex"
+        )
+        pages_by_batch = {}
+        calls = []
+
+        def request(path, query):
+            calls.append((path, query))
+            batch = query["symbols"]
+            page = pages_by_batch.get(batch, 0) + 1
+            pages_by_batch[batch] = page
+            return {
+                "bars": {},
+                "next_page_token": (
+                    f"{batch[:4]}-page-{page + 1}"
+                    if page < 31
+                    else None
+                ),
+            }
+
+        client._request = request
+        start = datetime(2026, 1, 2, tzinfo=timezone.utc)
+        symbols = [f"S{index:03d}" for index in range(50)]
+        result = client.fetch_stock_bars(
+            symbols,
+            "5Min",
+            start,
+            start + timedelta(days=120),
+        )
+
+        self.assertEqual(len(pages_by_batch), 2)
+        self.assertEqual(sorted(pages_by_batch.values()), [31, 31])
+        self.assertEqual(len(calls), 62)
+        self.assertEqual(
+            [len(batch.split(",")) for batch in pages_by_batch],
+            [25, 25],
+        )
+        self.assertEqual(set(result), set(symbols))
+
     def test_research_adjustment_is_sent_and_recorded(self) -> None:
         client = AlpacaMarketDataClient(
             "paper-key", "paper-secret", feed="iex"
