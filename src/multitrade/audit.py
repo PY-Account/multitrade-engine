@@ -29,6 +29,7 @@ if TYPE_CHECKING:
     )
     from multitrade.strategy_lab import StrategyLabReport
     from multitrade.strategies.base import StrategySignal
+    from multitrade.universe import AssetUniverseReport
 
 
 ACTIVE_RESERVATION_STATES = (
@@ -374,6 +375,21 @@ class SqliteAuditStore:
 
                 CREATE INDEX IF NOT EXISTS idx_strategy_lab_recent
                 ON strategy_lab_reports(evaluated_at DESC);
+
+                CREATE TABLE IF NOT EXISTS asset_universe_reports (
+                    report_id TEXT PRIMARY KEY,
+                    account_id TEXT NOT NULL,
+                    policy_id TEXT NOT NULL,
+                    evaluated_at TEXT NOT NULL,
+                    candidates_requested_json TEXT NOT NULL,
+                    recommendations_json TEXT NOT NULL,
+                    evaluations_json TEXT NOT NULL,
+                    warnings_json TEXT NOT NULL,
+                    execution_eligible INTEGER NOT NULL
+                );
+
+                CREATE INDEX IF NOT EXISTS idx_asset_universe_recent
+                ON asset_universe_reports(evaluated_at DESC, policy_id);
                 """
             )
             self._ensure_column(
@@ -1660,6 +1676,48 @@ class SqliteAuditStore:
         finally:
             self._close_if_needed(connection)
 
+    def record_asset_universe_report(
+        self, report: "AssetUniverseReport"
+    ) -> None:
+        connection = self._connect()
+        try:
+            connection.execute(
+                """
+                INSERT INTO asset_universe_reports (
+                    report_id, account_id, policy_id, evaluated_at,
+                    candidates_requested_json, recommendations_json,
+                    evaluations_json, warnings_json, execution_eligible
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+                ON CONFLICT(report_id) DO UPDATE SET
+                    evaluated_at = excluded.evaluated_at,
+                    candidates_requested_json =
+                        excluded.candidates_requested_json,
+                    recommendations_json =
+                        excluded.recommendations_json,
+                    evaluations_json = excluded.evaluations_json,
+                    warnings_json = excluded.warnings_json,
+                    execution_eligible = excluded.execution_eligible
+                """,
+                (
+                    report.report_id,
+                    report.account_id,
+                    report.policy_id,
+                    report.evaluated_at.isoformat(),
+                    _json(report.candidates_requested),
+                    _json(report.recommendations),
+                    _json(
+                        [
+                            asdict(item)
+                            for item in report.evaluations
+                        ]
+                    ),
+                    _json(report.warnings),
+                    int(report.execution_eligible),
+                ),
+            )
+        finally:
+            self._close_if_needed(connection)
+
     def active_risk(self) -> Decimal:
         connection = self._connect()
         try:
@@ -2206,6 +2264,46 @@ class SqliteAuditReader:
                 "gates": json.loads(row["gates_json"]),
                 "warnings": json.loads(row["warnings_json"]),
                 "readiness_status": row["readiness_status"],
+                "execution_eligible": bool(
+                    row["execution_eligible"]
+                ),
+            }
+            for row in rows
+        ]
+
+    def recent_asset_universe_reports(
+        self, limit: int = 30
+    ) -> list[dict[str, Any]]:
+        safe_limit = max(1, min(limit, 100))
+        with closing(self._connect()) as connection:
+            rows = connection.execute(
+                """
+                SELECT report_id, account_id, policy_id, evaluated_at,
+                       candidates_requested_json,
+                       recommendations_json, evaluations_json,
+                       warnings_json, execution_eligible
+                FROM asset_universe_reports
+                ORDER BY evaluated_at DESC, policy_id
+                LIMIT ?
+                """,
+                (safe_limit,),
+            ).fetchall()
+        return [
+            {
+                "report_id": row["report_id"],
+                "account_id": row["account_id"],
+                "policy_id": row["policy_id"],
+                "evaluated_at": row["evaluated_at"],
+                "candidates_requested": json.loads(
+                    row["candidates_requested_json"]
+                ),
+                "recommendations": json.loads(
+                    row["recommendations_json"]
+                ),
+                "evaluations": json.loads(
+                    row["evaluations_json"]
+                ),
+                "warnings": json.loads(row["warnings_json"]),
                 "execution_eligible": bool(
                     row["execution_eligible"]
                 ),

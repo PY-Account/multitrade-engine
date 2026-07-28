@@ -130,6 +130,36 @@ class AlpacaMarketDataClient:
         }
         self.request_ids: list[str] = []
 
+    def fetch_most_active_stocks(
+        self,
+        *,
+        top: int = 30,
+        by: str = "volume",
+    ) -> tuple[str, ...]:
+        """Return Alpaca's current most-active US stock symbols."""
+        if not 1 <= top <= 100:
+            raise ValueError("Most-active result count must be 1-100")
+        if by not in {"volume", "trades"}:
+            raise ValueError("Most-active ranking must be volume or trades")
+        self.request_ids = []
+        payload = self._request(
+            "/v1beta1/screener/stocks/most-actives",
+            {"top": str(top), "by": by},
+        )
+        rows = payload.get("most_actives")
+        if not isinstance(rows, list):
+            raise MarketDataError(
+                "Alpaca most-actives response did not contain a list"
+            )
+        return tuple(
+            dict.fromkeys(
+                str(row.get("symbol", "")).strip().upper()
+                for row in rows
+                if isinstance(row, dict)
+                and str(row.get("symbol", "")).strip()
+            )
+        )
+
     def fetch_stock_bars(
         self,
         symbols: Iterable[str],

@@ -24,6 +24,34 @@ class AlpacaPayloadTests(TestCase):
                 base_url="https://api.alpaca.markets",
             )
 
+    def test_active_stock_catalog_is_read_only_and_normalized(
+        self,
+    ) -> None:
+        broker = AlpacaPaperBroker("paper-key", "paper-secret")
+        broker._request = Mock(
+            return_value=[
+                {
+                    "symbol": "aapl",
+                    "status": "active",
+                    "class": "us_equity",
+                    "tradable": True,
+                    "exchange": "NASDAQ",
+                }
+            ]
+        )
+
+        result = broker.list_active_stock_assets()
+
+        self.assertIn("AAPL", result)
+        broker._request.assert_called_once_with(
+            "GET",
+            "/v2/assets",
+            query={
+                "status": "active",
+                "asset_class": "us_equity",
+            },
+        )
+
     def test_reconciliation_normalizes_read_only_broker_state(self) -> None:
         broker = AlpacaPaperBroker("paper-key", "paper-secret")
         broker._request = Mock(

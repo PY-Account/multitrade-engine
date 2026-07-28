@@ -6,6 +6,7 @@ controls or broker reconciliation.
 ```text
 Alpaca Market Data
   -> Normalized closed bars
+  -> Asset universe and strategy-specific research assignments
   -> Observation-only evidence model and thesis proxies
   -> Features and market regime
   -> Versioned strategy candidates
@@ -42,9 +43,19 @@ straight into an executable strategy: a candidate must have a plausible
 mechanism, independent support, chronological out-of-sample results, realistic
 costs, stability checks, and a Paper observation period.
 
+An independent `asset-universe` worker combines configured seeds with Alpaca's
+most-active screener. It verifies active/tradable equity status and exchange
+from Alpaca, measures price and recent share/dollar liquidity from daily bars,
+and requires dated company-size evidence from configured references or SEC
+company facts. Optional index restrictions require dated constituent
+snapshots; listing exchange is never substituted for index membership.
+Recommendations and rejected gate evidence are persisted, but the worker has
+no order-submission path.
+
 An independent `strategy-lab` worker refreshes raw intraday history every six
-hours. It evaluates each configured model across the complete account
-watchlist using chronological 60/40 splits, next-bar entries, regular US
+hours. It evaluates each configured model across its manual, recommended,
+combined, or account-watchlist research assignment using chronological 60/40
+splits, next-bar entries, regular US
 sessions, forced session-end exits, base costs, and adverse-cost stress. It
 stores every model report rather than selecting only a favorable trial.
 Readiness is an analytical label and has no path to broker credentials or
@@ -68,8 +79,9 @@ derived from account, strategy/version, symbol, action, and closed-bar time.
 
 `paper_portfolio.json` defines the account watchlist, timeframe, maximum
 positions, maximum daily orders, symbol cooldown, capital weights, confidence
-filters, risk budgets, and per-strategy Paper approval. Capital weights for
-enabled strategies cannot exceed 100%.
+filters, risk budgets, per-strategy execution-symbol subsets, and per-strategy
+Paper approval. Every execution symbol must belong to the account watchlist.
+Capital weights for enabled strategies cannot exceed 100%.
 
 ### Risk authority
 
@@ -129,21 +141,24 @@ The research worker also calculates pairwise daily correlations and an
 effective-breadth estimate. This is an observation report, not a covariance
 optimizer or a hedge order generator.
 
-The dashboard is read-only. Its primary workspaces are Account, Strategy Lab,
-Allocation & Risk, and Operations, with horizontal secondary navigation and
-an account selector ready for the later multi-account boundary. It uses
+The dashboard is read-only. Its primary workspaces are Account, Asset Universe,
+Strategy Lab, Allocation & Risk, and Operations, with horizontal secondary
+navigation and an account selector ready for the later multi-account boundary.
+It uses
 authenticated HTTPS, strict security headers, safe DOM text rendering,
 SQLite query-only connections, and browser-local preferences. It cannot
 change trading configuration.
 
 ## Deployment
 
-The VPS runs six isolated containers:
+The VPS runs seven isolated containers:
 
 - `engine`: frequent broker truth/reconciliation heartbeat.
 - `automation`: five-minute data, feature, signal, allocation, and guarded
   Paper cycle.
 - `research`: hourly closed-daily-bar evidence model; no execution path.
+- `asset-universe`: daily asset eligibility and assignment evidence; no
+  execution path.
 - `strategy-lab`: six-hour intraday cross-symbol validation; no execution
   path.
 - `dashboard`: authenticated query-only monitoring.
@@ -155,7 +170,7 @@ shared `/app/var` volume.
 
 ## Scaling boundary
 
-Release 0.6 intentionally supports one enabled Paper account and one
+Release 0.7 intentionally supports one enabled Paper account and one
 orchestrator. Multi-account/cross-broker execution requires PostgreSQL with
 account-scoped reservations, a portfolio-wide exposure service, credential
 isolation per connector, and distributed locking. Dedicated crypto and forex

@@ -7,7 +7,7 @@ from statistics import median
 from typing import Any, Iterable
 from uuid import uuid4
 
-from multitrade.audit import SqliteAuditStore
+from multitrade.audit import SqliteAuditReader, SqliteAuditStore
 from multitrade.backtest import BacktestConfig, StrategyValidator
 from multitrade.config import Settings
 from multitrade.domain import ZERO
@@ -20,6 +20,11 @@ from multitrade.market import (
 from multitrade.portfolio import AccountPlan, load_account_plans
 from multitrade.strategies import default_equity_strategies
 from multitrade.strategies.base import Strategy
+from multitrade.universe import (
+    AssetUniverseProgram,
+    load_asset_universe_program,
+    recommendations_from_reports,
+)
 
 
 @dataclass(frozen=True, slots=True)
@@ -156,13 +161,19 @@ class StrategyLabEvaluator:
         account_plan: AccountPlan,
         strategy: Strategy,
         bars_by_symbol: dict[str, tuple[MarketBar, ...]],
+        symbols: Iterable[str] | None = None,
     ) -> StrategyLabReport:
         evaluated_at = datetime.now(timezone.utc)
         allocation = account_plan.allocations[strategy.strategy_id]
         results: list[StrategySymbolResult] = []
         missing: list[str] = []
+        requested_symbols = tuple(
+            dict.fromkeys(symbols or account_plan.watchlist)
+        )
+        if not requested_symbols:
+            raise ValueError("Strategy Lab requires assigned symbols")
 
-        for symbol in account_plan.watchlist:
+        for symbol in requested_symbols:
             bars = tuple(
                 sorted(
                     bars_by_symbol.get(symbol, ()),
@@ -217,7 +228,7 @@ class StrategyLabEvaluator:
         aggregate = self._aggregate(results)
         required_coverage = min(
             self.config.minimum_covered_symbols,
-            len(account_plan.watchlist),
+            len(requested_symbols),
         )
         covered_count = len(results)
         trade_count = int(aggregate["out_of_sample_trade_count"])
@@ -285,7 +296,7 @@ class StrategyLabEvaluator:
             paper_execution_configured=(
                 allocation.paper_execution_allowed
             ),
-            symbols_requested=account_plan.watchlist,
+            symbols_requested=requested_symbols,
             symbols_covered=tuple(item.symbol for item in results),
             missing_symbols=tuple(missing),
             symbol_results=tuple(results),
@@ -374,6 +385,7 @@ class ContinuousStrategyLabService:
         store: SqliteAuditStore,
         health_path: str,
         config: StrategyLabConfig | None = None,
+        universe_program: AssetUniverseProgram | None = None,
     ) -> None:
         self.account_plan = account_plan
         self.strategies = strategies
@@ -381,6 +393,7 @@ class ContinuousStrategyLabService:
         self.store = store
         self.health_path = health_path
         self.config = config or StrategyLabConfig()
+        self.universe_program = universe_program
         unknown = set(account_plan.allocations) - set(strategies)
         if unknown:
             raise ValueError(
@@ -414,6 +427,9 @@ class ContinuousStrategyLabService:
             ),
             store=SqliteAuditStore(settings.db_path),
             health_path=str(settings.strategy_lab_health_path),
+            universe_program=load_asset_universe_program(
+                settings.asset_universe_config_path
+            ),
             config=StrategyLabConfig(
                 lookback_days=settings.strategy_lab_lookback_days,
                 base_slippage_bps=settings.strategy_lab_base_cost_bps,
@@ -428,8 +444,37 @@ class ContinuousStrategyLabService:
     ) -> StrategyLabCycleResult:
         evaluated_at = now or datetime.now(timezone.utc)
         start = evaluated_at - timedelta(days=self.config.lookback_days)
+        recommendations = (
+            recommendations_from_reports(
+                SqliteAuditReader(self.store.path)
+            )
+            if (
+                self.universe_program is not None
+                and self.store.path != ":memory:"
+            )
+            else {}
+        )
+        symbols_by_strategy = {
+            strategy_id: (
+                self.universe_program.assigned_symbols(
+                    strategy_id,
+                    account_watchlist=self.account_plan.watchlist,
+                    recommendations_by_policy=recommendations,
+                )
+                if self.universe_program is not None
+                else self.account_plan.watchlist
+            )
+            for strategy_id in self.account_plan.allocations
+        }
+        requested_symbols = tuple(
+            dict.fromkeys(
+                symbol
+                for rows in symbols_by_strategy.values()
+                for symbol in rows
+            )
+        )
         fetched = self.market_data.fetch_stock_bars(
-            self.account_plan.watchlist,
+            requested_symbols,
             self.account_plan.timeframe,
             start,
             evaluated_at,
@@ -450,6 +495,7 @@ class ContinuousStrategyLabService:
                 account_plan=self.account_plan,
                 strategy=strategy,
                 bars_by_symbol=usable,
+                symbols=symbols_by_strategy[strategy_id],
             )
             self.store.record_strategy_lab_report(report)
             reports.append(report)
@@ -459,7 +505,7 @@ class ContinuousStrategyLabService:
             {
                 "timeframe": self.account_plan.timeframe,
                 "strategies_evaluated": len(reports),
-                "symbols_requested": len(self.account_plan.watchlist),
+                "symbols_requested": len(requested_symbols),
                 "symbols_with_bars": sum(bool(rows) for rows in usable.values()),
                 "execution_enabled": False,
             },
@@ -468,7 +514,7 @@ class ContinuousStrategyLabService:
             "account_id": self.account_plan.account_id,
             "timeframe": self.account_plan.timeframe,
             "strategies_evaluated": len(reports),
-            "symbols_requested": len(self.account_plan.watchlist),
+            "symbols_requested": len(requested_symbols),
             "symbols_with_bars": sum(bool(rows) for rows in usable.values()),
             "execution_enabled": False,
         }
@@ -479,7 +525,7 @@ class ContinuousStrategyLabService:
             timeframe=self.account_plan.timeframe,
             strategies_evaluated=len(self.account_plan.allocations),
             reports_completed=len(reports),
-            symbols_requested=len(self.account_plan.watchlist),
+            symbols_requested=len(requested_symbols),
             symbols_with_bars=sum(bool(rows) for rows in usable.values()),
             request_ids=tuple(self.market_data.request_ids),
             execution_enabled=False,

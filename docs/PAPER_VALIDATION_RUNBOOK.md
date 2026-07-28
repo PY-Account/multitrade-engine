@@ -12,6 +12,8 @@ Keep these VPS values:
 TRADING_AUTOMATION_ENABLED=false
 TRADING_ENABLE_PAPER_ORDERS=false
 TRADING_EMERGENCY_STOP=false
+# Add a real organization/contact only on the VPS to enable SEC size evidence.
+TRADING_SEC_USER_AGENT=MultiTrade Research operator@example.com
 ```
 
 Keep every strategy:
@@ -27,6 +29,7 @@ cd /opt/multitrade/app
 bash ops/update.sh
 docker compose --profile public-dashboard ps
 docker compose --profile public-dashboard logs --tail=100 automation
+docker compose --profile public-dashboard logs --tail=100 asset-universe
 docker compose --profile public-dashboard logs --tail=100 strategy-lab
 ```
 
@@ -36,6 +39,8 @@ Expected dashboard state:
 - Alpaca environment says Paper.
 - Account controls are green.
 - Strategy runtime rows appear after a cycle.
+- Asset Universe recommendations or explicit failed gates appear after its
+  first cycle.
 - Strategy Lab reports appear after its first, longer historical cycle.
 - Signals may be absent for long periods; absence is not a fault.
 - No orders are submitted.
@@ -44,7 +49,8 @@ Run this stage for at least two complete US market sessions.
 
 ## Stage 1: automated and manual walk-forward checks
 
-The Strategy Lab now performs the portfolio-wide baseline automatically. In
+The Strategy Lab now performs the strategy-assigned universe baseline
+automatically. In
 the dashboard, review Strategy Lab -> Model Validation and require sufficient
 symbol coverage, out-of-sample trade count, and adverse-cost results. A green
 readiness label is permission only for further observation, not for orders.
@@ -134,7 +140,7 @@ at Alpaca. Do not disable the heartbeat or dashboard while exposure exists.
 
 ## Promotion rule
 
-No live-trading promotion is part of release 0.6. A separate live program
+No live-trading promotion is part of release 0.7. A separate live program
 requires independent code review, PostgreSQL, recovery drills, alerting,
 credential rotation, reconciliation tests, legal/tax review, and explicit
 authorization.

@@ -1,5 +1,33 @@
 # Changelog
 
+## 0.7.0 - 2026-07-28
+
+- Added a dedicated, research-only Asset Universe worker using configured
+  seeds plus Alpaca's most-active stock screener.
+- Added fail-closed gates for active/tradable US equity status, exchange,
+  minimum price, fresh company-size evidence, average daily share volume,
+  average daily dollar volume, and optional dated index membership.
+- Added optional SEC company-facts integration with an explicitly configured
+  organization/contact User-Agent; stored reports include the size method,
+  evidence date, and source URL.
+- Added dated operator-provided company-size references and index constituent
+  snapshots, with freshness gates. NASDAQ listing is never treated as
+  Nasdaq-100 membership.
+- Added manual, recommended, combined, and account-watchlist research
+  assignments per strategy. The Strategy Lab now tests the assigned universe
+  instead of forcing every strategy onto the same account watchlist.
+- Added separate per-strategy execution-symbol subsets, each structurally
+  constrained to the reviewed account watchlist.
+- Persisted universe reports and health, added CLI and hardened Compose
+  services, and added the Asset Universe dashboard workspace for
+  recommendations, rejected candidates, policies, provenance, and
+  assignments.
+- Expanded the default candidate seeds beyond indexes and the largest
+  technology companies while retaining evidence gates before recommendation.
+
+This release remains Alpaca Paper-only. Asset recommendations never edit the
+account watchlist, grant Paper permission, or authorize an order.
+
 ## 0.6.0 - 2026-07-28
 
 - Added an isolated, always-on Strategy Lab for every configured intraday

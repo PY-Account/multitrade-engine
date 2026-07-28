@@ -49,6 +49,10 @@ from multitrade.research_validation import (
 from multitrade.risk import RiskEngine
 from multitrade.strategies import default_equity_strategies
 from multitrade.strategy_lab import ContinuousStrategyLabService
+from multitrade.universe import (
+    ContinuousAssetUniverseService,
+    load_asset_universe_program,
+)
 
 
 def _json_default(value: Any) -> Any:
@@ -152,6 +156,17 @@ def _doctor() -> int:
         research_configuration_valid = False
         research_configuration_error = str(exc)
         research_universe = []
+    try:
+        universe_program = load_asset_universe_program(
+            settings.asset_universe_config_path
+        )
+        asset_universe_configuration_valid = True
+        asset_universe_configuration_error = None
+        universe_policies = list(universe_program.policies)
+    except (OSError, ValueError, json.JSONDecodeError) as exc:
+        asset_universe_configuration_valid = False
+        asset_universe_configuration_error = str(exc)
+        universe_policies = []
 
     checks = {
         "paper_endpoint_locked": True,
@@ -200,6 +215,18 @@ def _doctor() -> int:
             settings.strategy_lab_stressed_cost_bps, "f"
         ),
         "strategy_lab_execution_enabled": False,
+        "asset_universe_config_path": str(
+            settings.asset_universe_config_path
+        ),
+        "asset_universe_configuration_valid": (
+            asset_universe_configuration_valid
+        ),
+        "asset_universe_configuration_error": (
+            asset_universe_configuration_error
+        ),
+        "asset_universe_policies": universe_policies,
+        "asset_universe_execution_enabled": False,
+        "sec_user_agent_present": bool(settings.sec_user_agent),
         "enabled_accounts": enabled_accounts,
     }
     print(json.dumps(checks, indent=2, sort_keys=True))
@@ -211,6 +238,7 @@ def _doctor() -> int:
             and checks["dashboard_credentials_valid"]
             and checks["portfolio_configuration_valid"]
             and checks["research_configuration_valid"]
+            and checks["asset_universe_configuration_valid"]
             and len(checks["enabled_accounts"]) == 1
         )
         else 1
@@ -587,6 +615,87 @@ def _strategy_lab_healthcheck() -> int:
     return 0 if healthy else 1
 
 
+def _asset_universe(once: bool) -> int:
+    settings = Settings.from_env()
+    service = ContinuousAssetUniverseService.from_settings(settings)
+    stop_event = threading.Event()
+
+    def request_shutdown(signum, frame) -> None:
+        del signum, frame
+        stop_event.set()
+
+    if not once:
+        signal.signal(signal.SIGTERM, request_shutdown)
+        signal.signal(signal.SIGINT, request_shutdown)
+
+    while True:
+        try:
+            result = service.run_cycle()
+            print(
+                json.dumps(
+                    asdict(result),
+                    default=_json_default,
+                    sort_keys=True,
+                ),
+                flush=True,
+            )
+        except Exception as exc:
+            try:
+                service.store.record_event(
+                    "asset_universe_cycle_failed",
+                    service.account_plan.account_id,
+                    {
+                        "error_type": type(exc).__name__,
+                        "message": str(exc),
+                    },
+                )
+            finally:
+                write_health(
+                    settings.asset_universe_health_path,
+                    "error",
+                    {"error_type": type(exc).__name__},
+                )
+            print(
+                json.dumps(
+                    {
+                        "status": "error",
+                        "component": "asset_universe",
+                        "error_type": type(exc).__name__,
+                        "message": str(exc),
+                    },
+                    sort_keys=True,
+                ),
+                file=sys.stderr,
+                flush=True,
+            )
+            if once:
+                return 1
+        if once:
+            return 0
+        if stop_event.wait(settings.asset_universe_cycle_seconds):
+            print(
+                json.dumps(
+                    {
+                        "status": "stopped",
+                        "component": "asset_universe",
+                    },
+                    sort_keys=True,
+                ),
+                flush=True,
+            )
+            return 0
+
+
+def _asset_universe_healthcheck() -> int:
+    settings = Settings.from_env()
+    healthy, result = check_health(
+        settings.asset_universe_health_path,
+        settings.asset_universe_health_max_age_seconds,
+    )
+    print(json.dumps(result, sort_keys=True))
+    return 0 if healthy else 1
+
+
 def _evidence_catalog() -> int:
     print(
         json.dumps(
@@ -824,11 +933,20 @@ def _dashboard() -> int:
         strategy_lab_health_max_age_seconds=(
             settings.strategy_lab_health_max_age_seconds
         ),
+        asset_universe_health_path=(
+            settings.asset_universe_health_path
+        ),
+        asset_universe_health_max_age_seconds=(
+            settings.asset_universe_health_max_age_seconds
+        ),
         automation_enabled=settings.automation_enabled,
         paper_order_submission_enabled=settings.enable_paper_orders,
         emergency_stop=settings.emergency_stop,
         account_plans=load_account_plans(
             settings.portfolio_config_path
+        ),
+        asset_universe_program=load_asset_universe_program(
+            settings.asset_universe_config_path
         ),
     )
     server = create_dashboard_server(
@@ -978,7 +1096,7 @@ def build_parser() -> argparse.ArgumentParser:
         "strategy-lab",
         help=(
             "Continuously validate configured intraday models across "
-            "the account watchlist"
+            "their assigned research symbols"
         ),
     )
     strategy_lab_parser.add_argument(
@@ -989,6 +1107,21 @@ def build_parser() -> argparse.ArgumentParser:
     subparsers.add_parser(
         "strategy-lab-healthcheck",
         help="Check whether the latest Strategy Lab cycle is fresh",
+    )
+    universe_parser = subparsers.add_parser(
+        "asset-universe",
+        help=(
+            "Build evidence-gated stock recommendations for research"
+        ),
+    )
+    universe_parser.add_argument(
+        "--once",
+        action="store_true",
+        help="Run one asset-universe cycle and exit",
+    )
+    subparsers.add_parser(
+        "asset-universe-healthcheck",
+        help="Check whether the latest asset-universe cycle is fresh",
     )
     subparsers.add_parser(
         "evidence-catalog",
@@ -1067,6 +1200,10 @@ def main(argv: list[str] | None = None) -> int:
             return _strategy_lab(args.once)
         if args.command == "strategy-lab-healthcheck":
             return _strategy_lab_healthcheck()
+        if args.command == "asset-universe":
+            return _asset_universe(args.once)
+        if args.command == "asset-universe-healthcheck":
+            return _asset_universe_healthcheck()
         if args.command == "evidence-catalog":
             return _evidence_catalog()
         if args.command == "research-backtest":

@@ -101,6 +101,36 @@ class AlpacaPaperBroker:
         }
         self._request_ids: list[str] = []
 
+    @property
+    def request_ids(self) -> tuple[str, ...]:
+        return tuple(self._request_ids)
+
+    def list_active_stock_assets(
+        self,
+    ) -> dict[str, dict[str, Any]]:
+        """Return Alpaca's active US-equity catalog for read-only screening."""
+        self._request_ids = []
+        payload = self._request(
+            "GET",
+            "/v2/assets",
+            query={
+                "status": "active",
+                "asset_class": "us_equity",
+            },
+        )
+        if not isinstance(payload, list):
+            raise AlpacaError(
+                "Alpaca assets response was not a list"
+            )
+        result: dict[str, dict[str, Any]] = {}
+        for row in payload:
+            if not isinstance(row, dict):
+                continue
+            symbol = str(row.get("symbol", "")).strip().upper()
+            if symbol:
+                result[symbol] = row
+        return result
+
     def reconcile(self) -> BrokerReconciliation:
         self._request_ids = []
         account = self._request("GET", "/v2/account")

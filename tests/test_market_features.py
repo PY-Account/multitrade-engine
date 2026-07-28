@@ -145,6 +145,37 @@ class MarketDataTests(TestCase):
         self.assertEqual(calls[0][1]["adjustment"], "all")
         self.assertEqual(result["SPY"][0].adjustment, "all")
 
+    def test_most_active_symbols_are_normalized(self) -> None:
+        client = AlpacaMarketDataClient(
+            "paper-key", "paper-secret", feed="iex"
+        )
+        calls = []
+
+        def request(path, query):
+            calls.append((path, query))
+            return {
+                "most_actives": [
+                    {"symbol": "amd", "volume": 1000},
+                    {"symbol": "AMD", "volume": 900},
+                    {"symbol": "PLTR", "volume": 800},
+                ]
+            }
+
+        client._request = request
+
+        result = client.fetch_most_active_stocks(top=25)
+
+        self.assertEqual(result, ("AMD", "PLTR"))
+        self.assertEqual(
+            calls,
+            [
+                (
+                    "/v1beta1/screener/stocks/most-actives",
+                    {"top": "25", "by": "volume"},
+                )
+            ],
+        )
+
     def test_existing_database_adds_adjustment_provenance(self) -> None:
         with TemporaryDirectory() as directory:
             path = Path(directory) / "legacy.db"

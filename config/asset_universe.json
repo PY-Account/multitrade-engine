@@ -1,0 +1,72 @@
+{
+  "policies": [
+    {
+      "policy_id": "liquid_us_breakout_candidates",
+      "candidate_source": "combined",
+      "seed_symbols": [
+        "AMD",
+        "INTC",
+        "MU",
+        "UBER",
+        "PLTR",
+        "BAC",
+        "C",
+        "F",
+        "GM",
+        "PFE",
+        "T",
+        "WBD",
+        "SNAP",
+        "RBLX",
+        "SHOP",
+        "COIN",
+        "HOOD",
+        "DKNG",
+        "SOFI",
+        "RIVN"
+      ],
+      "most_active_limit": 40,
+      "lookback_days": 20,
+      "minimum_price": "3",
+      "minimum_company_size_usd": "300000000",
+      "minimum_average_daily_share_volume": "500000",
+      "minimum_average_daily_dollar_volume": "10000000",
+      "allowed_exchanges": ["NASDAQ", "NYSE", "ARCA", "AMEX"],
+      "required_index_sets": [],
+      "maximum_company_size_age_days": 550,
+      "maximum_index_snapshot_age_days": 45,
+      "maximum_recommendations": 20
+    }
+  ],
+  "strategy_assignments": [
+    {
+      "strategy_id": "breakout_retest",
+      "selection_mode": "combined",
+      "policy_id": "liquid_us_breakout_candidates",
+      "manual_symbols": ["AMD", "MU", "UBER", "PLTR", "HOOD", "DKNG"],
+      "maximum_symbols": 20
+    },
+    {
+      "strategy_id": "trend_pullback",
+      "selection_mode": "combined",
+      "policy_id": "liquid_us_breakout_candidates",
+      "manual_symbols": ["AMD", "UBER", "BAC", "GM", "SHOP", "COIN"],
+      "maximum_symbols": 20
+    },
+    {
+      "strategy_id": "volatility_contraction",
+      "selection_mode": "combined",
+      "policy_id": "liquid_us_breakout_candidates",
+      "manual_symbols": ["MU", "PLTR", "RBLX", "SHOP", "DKNG", "SOFI"],
+      "maximum_symbols": 20
+    },
+    {
+      "strategy_id": "range_mean_reversion",
+      "selection_mode": "manual",
+      "manual_symbols": ["BAC", "C", "F", "GM", "PFE", "T"],
+      "maximum_symbols": 12
+    }
+  ],
+  "index_snapshots": [],
+  "asset_references": []
+}

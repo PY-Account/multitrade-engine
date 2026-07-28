@@ -251,6 +251,7 @@
   <nav class="workspace-nav" aria-label="Primary workspace">
     <div class="primary-tabs" id="primary-tabs" role="tablist">
       <button type="button" data-primary-tab="account" aria-selected="true">Account</button>
+      <button type="button" data-primary-tab="asset-universe" aria-selected="false">Asset Universe</button>
       <button type="button" data-primary-tab="strategy-lab" aria-selected="false">Strategy Lab</button>
       <button type="button" data-primary-tab="allocation" aria-selected="false">Allocation &amp; Risk</button>
       <button type="button" data-primary-tab="operations" aria-selected="false">Operations</button>
@@ -268,11 +269,49 @@
     <article class="card"><div class="label">Strategy service</div><div class="value" id="automation">--</div></article>
     <article class="card"><div class="label">Research service</div><div class="value" id="research">--</div></article>
     <article class="card"><div class="label">Strategy Lab</div><div class="value" id="strategy-lab">--</div></article>
+    <article class="card"><div class="label">Asset Universe</div><div class="value" id="asset-universe">--</div></article>
     <article class="card"><div class="label">US market</div><div class="value" id="market">--</div></article>
     <article class="card"><div class="label">Paper equity</div><div class="value" id="equity">--</div></article>
     <article class="card"><div class="label">Buying power</div><div class="value" id="buying-power">--</div></article>
     <article class="card"><div class="label">Gross notional</div><div class="value" id="notional">--</div></article>
     <article class="card"><div class="label">Reserved risk</div><div class="value" id="risk">--</div></article>
+  </section>
+
+  <section class="panel workspace-view" data-primary="asset-universe" data-secondary="recommendations">
+    <div class="panel-head">
+      <div><h2>Evidence-gated asset recommendations</h2><p class="subcopy">Candidates are ranked only after price, company-size, liquidity, Alpaca tradability, exchange, and any configured index-membership gates. Recommendations are research-only.</p></div>
+    </div>
+    <div class="table-wrap">
+      <table>
+        <thead><tr><th>Evaluated</th><th>Policy</th><th>Symbol</th><th>Candidate source</th><th>Exchange</th><th class="number">Price</th><th class="number">Company size</th><th>Size evidence</th><th>Evidence source</th><th class="number">Avg. shares</th><th class="number">Avg. $ volume</th><th>Index evidence</th><th>Gates</th><th>Status</th></tr></thead>
+        <tbody id="asset-candidates"></tbody>
+      </table>
+    </div>
+  </section>
+
+  <section class="panel workspace-view" data-primary="asset-universe" data-secondary="assignments">
+    <div class="panel-head">
+      <div><h2>Strategy symbol assignments</h2><p class="subcopy">Manual and recommended research universes are configured independently for every strategy. Approved execution symbols remain a separate subset of the account watchlist.</p></div>
+    </div>
+    <div class="table-wrap">
+      <table>
+        <thead><tr><th>Strategy</th><th>Research mode</th><th>Recommendation policy</th><th>Manual research symbols</th><th>Latest recommended symbols</th><th>Maximum research symbols</th><th>Approved account symbols</th><th>Paper permission</th></tr></thead>
+        <tbody id="universe-assignments"></tbody>
+      </table>
+    </div>
+  </section>
+
+  <section class="panel workspace-view" data-primary="asset-universe" data-secondary="policies">
+    <div class="panel-head">
+      <div><h2>Selection policies and provenance</h2><p class="subcopy">A Nasdaq listing is not treated as Nasdaq-100 membership. Index restrictions activate only through a dated, sourced constituent snapshot.</p></div>
+    </div>
+    <div class="table-wrap">
+      <table>
+        <thead><tr><th>Policy</th><th>Candidate source</th><th class="number">Minimum price</th><th class="number">Minimum company size</th><th class="number">Minimum shares / day</th><th class="number">Minimum $ / day</th><th>Exchanges</th><th>Required index sets</th><th class="number">Max recommendations</th></tr></thead>
+        <tbody id="universe-policies"></tbody>
+      </table>
+    </div>
+    <p class="subcopy" id="universe-provenance">Waiting for configuration...</p>
   </section>
 
   <section class="two-column workspace-view" data-primary="allocation" data-secondary="risk">
@@ -313,7 +352,7 @@
     </div>
     <div class="table-wrap">
       <table>
-        <thead><tr><th>Strategy</th><th>Enabled</th><th class="number">Capital weight</th><th class="number">Risk / trade</th><th class="number">Minimum confidence</th><th>Paper permission</th><th>Lab readiness</th></tr></thead>
+        <thead><tr><th>Strategy</th><th>Enabled</th><th>Execution symbols</th><th class="number">Capital weight</th><th class="number">Risk / trade</th><th class="number">Minimum confidence</th><th>Paper permission</th><th>Lab readiness</th></tr></thead>
         <tbody id="allocations"></tbody>
       </table>
     </div>
@@ -550,6 +589,11 @@
       ["overview", "Overview"],
       ["portfolio", "Positions & Orders"],
       ["trades", "Trades & Charts"],
+    ],
+    "asset-universe": [
+      ["recommendations", "Recommendations"],
+      ["assignments", "Strategy Assignments"],
+      ["policies", "Policies & Sources"],
     ],
     "strategy-lab": [
       ["validation", "Model Validation"],
@@ -891,6 +935,164 @@
     selector.disabled = rows.length < 2;
   }
 
+  function latestUniverseReports(reports) {
+    const latest = [];
+    const seen = new Set();
+    for (const report of reports) {
+      if (
+        report.account_id !== selectedAccountId
+        || seen.has(report.policy_id)
+      ) continue;
+      seen.add(report.policy_id);
+      latest.push(report);
+    }
+    return latest;
+  }
+
+  function renderAssetCandidates(reports) {
+    const body = document.getElementById("asset-candidates");
+    body.replaceChildren();
+    const latest = latestUniverseReports(reports);
+    const rows = latest.flatMap(report =>
+      (report.evaluations || []).map(item => ({
+        ...item,
+        policy_id: report.policy_id,
+        evaluated_at: report.evaluated_at,
+        recommended: (report.recommendations || []).includes(item.symbol),
+      }))
+    );
+    if (!rows.length) {
+      emptyRow(body, 14, "The Asset Universe has not completed its first evidence-gated cycle.");
+      return;
+    }
+    for (const item of rows) {
+      const passed = Object.values(item.gates || {}).filter(Boolean).length;
+      const total = Object.keys(item.gates || {}).length;
+      const sizeEvidence = item.company_size_method
+        ? `${item.company_size_method.replaceAll("_", " ")} · ${item.company_size_as_of || "date unavailable"}`
+        : "Missing — fails closed";
+      const leadingValues = [
+        [localTime(item.evaluated_at), ""],
+        [item.policy_id, ""],
+        [item.symbol, ""],
+        [(item.sources || []).join(", ").replaceAll("_", " ") || "--", ""],
+        [item.exchange || "--", ""],
+        [item.price == null ? "--" : money(item.price), "number"],
+        [item.company_size_usd == null ? "--" : money(item.company_size_usd), "number"],
+        [sizeEvidence, item.company_size_method ? "" : "warn"],
+      ];
+      const trailingValues = [
+        [item.average_daily_share_volume == null ? "--" : quantity(item.average_daily_share_volume), "number"],
+        [item.average_daily_dollar_volume == null ? "--" : money(item.average_daily_dollar_volume), "number"],
+        [(item.index_memberships || []).join(", ") || "No sourced membership", ""],
+        [`${passed}/${total}`, passed === total && total ? "ok" : "warn"],
+        [item.recommended ? "Recommended for research" : "Rejected by policy", item.recommended ? "ok" : "warn"],
+      ];
+      const row = document.createElement("tr");
+      for (const [value, className] of leadingValues) {
+        row.appendChild(cell(value, className));
+      }
+      const sourceCell = document.createElement("td");
+      if (item.company_size_source_url) {
+        const link = document.createElement("a");
+        link.href = item.company_size_source_url;
+        link.target = "_blank";
+        link.rel = "noopener noreferrer";
+        link.textContent = "Open";
+        sourceCell.appendChild(link);
+      } else {
+        sourceCell.textContent = "--";
+      }
+      row.appendChild(sourceCell);
+      for (const [value, className] of trailingValues) {
+        row.appendChild(cell(value, className));
+      }
+      body.appendChild(row);
+    }
+  }
+
+  function renderUniverseAssignments(configuration, reports, accounts) {
+    const body = document.getElementById("universe-assignments");
+    body.replaceChildren();
+    const assignments = configuration?.strategy_assignments || [];
+    if (!assignments.length) {
+      emptyRow(body, 8, "No strategy-level research assignments are configured.");
+      return;
+    }
+    const recommendations = new Map(
+      latestUniverseReports(reports).map(
+        report => [report.policy_id, report.recommendations || []]
+      )
+    );
+    const account = accounts.find(
+      item => item.account_id === selectedAccountId
+    );
+    const allocations = new Map(
+      (account?.allocations || []).map(
+        allocation => [allocation.strategy_id, allocation]
+      )
+    );
+    for (const assignment of assignments) {
+      const allocation = allocations.get(assignment.strategy_id);
+      const recommended = recommendations.get(assignment.policy_id) || [];
+      const approvedSymbols = allocation?.symbols?.length
+        ? allocation.symbols
+        : account?.watchlist || [];
+      const values = [
+        [assignment.strategy_id, ""],
+        [assignment.selection_mode.replaceAll("_", " "), ""],
+        [assignment.policy_id || "None", ""],
+        [(assignment.manual_symbols || []).join(", ") || "None", ""],
+        [recommended.join(", ") || "Awaiting eligible candidates", recommended.length ? "ok" : "warn"],
+        [assignment.maximum_symbols, "number"],
+        [approvedSymbols.join(", ") || "None", ""],
+        [allocation?.paper_execution_allowed ? "Configured" : "Blocked", allocation?.paper_execution_allowed ? "warn" : "ok"],
+      ];
+      const row = document.createElement("tr");
+      for (const [value, className] of values) {
+        row.appendChild(cell(value, className));
+      }
+      body.appendChild(row);
+    }
+  }
+
+  function renderUniversePolicies(configuration) {
+    const body = document.getElementById("universe-policies");
+    body.replaceChildren();
+    const policies = configuration?.policies || [];
+    if (!policies.length) {
+      emptyRow(body, 9, "No asset-selection policies are configured.");
+      setText("universe-provenance", "No asset-universe configuration is available.");
+      return;
+    }
+    for (const policy of policies) {
+      const values = [
+        [policy.policy_id, ""],
+        [policy.candidate_source.replaceAll("_", " "), ""],
+        [money(policy.minimum_price), "number"],
+        [money(policy.minimum_company_size_usd), "number"],
+        [quantity(policy.minimum_average_daily_share_volume), "number"],
+        [money(policy.minimum_average_daily_dollar_volume), "number"],
+        [(policy.allowed_exchanges || []).join(", ") || "None", ""],
+        [(policy.required_index_sets || []).join(", ") || "No index restriction", ""],
+        [policy.maximum_recommendations, "number"],
+      ];
+      const row = document.createElement("tr");
+      for (const [value, className] of values) {
+        row.appendChild(cell(value, className));
+      }
+      body.appendChild(row);
+    }
+    const snapshots = configuration?.index_snapshots || [];
+    const snapshotCopy = snapshots.length
+      ? snapshots.map(item => `${item.label}: ${item.as_of}, ${item.symbols?.length || 0} symbols`).join(" · ")
+      : "No index constituent snapshot is configured; index filtering is therefore disabled.";
+    setText(
+      "universe-provenance",
+      `${snapshotCopy} Recommendations never grant Paper or live execution permission.`
+    );
+  }
+
   function renderAllocations(accounts, labReports) {
     const body = document.getElementById("allocations");
     body.replaceChildren();
@@ -899,7 +1101,7 @@
     );
     const allocations = account?.allocations || [];
     if (!allocations.length) {
-      emptyRow(body, 7, "No account allocation configuration is available.");
+      emptyRow(body, 8, "No account allocation configuration is available.");
       return;
     }
     const latestByStrategy = new Map();
@@ -918,6 +1120,7 @@
       const values = [
         [allocation.strategy_id, ""],
         [allocation.enabled ? "Enabled" : "Disabled", allocation.enabled ? "ok" : "warn"],
+        [(allocation.symbols || account.watchlist || []).join(", "), ""],
         [percent(allocation.capital_weight), "number"],
         [percent(allocation.risk_fraction), "number"],
         [percent(allocation.minimum_confidence), "number"],
@@ -1334,6 +1537,8 @@
     if (event.event_type === "research_cycle_failed") return `The research cycle failed: ${payload.error_type || "unknown error"}.`;
     if (event.event_type === "strategy_lab_cycle_completed") return "Portfolio-wide intraday strategy validation completed.";
     if (event.event_type === "strategy_lab_cycle_failed") return `The Strategy Lab cycle failed: ${payload.error_type || "unknown error"}.`;
+    if (event.event_type === "asset_universe_cycle_completed") return "Evidence-gated asset selection completed; recommendations remain research-only.";
+    if (event.event_type === "asset_universe_cycle_failed") return `The Asset Universe cycle failed: ${payload.error_type || "unknown error"}.`;
     if (event.event_type === "backtest_completed") return "A reproducible backtest completed.";
     if (event.event_type === "strategy_validation_completed") {
       return `Walk-forward validation ${payload.passed ? "passed" : "failed"} its configured gates.`;
@@ -1392,6 +1597,11 @@
         data.strategy_lab.healthy ? "ok" : "bad"
       );
       setStatus(
+        "asset-universe",
+        data.asset_universe.healthy ? "Healthy" : "Attention",
+        data.asset_universe.healthy ? "ok" : "bad"
+      );
+      setStatus(
         "market",
         market == null ? "Unavailable" : (market.is_open ? "Open" : "Closed"),
         market == null ? "bad" : (market.is_open ? "ok" : "warn")
@@ -1441,6 +1651,15 @@
       renderResearchBacktests(data.research_backtests || []);
       renderPortfolioRiskReports(data.portfolio_risk_reports || []);
       renderStrategyLabReports(data.strategy_lab_reports || []);
+      renderAssetCandidates(data.asset_universe_reports || []);
+      renderUniverseAssignments(
+        data.asset_universe?.configuration,
+        data.asset_universe_reports || [],
+        data.configured_accounts || []
+      );
+      renderUniversePolicies(
+        data.asset_universe?.configuration
+      );
       renderAllocations(
         data.configured_accounts || [],
         data.strategy_lab_reports || []
@@ -1452,6 +1671,7 @@
       renderEvents(data.events || []);
     } catch (error) {
       setStatus("engine", "Unavailable", "bad");
+      setStatus("asset-universe", "Unavailable", "bad");
       setText("updated", "Dashboard data unavailable");
     }
   }

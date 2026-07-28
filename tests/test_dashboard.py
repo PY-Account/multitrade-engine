@@ -12,6 +12,7 @@ from urllib.request import Request, urlopen
 from multitrade.audit import SqliteAuditStore
 from multitrade.dashboard import DashboardData, create_dashboard_server
 from multitrade.health import write_health
+from multitrade.universe import load_asset_universe_program
 
 
 class DashboardTests(TestCase):
@@ -85,6 +86,11 @@ class DashboardTests(TestCase):
                 health_max_age_seconds=120,
                 max_total_open=Decimal("0.10"),
                 max_per_trade=Decimal("0.03"),
+                asset_universe_program=load_asset_universe_program(
+                    Path(__file__).parents[1]
+                    / "config"
+                    / "asset_universe.json"
+                ),
             ),
             db_path,
             health_path,
@@ -118,6 +124,16 @@ class DashboardTests(TestCase):
             self.assertEqual(result["research_backtests"], [])
             self.assertEqual(result["portfolio_risk_reports"], [])
             self.assertEqual(result["strategy_lab_reports"], [])
+            self.assertEqual(result["asset_universe_reports"], [])
+            self.assertFalse(
+                result["asset_universe"]["execution_enabled"]
+            )
+            self.assertEqual(
+                result["asset_universe"]["configuration"]["policies"][
+                    0
+                ]["minimum_price"],
+                "3",
+            )
             self.assertFalse(
                 result["strategy_lab"]["execution_enabled"]
             )
@@ -180,10 +196,17 @@ class DashboardTests(TestCase):
                     'data-primary-tab="strategy-lab"', html
                 )
                 self.assertIn(
+                    'data-primary-tab="asset-universe"', html
+                )
+                self.assertIn(
                     'data-primary-tab="allocation"', html
                 )
                 self.assertIn('id="account-select"', html)
                 self.assertIn("Continuous Strategy Lab", html)
+                self.assertIn(
+                    "Evidence-gated asset recommendations", html
+                )
+                self.assertIn("Strategy symbol assignments", html)
                 self.assertIn("Account strategy allocation", html)
                 self.assertIn('Strategy bots', html)
                 self.assertIn('Evidence-weighted market model', html)

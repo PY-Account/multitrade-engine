@@ -19,6 +19,10 @@ from multitrade.strategy_lab import (
     StrategyLabConfig,
     StrategyLabEvaluator,
 )
+from multitrade.universe import (
+    AssetUniverseProgram,
+    StrategyUniverseAssignment,
+)
 
 
 @dataclass(frozen=True, slots=True)
@@ -201,3 +205,45 @@ class StrategyLabTests(TestCase):
             self.assertEqual(len(reports), 1)
             self.assertFalse(reports[0]["execution_eligible"])
             self.assertTrue(health_path.is_file())
+
+    def test_continuous_cycle_uses_strategy_specific_research_symbols(
+        self,
+    ) -> None:
+        with TemporaryDirectory() as directory:
+            db_path = Path(directory) / "trading.db"
+            service = ContinuousStrategyLabService(
+                account_plan=account_plan(),
+                strategies={
+                    "frequent_test": FrequentTestStrategy()
+                },
+                market_data=FakeMarketData(),
+                store=SqliteAuditStore(db_path),
+                health_path=str(
+                    Path(directory) / "strategy-lab-health.json"
+                ),
+                universe_program=AssetUniverseProgram(
+                    policies={},
+                    strategy_assignments={
+                        "frequent_test": StrategyUniverseAssignment(
+                            strategy_id="frequent_test",
+                            selection_mode="manual",
+                            policy_id=None,
+                            manual_symbols=("AAPL", "AMD"),
+                            maximum_symbols=10,
+                        )
+                    },
+                    index_snapshots={},
+                    asset_references={},
+                ),
+            )
+
+            service.run_cycle(
+                now=datetime(2026, 7, 28, tzinfo=timezone.utc)
+            )
+            report = SqliteAuditReader(
+                db_path
+            ).recent_strategy_lab_reports()[0]
+
+            self.assertEqual(
+                report["symbols_requested"], ["AAPL", "AMD"]
+            )

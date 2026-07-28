@@ -25,6 +25,7 @@ class StrategyAllocation:
     risk_fraction: Decimal
     minimum_confidence: Decimal
     paper_execution_allowed: bool = False
+    symbols: tuple[str, ...] = ()
 
     def __post_init__(self) -> None:
         if not self.strategy_id:
@@ -35,6 +36,8 @@ class StrategyAllocation:
             raise ValueError("risk_fraction must be in (0, 0.03]")
         if not Decimal("0") <= self.minimum_confidence <= Decimal("1"):
             raise ValueError("minimum_confidence must be in [0, 1]")
+        if any(not symbol for symbol in self.symbols):
+            raise ValueError("Strategy symbols cannot be empty strings")
 
 
 @dataclass(frozen=True, slots=True)
@@ -64,6 +67,14 @@ class AccountPlan:
             raise ValueError("maximum_daily_orders must be positive")
         if self.symbol_cooldown_minutes < 0:
             raise ValueError("symbol_cooldown_minutes cannot be negative")
+        for allocation in self.allocations.values():
+            unknown_symbols = set(allocation.symbols) - set(self.watchlist)
+            if unknown_symbols:
+                raise ValueError(
+                    f"{allocation.strategy_id} execution symbols must be "
+                    "present in the account watchlist: "
+                    + ", ".join(sorted(unknown_symbols))
+                )
         enabled_weight = sum(
             (
                 allocation.capital_weight
@@ -127,6 +138,15 @@ def load_account_plans(path: str | Path) -> tuple[AccountPlan, ...]:
                 paper_execution_allowed=bool(
                     allocation_row.get(
                         "paper_execution_allowed", False
+                    )
+                ),
+                symbols=tuple(
+                    dict.fromkeys(
+                        str(symbol).strip().upper()
+                        for symbol in allocation_row.get(
+                            "symbols", []
+                        )
+                        if str(symbol).strip()
                     )
                 ),
             )

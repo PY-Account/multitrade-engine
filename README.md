@@ -5,7 +5,7 @@ algorithmic-trading organization. It separates market analysis, strategy
 signals, portfolio allocation, central risk approval, broker execution,
 reconciliation, audit, backtesting, and monitoring.
 
-Release 0.6 is designed for controlled Alpaca Paper observation and dry-run
+Release 0.7 is designed for controlled Alpaca Paper observation and dry-run
 testing. It does not support live trading and it does not claim that any
 strategy is profitable.
 
@@ -61,19 +61,26 @@ The 3% and 10% figures are hard ceilings, not operating targets.
   handling when both levels touch in one bar, regular-session-only validation,
   forced session-end flattening, and chronological walk-forward gates.
 - An always-on Strategy Lab that evaluates every configured intraday model
-  across the account watchlist, repeats the out-of-sample test with adverse
-  costs, aggregates breadth and robustness gates, and can never enable
-  execution.
+  across a strategy-specific manual/recommended research universe, repeats
+  the out-of-sample test with adverse costs, aggregates breadth and robustness
+  gates, and can never enable execution.
+- An Asset Universe department combining operator seeds and Alpaca's
+  most-active screener, then failing closed through price, active/tradable
+  status, exchange, company-size evidence, evidence age, share-volume,
+  dollar-volume, and optional dated index-membership gates.
+- Manual, recommended, combined, or account-watchlist research assignments
+  per strategy, kept separate from each strategy's reviewed account execution
+  symbols.
 - Alpaca option-chain normalization and liquidity-filtered bull-call and
   bear-put debit-spread construction. This layer is research-only.
-- Authenticated HTTPS operations dashboard with hierarchical Account,
-  Strategy Lab, Allocation & Risk, and Operations workspaces; account
+- Authenticated HTTPS operations dashboard with hierarchical Account, Asset
+  Universe, Strategy Lab, Allocation & Risk, and Operations workspaces; account
   selection; strategy runtime, signals, trade explanations, validation
   results, and browser-local display preferences.
 - Dashboard authentication includes per-client failure throttling; Caddy adds
   TLS and HSTS.
 - Docker Compose services for the heartbeat, strategy worker, research worker,
-  Strategy Lab, dashboard, and Caddy TLS proxy.
+  Asset Universe, Strategy Lab, dashboard, and Caddy TLS proxy.
 
 ## Operating modes
 
@@ -125,6 +132,7 @@ python -m multitrade doctor
 python -m multitrade run --once
 python -m multitrade automate --once
 python -m multitrade research --once
+python -m multitrade asset-universe --once
 python -m multitrade strategy-lab --once
 python -m multitrade evidence-catalog
 python -m multitrade research-backtest --symbol QQQ --cost-bps 10
@@ -167,8 +175,8 @@ The updater:
 2. Fetches and fast-forwards private `main`.
 3. Preserves the existing `.env` and HTTPS profile.
 4. Builds the image and runs `multitrade doctor`.
-5. Recreates the heartbeat, automation, research, Strategy Lab, dashboard,
-   and proxy services.
+5. Recreates the heartbeat, automation, research, Asset Universe, Strategy
+   Lab, dashboard, and proxy services.
 
 After updating:
 
@@ -178,6 +186,7 @@ docker compose --profile public-dashboard ps
 docker compose --profile public-dashboard logs --tail=100 automation
 docker compose --profile public-dashboard logs --tail=100 engine
 docker compose --profile public-dashboard logs --tail=100 research
+docker compose --profile public-dashboard logs --tail=100 asset-universe
 docker compose --profile public-dashboard logs --tail=100 strategy-lab
 ```
 
@@ -187,6 +196,9 @@ Strategy definitions and limitations are documented in
 [`docs/STRATEGY_CATALOG.md`](docs/STRATEGY_CATALOG.md).
 Evidence admission and the public-thesis boundary are documented in
 [`docs/RESEARCH_GOVERNANCE.md`](docs/RESEARCH_GOVERNANCE.md).
+Asset selection, SEC company-size evidence, index snapshots, and manual versus
+recommended strategy assignments are documented in
+[`docs/ASSET_UNIVERSE.md`](docs/ASSET_UNIVERSE.md).
 
 ## Current boundary
 

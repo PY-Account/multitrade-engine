@@ -206,6 +206,11 @@ class PaperAutomationService:
             ):
                 if not allocation.enabled:
                     continue
+                if (
+                    allocation.symbols
+                    and symbol not in allocation.symbols
+                ):
+                    continue
                 counters["strategies_evaluated"] += 1
                 strategy = self.strategies[strategy_id]
                 context = StrategyContext(
@@ -372,7 +377,13 @@ class PaperAutomationService:
         for strategy_id, allocation in (
             self.account_plan.allocations.items()
         ):
-            if allocation.enabled:
+            if (
+                allocation.enabled
+                and (
+                    not allocation.symbols
+                    or symbol in allocation.symbols
+                )
+            ):
                 self.store.record_strategy_runtime(
                     self.account_plan.account_id,
                     strategy_id,

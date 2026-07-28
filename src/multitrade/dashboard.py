@@ -21,6 +21,7 @@ from multitrade.audit import SqliteAuditReader
 from multitrade.health import check_health
 from multitrade.portfolio import AccountPlan
 from multitrade.research import evidence_catalog
+from multitrade.universe import AssetUniverseProgram, program_payload
 
 
 _DASHBOARD_HTML = (
@@ -42,10 +43,13 @@ class DashboardData:
         research_health_max_age_seconds: int = 10800,
         strategy_lab_health_path: str | Path | None = None,
         strategy_lab_health_max_age_seconds: int = 64800,
+        asset_universe_health_path: str | Path | None = None,
+        asset_universe_health_max_age_seconds: int = 259200,
         automation_enabled: bool = False,
         paper_order_submission_enabled: bool = False,
         emergency_stop: bool = False,
         account_plans: tuple[AccountPlan, ...] = (),
+        asset_universe_program: AssetUniverseProgram | None = None,
     ) -> None:
         self.reader = SqliteAuditReader(db_path)
         self.health_path = Path(health_path)
@@ -76,12 +80,21 @@ class DashboardData:
         self.strategy_lab_health_max_age_seconds = (
             strategy_lab_health_max_age_seconds
         )
+        self.asset_universe_health_path = (
+            Path(asset_universe_health_path)
+            if asset_universe_health_path is not None
+            else None
+        )
+        self.asset_universe_health_max_age_seconds = (
+            asset_universe_health_max_age_seconds
+        )
         self.automation_enabled = automation_enabled
         self.paper_order_submission_enabled = (
             paper_order_submission_enabled
         )
         self.emergency_stop = emergency_stop
         self.account_plans = account_plans
+        self.asset_universe_program = asset_universe_program
 
     @staticmethod
     def _decimal(value: Any) -> Decimal:
@@ -118,6 +131,14 @@ class DashboardData:
         else:
             strategy_lab_healthy = False
             strategy_lab_health = {"status": "not_configured"}
+        if self.asset_universe_health_path is not None:
+            universe_healthy, universe_health = check_health(
+                self.asset_universe_health_path,
+                self.asset_universe_health_max_age_seconds,
+            )
+        else:
+            universe_healthy = False
+            universe_health = {"status": "not_configured"}
         try:
             state = self.reader.latest_broker_state("alpaca-paper")
             active_risk = self.reader.active_risk()
@@ -140,6 +161,9 @@ class DashboardData:
             strategy_lab_reports = (
                 self.reader.recent_strategy_lab_reports(40)
             )
+            asset_universe_reports = (
+                self.reader.recent_asset_universe_reports(20)
+            )
             storage: dict[str, Any] = {"status": "ok"}
         except (FileNotFoundError, OSError, sqlite3.Error):
             state = None
@@ -155,6 +179,7 @@ class DashboardData:
             research_backtests = []
             portfolio_risk_reports = []
             strategy_lab_reports = []
+            asset_universe_reports = []
             storage = {"status": "unavailable"}
 
         account: dict[str, Any] | None = None
@@ -213,6 +238,7 @@ class DashboardData:
                         "paper_execution_allowed": (
                             allocation.paper_execution_allowed
                         ),
+                        "symbols": list(allocation.symbols),
                     }
                     for allocation in plan.allocations.values()
                 ],
@@ -269,6 +295,16 @@ class DashboardData:
                 "details": strategy_lab_health,
                 "execution_enabled": False,
             },
+            "asset_universe": {
+                "healthy": universe_healthy,
+                "details": universe_health,
+                "configuration": (
+                    program_payload(self.asset_universe_program)
+                    if self.asset_universe_program is not None
+                    else None
+                ),
+                "execution_enabled": False,
+            },
             "storage": storage,
             "connection": connection,
             "operating_mode": operating_mode,
@@ -304,6 +340,7 @@ class DashboardData:
             "research_backtests": research_backtests,
             "portfolio_risk_reports": portfolio_risk_reports,
             "strategy_lab_reports": strategy_lab_reports,
+            "asset_universe_reports": asset_universe_reports,
             "evidence_catalog": evidence_catalog(),
         }
 
@@ -332,7 +369,7 @@ class DashboardData:
 
 
 class DashboardRequestHandler(BaseHTTPRequestHandler):
-    server_version = "MultiTradeDashboard/0.6"
+    server_version = "MultiTradeDashboard/0.7"
     sys_version = ""
     data_service: DashboardData
     expected_authorization: str

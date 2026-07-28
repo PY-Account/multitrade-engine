@@ -17,6 +17,13 @@ Long-only stock candidate:
 Primary failure modes: false breakouts, opening gaps, sparse IEX volume, and
 rapid regime reversal.
 
+The default research assignment is `combined`: a manually curated diversified
+symbol list plus the latest candidates that pass
+`liquid_us_breakout_candidates`. The default eligibility floor is USD 3,
+USD 300 million of fresh company-size evidence, 500,000 average shares per
+day, and USD 10 million average daily dollar volume. These filters improve
+data and execution plausibility; they do not validate the breakout edge.
+
 ## Trend pullback (`trend_pullback` v1.0.0)
 
 Long-only stock candidate:
@@ -136,7 +143,8 @@ The single-symbol out-of-sample gates currently require:
 Passing does not automatically edit `paper_execution_allowed`. Approval
 remains a deliberate configuration change reviewed after Paper observation.
 
-The continuous Strategy Lab adds portfolio-wide gates:
+The continuous Strategy Lab adds portfolio-wide gates for each strategy's
+manual/recommended research assignment:
 
 - At least two covered symbols, or every symbol when the watchlist is smaller.
 - At least 30 combined out-of-sample trades.

@@ -21,7 +21,7 @@ fi
 
 "${compose[@]}" config --quiet
 "${compose[@]}" build --pull \
-  engine dashboard automation research strategy-lab
+  engine dashboard automation research strategy-lab asset-universe
 "${compose[@]}" run --rm --no-deps engine multitrade doctor
 "${compose[@]}" up -d --remove-orphans
 "${compose[@]}" ps

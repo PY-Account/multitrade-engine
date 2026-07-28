@@ -116,6 +116,11 @@ class Settings:
     strategy_lab_lookback_days: int
     strategy_lab_base_cost_bps: Decimal
     strategy_lab_stressed_cost_bps: Decimal
+    asset_universe_cycle_seconds: int
+    asset_universe_health_path: Path
+    asset_universe_health_max_age_seconds: int
+    asset_universe_config_path: Path
+    sec_user_agent: str
     dashboard_host: str
     dashboard_port: int
     dashboard_username: str
@@ -201,6 +206,26 @@ class Settings:
             raise ValueError(
                 "Strategy Lab costs must be non-negative and stressed "
                 "costs cannot be below base costs"
+            )
+        asset_universe_cycle_seconds = _int_env(
+            "TRADING_ASSET_UNIVERSE_CYCLE_SECONDS",
+            "86400",
+            3600,
+            604800,
+        )
+        asset_universe_health_max_age_seconds = _int_env(
+            "TRADING_ASSET_UNIVERSE_HEALTH_MAX_AGE_SECONDS",
+            "259200",
+            7200,
+            1209600,
+        )
+        if (
+            asset_universe_health_max_age_seconds
+            < asset_universe_cycle_seconds * 2
+        ):
+            raise ValueError(
+                "TRADING_ASSET_UNIVERSE_HEALTH_MAX_AGE_SECONDS must be "
+                "at least twice TRADING_ASSET_UNIVERSE_CYCLE_SECONDS"
             )
         market_data_feed = os.getenv(
             "TRADING_MARKET_DATA_FEED", "iex"
@@ -303,6 +328,27 @@ class Settings:
             strategy_lab_stressed_cost_bps=(
                 strategy_lab_stressed_cost_bps
             ),
+            asset_universe_cycle_seconds=(
+                asset_universe_cycle_seconds
+            ),
+            asset_universe_health_path=Path(
+                os.getenv(
+                    "TRADING_ASSET_UNIVERSE_HEALTH_PATH",
+                    "var/asset-universe-health.json",
+                )
+            ),
+            asset_universe_health_max_age_seconds=(
+                asset_universe_health_max_age_seconds
+            ),
+            asset_universe_config_path=Path(
+                os.getenv(
+                    "TRADING_ASSET_UNIVERSE_CONFIG",
+                    "config/asset_universe.json",
+                )
+            ),
+            sec_user_agent=os.getenv(
+                "TRADING_SEC_USER_AGENT", ""
+            ).strip(),
             dashboard_host=os.getenv(
                 "DASHBOARD_HOST", "127.0.0.1"
             ).strip(),
