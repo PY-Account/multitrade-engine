@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import base64
 import json
+import os
 import re
 import secrets
 import sqlite3
@@ -17,6 +18,7 @@ from urllib.error import URLError
 from urllib.parse import parse_qs, urlparse
 from urllib.request import urlopen
 
+from multitrade import __version__
 from multitrade.audit import SqliteAuditReader
 from multitrade.health import check_health
 from multitrade.portfolio import AccountPlan
@@ -50,6 +52,8 @@ class DashboardData:
         emergency_stop: bool = False,
         account_plans: tuple[AccountPlan, ...] = (),
         asset_universe_program: AssetUniverseProgram | None = None,
+        release_version: str = __version__,
+        build_commit: str | None = None,
     ) -> None:
         self.reader = SqliteAuditReader(db_path)
         self.health_path = Path(health_path)
@@ -95,6 +99,17 @@ class DashboardData:
         self.emergency_stop = emergency_stop
         self.account_plans = account_plans
         self.asset_universe_program = asset_universe_program
+        self.release_version = release_version
+        candidate_commit = (
+            build_commit
+            if build_commit is not None
+            else os.getenv("MULTITRADE_BUILD_COMMIT", "unknown")
+        ).strip().lower()
+        self.build_commit = (
+            candidate_commit
+            if re.fullmatch(r"[0-9a-f]{40,64}", candidate_commit)
+            else "unknown"
+        )
 
     @staticmethod
     def _decimal(value: Any) -> Decimal:
@@ -278,6 +293,15 @@ class DashboardData:
             else Decimal("0")
         )
         return {
+            "release": {
+                "version": self.release_version,
+                "commit": self.build_commit,
+                "short_commit": (
+                    self.build_commit[:8]
+                    if self.build_commit != "unknown"
+                    else "unknown"
+                ),
+            },
             "generated_at": datetime.now(timezone.utc).isoformat(),
             "environment": "paper",
             "engine": {"healthy": healthy, "details": health},
@@ -369,7 +393,7 @@ class DashboardData:
 
 
 class DashboardRequestHandler(BaseHTTPRequestHandler):
-    server_version = "MultiTradeDashboard/0.7"
+    server_version = "MultiTradeDashboard/0.7.1"
     sys_version = ""
     data_service: DashboardData
     expected_authorization: str

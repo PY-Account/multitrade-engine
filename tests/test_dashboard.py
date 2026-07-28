@@ -91,6 +91,8 @@ class DashboardTests(TestCase):
                     / "config"
                     / "asset_universe.json"
                 ),
+                release_version="0.7.1",
+                build_commit="a" * 40,
             ),
             db_path,
             health_path,
@@ -104,6 +106,9 @@ class DashboardTests(TestCase):
 
             self.assertEqual(result["environment"], "paper")
             self.assertTrue(result["engine"]["healthy"])
+            self.assertEqual(result["release"]["version"], "0.7.1")
+            self.assertEqual(result["release"]["short_commit"], "aaaaaaaa")
+            self.assertEqual(result["release"]["commit"], "a" * 40)
             self.assertEqual(result["storage"]["status"], "ok")
             self.assertFalse(
                 result["operating_mode"]["paper_execution_enabled"]
@@ -183,6 +188,10 @@ class DashboardTests(TestCase):
                     ]
 
                 self.assertIn("Open positions", html)
+                self.assertIn('id="release-version"', html)
+                self.assertIn(
+                    "Deployed Git revision", html
+                )
                 self.assertIn('id="preferences-dialog"', html)
                 self.assertIn('id="preference-theme"', html)
                 self.assertIn('id="preference-date-format"', html)

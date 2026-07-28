@@ -1,5 +1,15 @@
 # Changelog
 
+## 0.7.1 - 2026-07-28
+
+- Added the deployed application version and short Git revision to the
+  authenticated dashboard header.
+- Added the full version and immutable build commit to `/api/overview`.
+- Embedded the checked-out Git revision in the application image during the
+  controlled deployment and added the corresponding OCI image label.
+- Invalid or locally unavailable revision metadata fails safely to `unknown`
+  instead of presenting an unverified build identifier.
+
 ## 0.7.0 - 2026-07-28
 
 - Added a dedicated, research-only Asset Universe worker using configured

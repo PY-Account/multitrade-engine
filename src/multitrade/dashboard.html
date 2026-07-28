@@ -87,6 +87,18 @@
     .subcopy { margin: 6px 0 0; font-size: .83rem; }
     .header-tools { display: flex; align-items: end; flex-direction: column; gap: 12px; }
     .header-actions { display: flex; align-items: center; gap: 9px; }
+    .release-badge {
+      display: inline-flex;
+      align-items: center;
+      min-height: 34px;
+      padding: 6px 10px;
+      border: 1px solid var(--line);
+      border-radius: 999px;
+      color: var(--code);
+      background: var(--panel-2);
+      font: 700 .73rem ui-monospace, SFMono-Regular, Consolas, monospace;
+      white-space: nowrap;
+    }
     .workspace-nav {
       display: flex;
       align-items: center;
@@ -242,6 +254,7 @@
     </div>
     <div class="header-tools">
       <div class="header-actions">
+        <span class="release-badge" id="release-version" title="Deployed code revision">v-- · build --</span>
         <button id="preferences-open" type="button">Preferences</button>
       </div>
       <div id="updated">Waiting for reconciliation...</div>
@@ -1579,6 +1592,17 @@
       const data = await response.json();
       const account = data.account;
       const market = data.market;
+      const release = data.release || {};
+
+      setText(
+        "release-version",
+        `v${release.version || "--"} \u00b7 ${release.short_commit || "unknown"}`
+      );
+      document.getElementById("release-version").title = (
+        release.commit && release.commit !== "unknown"
+          ? `Deployed Git revision: ${release.commit}`
+          : "Git revision unavailable for this build"
+      );
 
       setStatus("engine", data.engine.healthy ? "Healthy" : "Attention", data.engine.healthy ? "ok" : "bad");
       setStatus(

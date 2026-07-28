@@ -1,8 +1,13 @@
 name: multitrade
 
+x-app-build: &app-build
+  context: .
+  args:
+    BUILD_COMMIT: ${MULTITRADE_BUILD_COMMIT:-unknown}
+
 services:
   engine:
-    build: .
+    build: *app-build
     image: multitrade-engine:local
     restart: unless-stopped
     init: true
@@ -32,7 +37,7 @@ services:
         max-file: "5"
 
   dashboard:
-    build: .
+    build: *app-build
     image: multitrade-engine:local
     restart: unless-stopped
     init: true
@@ -70,7 +75,7 @@ services:
         max-file: "5"
 
   automation:
-    build: .
+    build: *app-build
     image: multitrade-engine:local
     restart: unless-stopped
     init: true
@@ -103,7 +108,7 @@ services:
         max-file: "5"
 
   research:
-    build: .
+    build: *app-build
     image: multitrade-engine:local
     restart: unless-stopped
     init: true
@@ -136,7 +141,7 @@ services:
         max-file: "5"
 
   strategy-lab:
-    build: .
+    build: *app-build
     image: multitrade-engine:local
     restart: unless-stopped
     init: true
@@ -169,7 +174,7 @@ services:
         max-file: "5"
 
   asset-universe:
-    build: .
+    build: *app-build
     image: multitrade-engine:local
     restart: unless-stopped
     init: true
