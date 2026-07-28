@@ -5,10 +5,11 @@ algorithmic-trading organization. It separates market analysis, strategy
 signals, portfolio allocation, central risk approval, broker execution,
 reconciliation, audit, backtesting, and monitoring.
 
-Release 0.16 adds audited, revision-protected Paper strategy controls and
-bilingual operational explanations on top of exact-contract option evidence,
-atomic firm-wide risk, and isolated multi-account Alpaca Paper supervision. It
-does not support live trading and it does not claim that any strategy is
+Release 0.17 adds bounded, all-candidate accelerated historical validation,
+transparent research scorecards, and diagnostic failure explanations on top
+of audited Paper strategy controls, exact-contract option evidence, atomic
+firm-wide risk, and isolated multi-account Alpaca Paper supervision. It does
+not support live trading and it does not claim that any strategy is
 profitable.
 
 ## Safety invariants
@@ -74,6 +75,10 @@ The 3% and 10% figures are hard ceilings, not operating targets.
   gates, evaluates frozen parameters across non-overlapping chronological
   windows, runs deterministic trade-sequence tail stress, and can never enable
   execution.
+- A one-command accelerated validation runner that reuses one account-level
+  market-data download to evaluate every frozen baseline and comparison
+  variant in a bounded worker pool. Its scorecards are stored separately and
+  cannot add prospective experiment trials or authorize execution.
 - An append-only model-trial registry that fingerprints strategy code and
   parameters, laboratory configuration, and exact market inputs; registered
   trials are hash-chained per account/strategy and independently verified by
@@ -191,6 +196,7 @@ python -m multitrade automate --once
 python -m multitrade research --once
 python -m multitrade asset-universe --once
 python -m multitrade strategy-lab --once
+python -m multitrade accelerated-validation --workers 2
 python -m multitrade evidence-catalog
 python -m multitrade research-backtest --symbol QQQ --cost-bps 10
 ```
@@ -268,7 +274,9 @@ documented in
 Multi-account credentials, identity pinning, configuration, and failure
 semantics are documented in
 [`docs/MULTI_ACCOUNT_OPERATIONS.md`](docs/MULTI_ACCOUNT_OPERATIONS.md).
-Planned accelerated validation and the read-only HTTPS Analyst API/Connector
+Accelerated validation operation and score semantics are documented in
+[`docs/ACCELERATED_VALIDATION.md`](docs/ACCELERATED_VALIDATION.md).
+The remaining validation expansion and read-only HTTPS Analyst API/Connector
 are recorded in
 [`docs/DEVELOPMENT_ROADMAP.md`](docs/DEVELOPMENT_ROADMAP.md).
 

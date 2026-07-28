@@ -10,6 +10,10 @@ from datetime import datetime, timedelta, timezone
 from decimal import Decimal
 from typing import Any
 
+from multitrade.accelerated_validation import (
+    AcceleratedValidationService,
+    accelerated_validation_payload,
+)
 from multitrade.audit import SqliteAuditStore
 from multitrade.automation import PaperAutomationSupervisor
 from multitrade.backtest import Backtester, StrategyValidator
@@ -895,6 +899,70 @@ def _strategy_lab_healthcheck() -> int:
     return 0 if healthy else 1
 
 
+def _accelerated_validation(workers: int) -> int:
+    if not 1 <= workers <= 8:
+        raise ValueError(
+            "Accelerated validation workers must be between 1 and 8"
+        )
+    settings = Settings.from_env()
+    plans = tuple(
+        plan
+        for plan in load_account_plans(
+            settings.portfolio_config_path
+        )
+        if plan.enabled
+    )
+    if not plans:
+        raise ValueError(
+            "At least one enabled Paper account plan is required"
+        )
+    store = SqliteAuditStore(settings.db_path)
+    runs: list[dict[str, Any]] = []
+    failures: list[dict[str, str]] = []
+    for plan in plans:
+        try:
+            run = AcceleratedValidationService.from_account_plan(
+                settings,
+                plan,
+                store=store,
+                workers=workers,
+            ).run()
+            runs.append(accelerated_validation_payload(run))
+        except Exception as exc:
+            failures.append(
+                {
+                    "account_id": plan.account_id,
+                    "error_type": type(exc).__name__,
+                    "message": str(exc),
+                }
+            )
+    payload = {
+        "status": (
+            "ok"
+            if not failures
+            else ("degraded" if runs else "error")
+        ),
+        "component": "accelerated_validation",
+        "accounts_configured": len(plans),
+        "accounts_succeeded": len(runs),
+        "accounts_failed": len(failures),
+        "workers_per_account": workers,
+        "runs": runs,
+        "failures": failures,
+        "prospective_trial_count_incremented": False,
+        "execution_enabled": False,
+    }
+    print(
+        json.dumps(
+            payload,
+            default=_json_default,
+            sort_keys=True,
+        ),
+        flush=True,
+    )
+    return 1 if failures else 0
+
+
 def _option_evidence(once: bool) -> int:
     settings = Settings.from_env()
     plans = tuple(
@@ -1515,6 +1583,19 @@ def build_parser() -> argparse.ArgumentParser:
         "strategy-lab-healthcheck",
         help="Check whether the latest Strategy Lab cycle is fresh",
     )
+    accelerated_parser = subparsers.add_parser(
+        "accelerated-validation",
+        help=(
+            "Screen every frozen baseline and comparison candidate in "
+            "one non-executable historical cycle"
+        ),
+    )
+    accelerated_parser.add_argument(
+        "--workers",
+        type=int,
+        default=2,
+        help="Parallel candidate evaluations per account (1-8)",
+    )
     option_evidence_parser = subparsers.add_parser(
         "option-evidence",
         help=(
@@ -1627,6 +1708,8 @@ def main(argv: list[str] | None = None) -> int:
             return _strategy_lab(args.once)
         if args.command == "strategy-lab-healthcheck":
             return _strategy_lab_healthcheck()
+        if args.command == "accelerated-validation":
+            return _accelerated_validation(args.workers)
         if args.command == "option-evidence":
             return _option_evidence(args.once)
         if args.command == "option-evidence-healthcheck":

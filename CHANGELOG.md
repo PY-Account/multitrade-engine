@@ -1,5 +1,31 @@
 # Changelog
 
+## 0.17.0 - 2026-07-28
+
+- Added `multitrade accelerated-validation --workers N`, which downloads an
+  account's assigned market universe once and evaluates every frozen baseline
+  and registered comparison variant in one bounded historical cycle.
+- Added deterministic 0-100 research scorecards covering evidence, net
+  returns, breadth/stability, drawdown, and trade-sequence stress, with an
+  evidence-failure cap, classifications, failed gates, and explanatory
+  diagnostics.
+- Added a separate accelerated-run audit table and completion event with
+  account, candidate, dataset, request, duration, and classification
+  provenance.
+- Added Strategy Lab -> Accelerated Validation to the dashboard with
+  account-specific scorecards and explicit historical-versus-prospective and
+  execution-blocked labels.
+- Kept accelerated runs isolated from ordinary Strategy Lab reports,
+  append-only model trials, prospective evidence counts, and continuous-worker
+  health, so repeated historical screens cannot masquerade as new market
+  observations.
+- Added regression coverage proving all comparison candidates can be screened
+  together while no trial or execution authority is created.
+
+This release remains Alpaca Paper-only. Accelerated scores prioritize research
+review; they cannot promote a model, change its parameters, grant Paper
+permission, or authorize an order.
+
 ## 0.16.0 - 2026-07-28
 
 - Added an authenticated Management workspace for enabling/disabling known

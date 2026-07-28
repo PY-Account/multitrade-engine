@@ -142,6 +142,9 @@ class DashboardTests(TestCase):
             self.assertEqual(result["research_backtests"], [])
             self.assertEqual(result["portfolio_risk_reports"], [])
             self.assertEqual(result["strategy_lab_reports"], [])
+            self.assertEqual(
+                result["accelerated_validation_runs"], []
+            )
             self.assertEqual(result["strategy_model_trials"], [])
             self.assertEqual(result["strategy_performance"], [])
             self.assertEqual(
@@ -331,6 +334,16 @@ class DashboardTests(TestCase):
                 )
                 self.assertIn('id="account-select"', html)
                 self.assertIn("Continuous Strategy Lab", html)
+                self.assertIn(
+                    "Accelerated candidate screening", html
+                )
+                self.assertIn(
+                    'id="accelerated-scorecards"', html
+                )
+                self.assertIn(
+                    "prospective trial count was not incremented",
+                    html,
+                )
                 self.assertIn("Chronological stability", html)
                 self.assertIn("Trade-sequence stress", html)
                 self.assertIn(

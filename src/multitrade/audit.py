@@ -20,6 +20,7 @@ from multitrade.domain import (
 from multitrade.risk import FirmRiskPolicy, RiskEngine
 
 if TYPE_CHECKING:
+    from multitrade.accelerated_validation import AcceleratedValidationRun
     from multitrade.brokers.base import BrokerReconciliation
     from multitrade.engine import EngineResult
     from multitrade.market import MarketBar
@@ -515,6 +516,31 @@ class SqliteAuditStore:
 
                 CREATE INDEX IF NOT EXISTS idx_strategy_lab_recent
                 ON strategy_lab_reports(evaluated_at DESC);
+
+                CREATE TABLE IF NOT EXISTS accelerated_validation_runs (
+                    run_id TEXT PRIMARY KEY,
+                    account_id TEXT NOT NULL,
+                    evaluated_at TEXT NOT NULL,
+                    timeframe TEXT NOT NULL,
+                    duration_seconds TEXT NOT NULL,
+                    symbols_requested INTEGER NOT NULL,
+                    symbols_with_bars INTEGER NOT NULL,
+                    baseline_candidates INTEGER NOT NULL,
+                    comparison_candidates INTEGER NOT NULL,
+                    dataset_fingerprints_json TEXT NOT NULL,
+                    scorecards_json TEXT NOT NULL,
+                    summary_json TEXT NOT NULL,
+                    request_ids_json TEXT NOT NULL,
+                    evidence_kind TEXT NOT NULL,
+                    execution_eligible INTEGER NOT NULL
+                        CHECK (execution_eligible = 0)
+                );
+
+                CREATE INDEX IF NOT EXISTS
+                    idx_accelerated_validation_recent
+                ON accelerated_validation_runs(
+                    evaluated_at DESC, account_id
+                );
 
                 CREATE TABLE IF NOT EXISTS
                     strategy_experiment_manifests (
@@ -3028,6 +3054,73 @@ class SqliteAuditStore:
         finally:
             self._close_if_needed(connection)
 
+    def record_accelerated_validation_run(
+        self, run: "AcceleratedValidationRun"
+    ) -> None:
+        connection = self._connect()
+        try:
+            connection.execute("BEGIN IMMEDIATE")
+            connection.execute(
+                """
+                INSERT INTO accelerated_validation_runs (
+                    run_id, account_id, evaluated_at, timeframe,
+                    duration_seconds, symbols_requested,
+                    symbols_with_bars, baseline_candidates,
+                    comparison_candidates,
+                    dataset_fingerprints_json, scorecards_json,
+                    summary_json, request_ids_json, evidence_kind,
+                    execution_eligible
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                """,
+                (
+                    run.run_id,
+                    run.account_id,
+                    run.evaluated_at.isoformat(),
+                    run.timeframe,
+                    format(run.duration_seconds, "f"),
+                    run.symbols_requested,
+                    run.symbols_with_bars,
+                    run.baseline_candidates,
+                    run.comparison_candidates,
+                    _json(run.dataset_fingerprints),
+                    _json(
+                        [asdict(item) for item in run.scorecards]
+                    ),
+                    _json(run.summary),
+                    _json(run.request_ids),
+                    run.evidence_kind,
+                    int(run.execution_eligible),
+                ),
+            )
+            self._insert_event(
+                connection,
+                "accelerated_validation_completed",
+                run.run_id,
+                {
+                    "account_id": run.account_id,
+                    "candidate_count": len(run.scorecards),
+                    "baseline_candidates": run.baseline_candidates,
+                    "comparison_candidates": (
+                        run.comparison_candidates
+                    ),
+                    "symbols_requested": run.symbols_requested,
+                    "symbols_with_bars": run.symbols_with_bars,
+                    "duration_seconds": run.duration_seconds,
+                    "classifications": run.summary.get(
+                        "classification_counts", {}
+                    ),
+                    "prospective_trial_count_incremented": False,
+                    "execution_enabled": False,
+                },
+            )
+            connection.execute("COMMIT")
+        except Exception:
+            if connection.in_transaction:
+                connection.execute("ROLLBACK")
+            raise
+        finally:
+            self._close_if_needed(connection)
+
     def record_asset_universe_report(
         self, report: "AssetUniverseReport"
     ) -> None:
@@ -4255,6 +4348,53 @@ class SqliteAuditReader:
                     if row["configuration_json"] is not None
                     else {}
                 ),
+                "execution_eligible": bool(
+                    row["execution_eligible"]
+                ),
+            }
+            for row in rows
+        ]
+
+    def recent_accelerated_validation_runs(
+        self, limit: int = 10
+    ) -> list[dict[str, Any]]:
+        safe_limit = max(1, min(limit, 50))
+        with closing(self._connect()) as connection:
+            rows = connection.execute(
+                """
+                SELECT run_id, account_id, evaluated_at, timeframe,
+                       duration_seconds, symbols_requested,
+                       symbols_with_bars, baseline_candidates,
+                       comparison_candidates,
+                       dataset_fingerprints_json, scorecards_json,
+                       summary_json, request_ids_json, evidence_kind,
+                       execution_eligible
+                FROM accelerated_validation_runs
+                ORDER BY evaluated_at DESC, account_id
+                LIMIT ?
+                """,
+                (safe_limit,),
+            ).fetchall()
+        return [
+            {
+                "run_id": row["run_id"],
+                "account_id": row["account_id"],
+                "evaluated_at": row["evaluated_at"],
+                "timeframe": row["timeframe"],
+                "duration_seconds": row["duration_seconds"],
+                "symbols_requested": row["symbols_requested"],
+                "symbols_with_bars": row["symbols_with_bars"],
+                "baseline_candidates": row["baseline_candidates"],
+                "comparison_candidates": (
+                    row["comparison_candidates"]
+                ),
+                "dataset_fingerprints": json.loads(
+                    row["dataset_fingerprints_json"]
+                ),
+                "scorecards": json.loads(row["scorecards_json"]),
+                "summary": json.loads(row["summary_json"]),
+                "request_ids": json.loads(row["request_ids_json"]),
+                "evidence_kind": row["evidence_kind"],
                 "execution_eligible": bool(
                     row["execution_eligible"]
                 ),

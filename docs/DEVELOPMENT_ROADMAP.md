@@ -5,13 +5,31 @@ the current Paper configuration, or authorize live trading.
 
 ## 1. Accelerated strategy-validation pipeline
 
+### Delivered in 0.17
+
+- one-command evaluation of every frozen baseline and registered sensitivity
+  candidate using one shared account-level market-data download;
+- bounded candidate concurrency with an explicit 1-8 worker limit;
+- the existing out-of-sample, adverse-cost, cross-symbol, chronological
+  walk-forward, and deterministic trade-sequence stress gates;
+- separately persisted scorecards with candidate and dataset fingerprints,
+  transparent weighted components, failed gates, and diagnostic explanations;
+- an account-specific dashboard view and immutable completion audit event;
+- explicit isolation from Strategy Lab model trials, prospective evidence
+  counts, execution eligibility, and worker health.
+
+The remaining items below are still planned: durable reuse of a previously
+downloaded immutable dataset between separate runs, explicit regime-segment
+scorecards, delayed/incomplete-fill scenarios, scheduled runs, and licensed
+option-quote history.
+
 ### Objective
 
 Reduce the calendar time required to reject weak strategies and identify the
 small set worth prospective Paper observation, without presenting repeated
 tests on unchanged data as new evidence.
 
-### Planned capabilities
+### Remaining planned capabilities
 
 - Cache normalized historical data once and reuse the exact immutable dataset
   across candidates.
@@ -22,9 +40,8 @@ tests on unchanged data as new evidence.
 - Apply base and adverse assumptions for slippage, spreads, fees, delayed
   entries, and incomplete fills.
 - Run deterministic bootstrap and Monte Carlo trade-sequence stress.
-- Produce comparable per-strategy scorecards covering sample size, return,
-  drawdown, profit factor, stability, symbol breadth, regime dependence,
-  turnover, and cost sensitivity.
+- Expand the delivered scorecards with explicit regime dependence, turnover,
+  and additional fill sensitivity.
 - Add fail-closed elimination gates and a ranked research shortlist. Ranking
   may prioritize further research but cannot grant execution permission.
 - Schedule reproducible diagnostic reports and preserve candidate,
@@ -116,9 +133,10 @@ filesystem access, or mutation endpoints.
 ## Proposed delivery order
 
 1. Freeze data contracts and threat model.
-2. Implement historical dataset cache and parallel validation runner.
-3. Add scorecards, elimination diagnostics, and scheduled reports.
+2. Extend the delivered parallel validation runner with a durable immutable
+   dataset cache.
+3. Add scheduled reports and explicit regime/fill diagnostics to the
+   delivered scorecards and elimination explanations.
 4. Implement the sanitized Analyst API behind the existing HTTPS proxy.
 5. Implement and authorize the read-only MCP/Connector.
 6. Complete security review and Paper-only operational validation.
-

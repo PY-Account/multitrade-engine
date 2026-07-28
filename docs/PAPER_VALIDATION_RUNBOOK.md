@@ -44,6 +44,9 @@ Expected dashboard state:
 - Strategy Lab reports appear after its first, longer historical cycle.
 - The first family-comparison cycle registers one of the two sensitivity
   variants per strategy; the other rotates in during the next six-hour slot.
+- An accelerated screening run is manual and appears under Strategy Lab ->
+  Accelerated Validation. It evaluates all frozen variants without registering
+  prospective trials.
 - Signals may be absent for long periods; absence is not a fault.
 - No orders are submitted.
 
@@ -80,6 +83,20 @@ docker compose run --rm --no-deps engine \
 
 Record failures as useful results. Do not tune parameters repeatedly against
 the same out-of-sample segment.
+
+To screen all registered baseline and comparison candidates in one bounded
+historical cycle:
+
+```bash
+cd /opt/multitrade/app
+docker compose run --rm --no-deps engine \
+  multitrade accelerated-validation --workers 2
+```
+
+Review the scorecards under Strategy Lab -> Accelerated Validation. A high
+score only prioritizes further review. It does not create new prospective
+days, change a frozen candidate, grant Paper permission, or authorize an
+order.
 
 ## Stage 2: risk-evaluated dry run
 

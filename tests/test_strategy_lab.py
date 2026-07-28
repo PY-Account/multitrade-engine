@@ -7,6 +7,9 @@ from pathlib import Path
 from tempfile import TemporaryDirectory
 from unittest import TestCase
 
+from multitrade.accelerated_validation import (
+    AcceleratedValidationService,
+)
 from multitrade.audit import SqliteAuditReader, SqliteAuditStore
 from multitrade.backtest import BacktestConfig, StrategyValidator
 from multitrade.domain import AssetClass
@@ -697,6 +700,104 @@ class StrategyLabTests(TestCase):
                     "latest_symbols_requested"
                 ],
                 ["AAPL", "AMD", "NVDA"],
+            )
+
+    def test_accelerated_cycle_scores_all_candidates_without_trials(
+        self,
+    ) -> None:
+        with TemporaryDirectory() as directory:
+            db_path = Path(directory) / "trading.db"
+            store = SqliteAuditStore(db_path)
+            service = ContinuousStrategyLabService(
+                account_plan=account_plan(),
+                strategies={
+                    "frequent_test": FrequentTestStrategy()
+                },
+                market_data=FakeMarketData(),
+                store=store,
+                health_path=str(
+                    Path(directory) / "strategy-lab-health.json"
+                ),
+                experiment_program=experiment_program(
+                    with_comparison=True
+                ),
+                comparison_strategy_factory=lambda parameters: (
+                    FrequentTestStrategy(
+                        interval_minutes=int(
+                            parameters["interval_minutes"]
+                        )
+                    )
+                ),
+                config=StrategyLabConfig(
+                    base_slippage_bps=Decimal("0"),
+                    stressed_slippage_bps=Decimal("10"),
+                    minimum_out_of_sample_trades=20,
+                    comparison_variants_per_strategy_cycle=4,
+                ),
+                evaluation_workers=2,
+            )
+
+            run = AcceleratedValidationService(
+                lab_service=service,
+                store=store,
+            ).run(
+                now=datetime(
+                    2026, 7, 30, 12, tzinfo=timezone.utc
+                )
+            )
+            reader = SqliteAuditReader(db_path)
+            stored_runs = (
+                reader.recent_accelerated_validation_runs()
+            )
+
+            self.assertEqual(len(run.scorecards), 3)
+            self.assertEqual(run.baseline_candidates, 1)
+            self.assertEqual(run.comparison_candidates, 2)
+            self.assertEqual(
+                {item.variant_id for item in run.scorecards},
+                {"baseline_v1", "fast_v1", "slow_v1"},
+            )
+            self.assertTrue(
+                all(
+                    0 <= item.research_score <= 100
+                    and not item.execution_eligible
+                    for item in run.scorecards
+                )
+            )
+            self.assertEqual(
+                len(run.dataset_fingerprints), 1
+            )
+            self.assertEqual(
+                reader.recent_strategy_lab_reports(), []
+            )
+            self.assertEqual(
+                reader.recent_strategy_model_trials(), []
+            )
+            self.assertEqual(len(stored_runs), 1)
+            self.assertFalse(
+                stored_runs[0]["execution_eligible"]
+            )
+            self.assertFalse(
+                stored_runs[0]["summary"][
+                    "prospective_trial_count_incremented"
+                ]
+            )
+            event = reader.recent_events()[0]
+            self.assertEqual(
+                event["event_type"],
+                "accelerated_validation_completed",
+            )
+            self.assertFalse(
+                event["payload"][
+                    "prospective_trial_count_incremented"
+                ]
+            )
+            self.assertFalse(
+                Path(
+                    directory
+                ).joinpath(
+                    "strategy-lab-health.json"
+                ).exists()
             )
 
     def test_continuous_cycle_uses_strategy_specific_research_symbols(

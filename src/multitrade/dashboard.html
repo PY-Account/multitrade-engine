@@ -562,6 +562,28 @@
     </div>
   </section>
 
+  <section class="panel workspace-view" data-primary="strategy-lab" data-secondary="accelerated">
+    <div class="panel-head">
+      <div>
+        <h2>Accelerated candidate screening</h2>
+        <p class="subcopy">Every frozen baseline and sensitivity variant is evaluated against one downloaded dataset in a bounded parallel cycle. Scores summarize research gates only; they do not add prospective trials, approve a strategy, or authorize execution.</p>
+      </div>
+    </div>
+    <div class="facts">
+      <div class="fact"><span class="label">Latest run</span><strong id="accelerated-latest-run">--</strong></div>
+      <div class="fact"><span class="label">Candidates evaluated</span><strong id="accelerated-candidates">--</strong></div>
+      <div class="fact"><span class="label">Dataset coverage</span><strong id="accelerated-coverage">--</strong></div>
+      <div class="fact"><span class="label">Run duration</span><strong id="accelerated-duration">--</strong></div>
+    </div>
+    <p class="subcopy" id="accelerated-summary">No accelerated screening run is available.</p>
+    <div class="table-wrap">
+      <table>
+        <thead><tr><th>Strategy / variant</th><th class="number">Research score</th><th>Classification</th><th>Coverage</th><th class="number">OOS trades</th><th class="number">Median OOS return</th><th class="number">Stressed return</th><th class="number">Profit factor</th><th class="number">Worst drawdown</th><th>Gates</th><th>Failed gates</th><th>Diagnostic explanation</th><th>Execution</th></tr></thead>
+        <tbody id="accelerated-scorecards"></tbody>
+      </table>
+    </div>
+  </section>
+
   <section class="panel workspace-view" data-primary="strategy-lab" data-secondary="validation">
     <div class="panel-head">
       <div><h2>Continuous Strategy Lab</h2><p class="subcopy">Portfolio-wide out-of-sample evaluation using next-bar entries, base costs, adverse-cost stress, cross-symbol breadth gates, and no automatic execution promotion.</p></div>
@@ -770,6 +792,8 @@
   const csrfToken = document.querySelector('meta[name="csrf-token"]').content;
   const TERMINOLOGY = [
     ["Strategy Lab", "מעבדת אסטרטגיות", "A research service that evaluates fixed strategy rules on later, out-of-sample data. It never authorizes orders by itself."],
+    ["Research score", "ציון מחקרי", "A transparent weighted summary of validation gates. It ranks diagnostics only and is not a probability of profit or execution approval."],
+    ["Accelerated Validation", "בדיקה מואצת", "A one-cycle historical screen of every frozen candidate on the same dataset. It does not create additional prospective market days."],
     ["Family Comparison", "השוואת משפחת אסטרטגיות", "A preregistered baseline and limited parameter variants tested under the same evidence rules to detect fragile parameter choices."],
     ["Awaiting registration", "ממתין לרישום", "The configured candidate has no immutable model-trial record yet. The first completed Strategy Lab evaluation creates that record."],
     ["Awaiting prospective trial", "ממתין לניסוי קדימה", "The candidate is preregistered, but its scheduled forward evaluation has not completed yet."],
@@ -804,6 +828,7 @@
       ["policies", "Policies & Sources"],
     ],
     "strategy-lab": [
+      ["accelerated", "Accelerated Validation"],
       ["families", "Family Comparison"],
       ["validation", "Model Validation"],
       ["robustness", "Robustness"],
@@ -1607,6 +1632,123 @@
         [`${passedGates}/${totalGates}`, passedGates === totalGates && totalGates ? "ok" : "warn"],
         [readiness, report.readiness_status === "extended_paper_observation_candidate" ? "ok" : "warn"],
         [report.execution_eligible ? "Eligible" : "Blocked", report.execution_eligible ? "bad" : "ok"],
+      ];
+      const row = document.createElement("tr");
+      for (const [value, className] of values) {
+        row.appendChild(cell(value, className));
+      }
+      body.appendChild(row);
+    }
+  }
+
+  function renderAcceleratedValidation(runs) {
+    const body = document.getElementById("accelerated-scorecards");
+    body.replaceChildren();
+    const run = (runs || []).find(
+      item => item.account_id === selectedAccountId
+    );
+    if (!run) {
+      setText("accelerated-latest-run", "--");
+      setText("accelerated-candidates", "--");
+      setText("accelerated-coverage", "--");
+      setText("accelerated-duration", "--");
+      setText(
+        "accelerated-summary",
+        "No accelerated screening run is available. Run `multitrade accelerated-validation --workers 2` on the server to create one."
+      );
+      emptyRow(
+        body,
+        13,
+        "No accelerated scorecards are stored for this account."
+      );
+      return;
+    }
+
+    const scorecards = [...(run.scorecards || [])].sort((left, right) => {
+      const baselineOrder = Number(left.comparison_variant)
+        - Number(right.comparison_variant);
+      return baselineOrder
+        || Number(right.research_score || 0)
+          - Number(left.research_score || 0)
+        || String(left.strategy_id).localeCompare(String(right.strategy_id));
+    });
+    setText("accelerated-latest-run", localTime(run.evaluated_at));
+    setText(
+      "accelerated-candidates",
+      `${scorecards.length} (${run.baseline_candidates || 0} baseline / ${run.comparison_candidates || 0} variants)`
+    );
+    setText(
+      "accelerated-coverage",
+      `${run.symbols_with_bars || 0}/${run.symbols_requested || 0} symbols`
+    );
+    setText(
+      "accelerated-duration",
+      `${Number(run.duration_seconds || 0).toFixed(1)} sec`
+    );
+    const classificationCounts = run.summary?.classification_counts || {};
+    const classificationCopy = Object.entries(classificationCounts)
+      .map(([name, count]) => `${name.replaceAll("_", " ")}: ${count}`)
+      .join(" · ");
+    setText(
+      "accelerated-summary",
+      `${classificationCopy || "No candidates were classified."} Historical screening only: prospective trial count was not incremented and execution remains blocked.`
+    );
+
+    if (!scorecards.length) {
+      emptyRow(body, 13, "The run completed without candidate scorecards.");
+      return;
+    }
+    for (const scorecard of scorecards) {
+      const metrics = scorecard.metrics || {};
+      const requested = scorecard.symbols_requested || [];
+      const covered = scorecard.symbols_covered || [];
+      const failed = scorecard.failed_gates || [];
+      const explanations = scorecard.failure_explanations || [];
+      const profitFactor = metrics.pooled_profit_factor == null
+        ? "--"
+        : Number(metrics.pooled_profit_factor).toFixed(2);
+      const values = [
+        [
+          `${scorecard.strategy_id} v${scorecard.strategy_version} / ${scorecard.variant_id}`,
+          scorecard.comparison_variant ? "warn" : "",
+        ],
+        [`${scorecard.research_score}/100`, "number"],
+        [scorecard.classification.replaceAll("_", " "), ""],
+        [`${covered.length}/${requested.length}`, ""],
+        [metrics.out_of_sample_trade_count ?? 0, "number"],
+        [
+          percent(metrics.median_out_of_sample_return),
+          Number(metrics.median_out_of_sample_return || 0) >= 0
+            ? "number ok"
+            : "number bad",
+        ],
+        [
+          percent(metrics.median_stressed_return),
+          Number(metrics.median_stressed_return || 0) >= 0
+            ? "number ok"
+            : "number bad",
+        ],
+        [profitFactor, "number"],
+        [percent(metrics.worst_maximum_drawdown), "number"],
+        [
+          `${scorecard.gates_passed}/${scorecard.gates_total}`,
+          scorecard.gates_passed === scorecard.gates_total
+            ? "ok"
+            : "warn",
+        ],
+        [
+          failed.length
+            ? failed.map(item => item.replaceAll("_", " ")).join(", ")
+            : "None",
+          failed.length ? "warn" : "ok",
+        ],
+        [explanations.join(" ") || "All research gates passed.", ""],
+        [
+          scorecard.execution_eligible
+            ? "Unexpectedly eligible"
+            : "Blocked (research only)",
+          scorecard.execution_eligible ? "bad" : "ok",
+        ],
       ];
       const row = document.createElement("tr");
       for (const [value, className] of values) {
@@ -2575,6 +2717,9 @@
       renderResearchDecisions(data.research_decisions || []);
       renderResearchBacktests(data.research_backtests || []);
       renderPortfolioRiskReports(data.portfolio_risk_reports || []);
+      renderAcceleratedValidation(
+        data.accelerated_validation_runs || []
+      );
       renderStrategyLabReports(data.strategy_lab_reports || []);
       renderStrategyRobustness(data.strategy_lab_reports || []);
       renderStrategyExperiments(data.strategy_experiments || {});

@@ -337,6 +337,9 @@ class DashboardData:
             strategy_lab_reports = (
                 self.reader.recent_strategy_lab_reports(40)
             )
+            accelerated_validation_runs = (
+                self.reader.recent_accelerated_validation_runs(20)
+            )
             strategy_model_trials = (
                 self.reader.recent_strategy_model_trials(100)
             )
@@ -368,6 +371,7 @@ class DashboardData:
             research_backtests = []
             portfolio_risk_reports = []
             strategy_lab_reports = []
+            accelerated_validation_runs = []
             strategy_model_trials = []
             strategy_experiment_summaries = []
             asset_universe_reports = []
@@ -661,6 +665,9 @@ class DashboardData:
             "research_backtests": research_backtests,
             "portfolio_risk_reports": portfolio_risk_reports,
             "strategy_lab_reports": strategy_lab_reports,
+            "accelerated_validation_runs": (
+                accelerated_validation_runs
+            ),
             "strategy_model_trials": strategy_model_trials,
             "strategy_experiments": {
                 "configuration": (
@@ -703,7 +710,7 @@ class DashboardData:
 
 
 class DashboardRequestHandler(BaseHTTPRequestHandler):
-    server_version = "MultiTradeDashboard/0.16.0"
+    server_version = "MultiTradeDashboard/0.17.0"
     sys_version = ""
     data_service: DashboardData
     expected_authorization: str

@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from concurrent.futures import ThreadPoolExecutor
 from dataclasses import asdict, dataclass
 from datetime import datetime, timedelta, timezone
 from decimal import Decimal
@@ -665,7 +666,10 @@ class ContinuousStrategyLabService:
         comparison_strategy_factory: (
             Callable[[dict[str, object]], Strategy] | None
         ) = None,
+        evaluation_workers: int = 1,
     ) -> None:
+        if not 1 <= evaluation_workers <= 8:
+            raise ValueError("Strategy Lab evaluation workers must be 1-8")
         self.base_account_plan = account_plan
         self.account_plan = account_plan
         self.strategies = strategies
@@ -679,6 +683,8 @@ class ContinuousStrategyLabService:
             comparison_strategy_factory
             or equity_strategy_from_parameters
         )
+        self.evaluation_workers = evaluation_workers
+        self.last_reports: tuple[StrategyLabReport, ...] = ()
         self.comparison_strategies: dict[str, Strategy] = {}
         self.strategy_allocations: dict[str, StrategyAllocation] = {}
         self._configure_strategy_allocations()
@@ -748,6 +754,7 @@ class ContinuousStrategyLabService:
         account_plan: AccountPlan,
         *,
         store: SqliteAuditStore | None = None,
+        evaluation_workers: int = 1,
     ) -> "ContinuousStrategyLabService":
         key_id, secret_key, _ = settings.alpaca_credentials_for(
             account_plan.credential_env_prefix
@@ -787,6 +794,7 @@ class ContinuousStrategyLabService:
                     settings.strategy_lab_cycle_seconds
                 ),
             ),
+            evaluation_workers=evaluation_workers,
         )
 
     def _configure_strategy_allocations(self) -> None:
@@ -810,7 +818,10 @@ class ContinuousStrategyLabService:
         self._configure_strategy_allocations()
 
     def run_cycle(
-        self, *, now: datetime | None = None
+        self,
+        *,
+        now: datetime | None = None,
+        persist_reports: bool = True,
     ) -> StrategyLabCycleResult:
         self._refresh_account_plan()
         evaluated_at = now or datetime.now(timezone.utc)
@@ -877,8 +888,14 @@ class ContinuousStrategyLabService:
             bar for rows in usable.values() for bar in rows
         )
         evaluator = StrategyLabEvaluator(config=self.config)
-        reports: list[StrategyLabReport] = []
-        baseline_count = 0
+        evaluation_jobs: list[
+            tuple[
+                Strategy,
+                StrategyAllocation,
+                tuple[str, ...],
+                StrategyExperimentBinding | None,
+            ]
+        ] = []
         for strategy_id in self.strategy_allocations:
             strategy = self.strategies[strategy_id]
             experiment_binding = (
@@ -889,18 +906,15 @@ class ContinuousStrategyLabService:
                 if self.experiment_program is not None
                 else None
             )
-            report = evaluator.evaluate(
-                account_plan=self.account_plan,
-                strategy=strategy,
-                bars_by_symbol=usable,
-                symbols=symbols_by_strategy[strategy_id],
-                allocation=self.strategy_allocations[strategy_id],
-                experiment_binding=experiment_binding,
-                evaluated_at=evaluated_at,
+            evaluation_jobs.append(
+                (
+                    strategy,
+                    self.strategy_allocations[strategy_id],
+                    symbols_by_strategy[strategy_id],
+                    experiment_binding,
+                )
             )
-            self.store.record_strategy_lab_report(report)
-            reports.append(report)
-            baseline_count += 1
+        baseline_count = len(evaluation_jobs)
         comparisons_by_strategy: dict[
             str, list[tuple[str, Strategy]]
         ] = {}
@@ -933,43 +947,73 @@ class ContinuousStrategyLabService:
                     )
                 )
             )
-        comparison_count = 0
         for experiment_id, strategy in selected_comparisons:
             experiment_binding = self.experiment_program.bind(
                 strategy,
                 evaluated_at=evaluated_at,
                 experiment_id=experiment_id,
             )
-            report = evaluator.evaluate(
+            evaluation_jobs.append(
+                (
+                    strategy,
+                    self.strategy_allocations[strategy.strategy_id],
+                    symbols_by_strategy[strategy.strategy_id],
+                    experiment_binding,
+                )
+            )
+        comparison_count = len(evaluation_jobs) - baseline_count
+
+        def evaluate_job(
+            job: tuple[
+                Strategy,
+                StrategyAllocation,
+                tuple[str, ...],
+                StrategyExperimentBinding | None,
+            ],
+        ) -> StrategyLabReport:
+            strategy, allocation, symbols, binding = job
+            return evaluator.evaluate(
                 account_plan=self.account_plan,
                 strategy=strategy,
                 bars_by_symbol=usable,
-                symbols=symbols_by_strategy[strategy.strategy_id],
-                allocation=self.strategy_allocations[
-                    strategy.strategy_id
-                ],
-                experiment_binding=experiment_binding,
+                symbols=symbols,
+                allocation=allocation,
+                experiment_binding=binding,
                 evaluated_at=evaluated_at,
             )
-            self.store.record_strategy_lab_report(report)
-            reports.append(report)
-            comparison_count += 1
-        self.store.record_event(
-            "strategy_lab_cycle_completed",
-            self.account_plan.account_id,
-            {
-                "timeframe": self.account_plan.timeframe,
-                "strategies_evaluated": len(reports),
-                "baseline_strategies_evaluated": baseline_count,
-                "comparison_variants_evaluated": comparison_count,
-                "immutable_trials_registered": len(reports),
-                "symbols_requested": len(requested_symbols),
-                "symbols_with_bars": sum(
-                    bool(rows) for rows in usable.values()
+
+        if not evaluation_jobs:
+            reports = []
+        elif self.evaluation_workers == 1:
+            reports = [evaluate_job(job) for job in evaluation_jobs]
+        else:
+            with ThreadPoolExecutor(
+                max_workers=min(
+                    self.evaluation_workers, len(evaluation_jobs)
                 ),
-                "execution_enabled": False,
-            },
-        )
+                thread_name_prefix="strategy-lab",
+            ) as executor:
+                reports = list(executor.map(evaluate_job, evaluation_jobs))
+        self.last_reports = tuple(reports)
+        if persist_reports:
+            for report in reports:
+                self.store.record_strategy_lab_report(report)
+            self.store.record_event(
+                "strategy_lab_cycle_completed",
+                self.account_plan.account_id,
+                {
+                    "timeframe": self.account_plan.timeframe,
+                    "strategies_evaluated": len(reports),
+                    "baseline_strategies_evaluated": baseline_count,
+                    "comparison_variants_evaluated": comparison_count,
+                    "immutable_trials_registered": len(reports),
+                    "symbols_requested": len(requested_symbols),
+                    "symbols_with_bars": sum(
+                        bool(rows) for rows in usable.values()
+                    ),
+                    "execution_enabled": False,
+                },
+            )
         health_details = {
             "account_id": self.account_plan.account_id,
             "timeframe": self.account_plan.timeframe,
@@ -981,14 +1025,15 @@ class ContinuousStrategyLabService:
             "symbols_with_bars": sum(bool(rows) for rows in usable.values()),
             "execution_enabled": False,
         }
-        write_health(self.health_path, "ok", health_details)
+        if persist_reports:
+            write_health(self.health_path, "ok", health_details)
         return StrategyLabCycleResult(
             account_id=self.account_plan.account_id,
             evaluated_at=evaluated_at,
             timeframe=self.account_plan.timeframe,
             strategies_evaluated=len(reports),
             reports_completed=len(reports),
-            trials_registered=len(reports),
+            trials_registered=len(reports) if persist_reports else 0,
             symbols_requested=len(requested_symbols),
             symbols_with_bars=sum(bool(rows) for rows in usable.values()),
             request_ids=tuple(self.market_data.request_ids),
