@@ -27,6 +27,7 @@ cd /opt/multitrade/app
 bash ops/update.sh
 docker compose --profile public-dashboard ps
 docker compose --profile public-dashboard logs --tail=100 automation
+docker compose --profile public-dashboard logs --tail=100 strategy-lab
 ```
 
 Expected dashboard state:
@@ -35,12 +36,18 @@ Expected dashboard state:
 - Alpaca environment says Paper.
 - Account controls are green.
 - Strategy runtime rows appear after a cycle.
+- Strategy Lab reports appear after its first, longer historical cycle.
 - Signals may be absent for long periods; absence is not a fault.
 - No orders are submitted.
 
 Run this stage for at least two complete US market sessions.
 
-## Stage 1: historical walk-forward checks
+## Stage 1: automated and manual walk-forward checks
+
+The Strategy Lab now performs the portfolio-wide baseline automatically. In
+the dashboard, review Strategy Lab -> Model Validation and require sufficient
+symbol coverage, out-of-sample trade count, and adverse-cost results. A green
+readiness label is permission only for further observation, not for orders.
 
 Run each enabled candidate on every intended symbol and more than one market
 regime. Example:
@@ -127,7 +134,7 @@ at Alpaca. Do not disable the heartbeat or dashboard while exposure exists.
 
 ## Promotion rule
 
-No live-trading promotion is part of release 0.5. A separate live program
+No live-trading promotion is part of release 0.6. A separate live program
 requires independent code review, PostgreSQL, recovery drills, alerting,
 credential rotation, reconciliation tests, legal/tax review, and explicit
 authorization.

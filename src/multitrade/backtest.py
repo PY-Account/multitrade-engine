@@ -1,7 +1,8 @@
 from __future__ import annotations
 
+import calendar
 from dataclasses import asdict, dataclass
-from datetime import datetime, timedelta, timezone
+from datetime import datetime, time, timedelta, timezone
 from decimal import Decimal, ROUND_DOWN
 from typing import Iterable
 from uuid import uuid4
@@ -28,6 +29,9 @@ class BacktestConfig:
     slippage_bps: Decimal = Decimal("10")
     commission_per_share: Decimal = ZERO
     maximum_holding_bars: int = 78
+    maximum_history_bars: int = 120
+    regular_session_only: bool = True
+    flatten_at_session_end: bool = True
 
     def __post_init__(self) -> None:
         if self.initial_equity <= ZERO:
@@ -40,6 +44,8 @@ class BacktestConfig:
             raise ValueError("Backtest costs cannot be negative")
         if self.maximum_holding_bars < 1:
             raise ValueError("maximum_holding_bars must be positive")
+        if self.maximum_history_bars < 40:
+            raise ValueError("maximum_history_bars must be at least 40")
 
 
 @dataclass(frozen=True, slots=True)
@@ -140,6 +146,14 @@ class Backtester:
     ) -> BacktestResult:
         started_at = datetime.now(timezone.utc)
         ordered = tuple(sorted(bars, key=lambda bar: bar.timestamp))
+        if (
+            self.config.regular_session_only
+            and ordered
+            and not ordered[0].timeframe.endswith(("Day", "D"))
+        ):
+            ordered = tuple(
+                bar for bar in ordered if _is_regular_session_bar(bar)
+            )
         if len(ordered) < self.feature_engine.minimum_bars + 2:
             raise ValueError("Not enough bars for a reproducible backtest")
         symbols = {bar.symbol for bar in ordered}
@@ -167,6 +181,18 @@ class Backtester:
                 exit_result = self._position_exit(
                     open_position, current, index
                 )
+                if (
+                    exit_result is None
+                    and self.config.flatten_at_session_end
+                    and _is_last_bar_of_session(ordered, index)
+                ):
+                    exit_result = (
+                        self._exit_with_slippage(
+                            current.close,
+                            open_position.signal.action,
+                        ),
+                        "session_close",
+                    )
                 if exit_result is not None:
                     exit_price, exit_reason = exit_result
                     trade = self._close_trade(
@@ -196,7 +222,10 @@ class Backtester:
                 and current.timestamp < signal_start_at
             ):
                 continue
-            history = ordered[: index + 1]
+            history = ordered[
+                max(0, index + 1 - self.config.maximum_history_bars)
+                : index + 1
+            ]
             features = self.feature_engine.calculate(history)
             evaluated_at = current.timestamp + timedelta(
                 seconds=timeframe_seconds(current.timeframe)
@@ -212,6 +241,11 @@ class Backtester:
             if signal is None:
                 continue
             next_bar = ordered[index + 1]
+            if (
+                self.config.flatten_at_session_end
+                and not _same_trading_session(current, next_bar)
+            ):
+                continue
             open_position = self._open_position(
                 signal, next_bar, index + 1, equity
             )
@@ -497,6 +531,14 @@ class StrategyValidator:
         split_fraction: Decimal = Decimal("0.60"),
     ) -> ValidationReport:
         ordered = tuple(sorted(bars, key=lambda bar: bar.timestamp))
+        if (
+            self.config.regular_session_only
+            and ordered
+            and not ordered[0].timeframe.endswith(("Day", "D"))
+        ):
+            ordered = tuple(
+                bar for bar in ordered if _is_regular_session_bar(bar)
+            )
         if not Decimal("0.50") <= split_fraction <= Decimal("0.80"):
             raise ValueError("Validation split must be between 0.50 and 0.80")
         split_index = int(
@@ -507,7 +549,9 @@ class StrategyValidator:
             raise ValueError(
                 "Not enough bars for in-sample and out-of-sample tests"
             )
-        warmup_start = max(0, split_index - FeatureEngine().minimum_bars)
+        warmup_start = max(
+            0, split_index - self.config.maximum_history_bars
+        )
         in_sample = Backtester(
             self.strategy, config=self.config
         ).run(ordered[:split_index])
@@ -546,3 +590,60 @@ class StrategyValidator:
 
 def result_payload(result: BacktestResult) -> dict:
     return asdict(result)
+
+
+def _is_regular_session_bar(bar: MarketBar) -> bool:
+    local = _new_york_local(bar.timestamp)
+    return (
+        local.weekday() < 5
+        and time(9, 30) <= local.time().replace(tzinfo=None) < time(16)
+    )
+
+
+def _same_trading_session(left: MarketBar, right: MarketBar) -> bool:
+    return (
+        _new_york_local(left.timestamp).date()
+        == _new_york_local(right.timestamp).date()
+    )
+
+
+def _is_last_bar_of_session(
+    ordered: tuple[MarketBar, ...], index: int
+) -> bool:
+    if index + 1 >= len(ordered):
+        return True
+    return not _same_trading_session(ordered[index], ordered[index + 1])
+
+
+def _new_york_local(value: datetime) -> datetime:
+    """Convert UTC to US Eastern time without an external tzdata package."""
+    utc_value = value.astimezone(timezone.utc)
+    year = utc_value.year
+    march_sundays = [
+        week[calendar.SUNDAY]
+        for week in calendar.monthcalendar(year, 3)
+        if week[calendar.SUNDAY]
+    ]
+    november_sundays = [
+        week[calendar.SUNDAY]
+        for week in calendar.monthcalendar(year, 11)
+        if week[calendar.SUNDAY]
+    ]
+    dst_start = datetime(
+        year,
+        3,
+        march_sundays[1],
+        7,
+        tzinfo=timezone.utc,
+    )
+    dst_end = datetime(
+        year,
+        11,
+        november_sundays[0],
+        6,
+        tzinfo=timezone.utc,
+    )
+    offset_hours = -4 if dst_start <= utc_value < dst_end else -5
+    return utc_value.astimezone(
+        timezone(timedelta(hours=offset_hours))
+    )

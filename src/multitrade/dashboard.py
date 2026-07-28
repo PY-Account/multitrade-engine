@@ -19,6 +19,7 @@ from urllib.request import urlopen
 
 from multitrade.audit import SqliteAuditReader
 from multitrade.health import check_health
+from multitrade.portfolio import AccountPlan
 from multitrade.research import evidence_catalog
 
 
@@ -39,9 +40,12 @@ class DashboardData:
         strategy_health_max_age_seconds: int = 900,
         research_health_path: str | Path | None = None,
         research_health_max_age_seconds: int = 10800,
+        strategy_lab_health_path: str | Path | None = None,
+        strategy_lab_health_max_age_seconds: int = 64800,
         automation_enabled: bool = False,
         paper_order_submission_enabled: bool = False,
         emergency_stop: bool = False,
+        account_plans: tuple[AccountPlan, ...] = (),
     ) -> None:
         self.reader = SqliteAuditReader(db_path)
         self.health_path = Path(health_path)
@@ -64,11 +68,20 @@ class DashboardData:
         self.research_health_max_age_seconds = (
             research_health_max_age_seconds
         )
+        self.strategy_lab_health_path = (
+            Path(strategy_lab_health_path)
+            if strategy_lab_health_path is not None
+            else None
+        )
+        self.strategy_lab_health_max_age_seconds = (
+            strategy_lab_health_max_age_seconds
+        )
         self.automation_enabled = automation_enabled
         self.paper_order_submission_enabled = (
             paper_order_submission_enabled
         )
         self.emergency_stop = emergency_stop
+        self.account_plans = account_plans
 
     @staticmethod
     def _decimal(value: Any) -> Decimal:
@@ -97,6 +110,14 @@ class DashboardData:
         else:
             research_healthy = False
             research_health = {"status": "not_configured"}
+        if self.strategy_lab_health_path is not None:
+            strategy_lab_healthy, strategy_lab_health = check_health(
+                self.strategy_lab_health_path,
+                self.strategy_lab_health_max_age_seconds,
+            )
+        else:
+            strategy_lab_healthy = False
+            strategy_lab_health = {"status": "not_configured"}
         try:
             state = self.reader.latest_broker_state("alpaca-paper")
             active_risk = self.reader.active_risk()
@@ -116,6 +137,9 @@ class DashboardData:
             portfolio_risk_reports = (
                 self.reader.recent_portfolio_risk_reports(10)
             )
+            strategy_lab_reports = (
+                self.reader.recent_strategy_lab_reports(40)
+            )
             storage: dict[str, Any] = {"status": "ok"}
         except (FileNotFoundError, OSError, sqlite3.Error):
             state = None
@@ -130,6 +154,7 @@ class DashboardData:
             research_decisions = []
             research_backtests = []
             portfolio_risk_reports = []
+            strategy_lab_reports = []
             storage = {"status": "unavailable"}
 
         account: dict[str, Any] | None = None
@@ -155,6 +180,45 @@ class DashboardData:
             "observed_at": None,
             "request_ids": [],
         }
+        configured_accounts = [
+            {
+                "account_id": plan.account_id,
+                "broker": plan.broker,
+                "environment": plan.environment,
+                "enabled": plan.enabled,
+                "asset_classes": [
+                    asset_class.value
+                    for asset_class in plan.asset_classes
+                ],
+                "watchlist": list(plan.watchlist),
+                "timeframe": plan.timeframe,
+                "maximum_positions": plan.maximum_positions,
+                "maximum_daily_orders": plan.maximum_daily_orders,
+                "symbol_cooldown_minutes": (
+                    plan.symbol_cooldown_minutes
+                ),
+                "allocations": [
+                    {
+                        "strategy_id": allocation.strategy_id,
+                        "enabled": allocation.enabled,
+                        "capital_weight": format(
+                            allocation.capital_weight, "f"
+                        ),
+                        "risk_fraction": format(
+                            allocation.risk_fraction, "f"
+                        ),
+                        "minimum_confidence": format(
+                            allocation.minimum_confidence, "f"
+                        ),
+                        "paper_execution_allowed": (
+                            allocation.paper_execution_allowed
+                        ),
+                    }
+                    for allocation in plan.allocations.values()
+                ],
+            }
+            for plan in self.account_plans
+        ]
 
         if state is not None:
             payload = state["payload"]
@@ -200,10 +264,16 @@ class DashboardData:
                 "details": research_health,
                 "execution_enabled": False,
             },
+            "strategy_lab": {
+                "healthy": strategy_lab_healthy,
+                "details": strategy_lab_health,
+                "execution_enabled": False,
+            },
             "storage": storage,
             "connection": connection,
             "operating_mode": operating_mode,
             "account": account,
+            "configured_accounts": configured_accounts,
             "market": market,
             "positions": positions,
             "open_orders": open_orders,
@@ -233,6 +303,7 @@ class DashboardData:
             "research_decisions": research_decisions,
             "research_backtests": research_backtests,
             "portfolio_risk_reports": portfolio_risk_reports,
+            "strategy_lab_reports": strategy_lab_reports,
             "evidence_catalog": evidence_catalog(),
         }
 
@@ -261,7 +332,7 @@ class DashboardData:
 
 
 class DashboardRequestHandler(BaseHTTPRequestHandler):
-    server_version = "MultiTradeDashboard/0.5"
+    server_version = "MultiTradeDashboard/0.6"
     sys_version = ""
     data_service: DashboardData
     expected_authorization: str

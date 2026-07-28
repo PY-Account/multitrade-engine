@@ -259,6 +259,33 @@ EVIDENCE_REGISTRY: tuple[EvidenceRecord, ...] = (
         ),
     ),
     EvidenceRecord(
+        evidence_id="backtest_overfitting_bblpz_2015",
+        title="The Probability of Backtest Overfitting",
+        grade=EvidenceGrade.GOVERNANCE,
+        source_url=(
+            "https://papers.ssrn.com/sol3/papers.cfm?"
+            "abstract_id=2326253"
+        ),
+        finding=(
+            "Repeated model selection on the same history can produce "
+            "apparently strong strategies that degrade out of sample."
+        ),
+        caveats=(
+            "A simple holdout does not eliminate selection bias.",
+            "MultiTrade does not yet implement the paper's full "
+            "combinatorially symmetric cross-validation method.",
+        ),
+        role="backtest_selection_bias_control",
+        independent_support=True,
+        execution_candidate=False,
+        required_internal_checks=(
+            "chronological_out_of_sample",
+            "cross_symbol_validation",
+            "adverse_cost_stress",
+            "record_all_model_trials",
+        ),
+    ),
+    EvidenceRecord(
         evidence_id="intraday_patterns_internal",
         title="MultiTrade Intraday Pattern Candidates",
         grade=EvidenceGrade.INTERNAL_HYPOTHESIS,

@@ -117,6 +117,10 @@ class DashboardTests(TestCase):
             self.assertGreater(len(result["evidence_catalog"]), 0)
             self.assertEqual(result["research_backtests"], [])
             self.assertEqual(result["portfolio_risk_reports"], [])
+            self.assertEqual(result["strategy_lab_reports"], [])
+            self.assertFalse(
+                result["strategy_lab"]["execution_enabled"]
+            )
 
     def test_http_dashboard_requires_authentication(self) -> None:
         with TemporaryDirectory() as directory:
@@ -171,6 +175,16 @@ class DashboardTests(TestCase):
                 self.assertIn('value="dark"', html)
                 self.assertIn('hourCycle: "h23"', html)
                 self.assertIn('Asia/Jerusalem', html)
+                self.assertIn('data-primary-tab="account"', html)
+                self.assertIn(
+                    'data-primary-tab="strategy-lab"', html
+                )
+                self.assertIn(
+                    'data-primary-tab="allocation"', html
+                )
+                self.assertIn('id="account-select"', html)
+                self.assertIn("Continuous Strategy Lab", html)
+                self.assertIn("Account strategy allocation", html)
                 self.assertIn('Strategy bots', html)
                 self.assertIn('Evidence-weighted market model', html)
                 self.assertIn('Research evidence registry', html)

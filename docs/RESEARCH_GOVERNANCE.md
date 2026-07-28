@@ -76,6 +76,14 @@ backtested, and released through the same code-review process. This boundary
 prevents a web article or data-mined result from silently changing account
 risk.
 
+The intraday Strategy Lab is intentionally adversarial to model promotion. It
+records all configured candidates, holds out the newest 40% of each symbol's
+history, requires cross-symbol breadth, and repeats validation with adverse
+costs. This implements practical safeguards motivated by the published
+backtest-overfitting literature, but it is not a full implementation of
+combinatorially symmetric cross-validation or the probability of backtest
+overfitting.
+
 ## Daily-model validation rules
 
 The daily research simulator requests `adjustment=all` from Alpaca so splits,

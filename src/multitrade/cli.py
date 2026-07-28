@@ -48,6 +48,7 @@ from multitrade.research_validation import (
 )
 from multitrade.risk import RiskEngine
 from multitrade.strategies import default_equity_strategies
+from multitrade.strategy_lab import ContinuousStrategyLabService
 
 
 def _json_default(value: Any) -> Any:
@@ -189,6 +190,16 @@ def _doctor() -> int:
         "research_lookback_days": settings.research_lookback_days,
         "research_bar_adjustment": "all",
         "research_execution_enabled": False,
+        "strategy_lab_lookback_days": (
+            settings.strategy_lab_lookback_days
+        ),
+        "strategy_lab_base_cost_bps": format(
+            settings.strategy_lab_base_cost_bps, "f"
+        ),
+        "strategy_lab_stressed_cost_bps": format(
+            settings.strategy_lab_stressed_cost_bps, "f"
+        ),
+        "strategy_lab_execution_enabled": False,
         "enabled_accounts": enabled_accounts,
     }
     print(json.dumps(checks, indent=2, sort_keys=True))
@@ -495,6 +506,87 @@ def _research_healthcheck() -> int:
     return 0 if healthy else 1
 
 
+def _strategy_lab(once: bool) -> int:
+    settings = Settings.from_env()
+    service = ContinuousStrategyLabService.from_settings(settings)
+    stop_event = threading.Event()
+
+    def request_shutdown(signum, frame) -> None:
+        del signum, frame
+        stop_event.set()
+
+    if not once:
+        signal.signal(signal.SIGTERM, request_shutdown)
+        signal.signal(signal.SIGINT, request_shutdown)
+
+    while True:
+        try:
+            result = service.run_cycle()
+            print(
+                json.dumps(
+                    asdict(result),
+                    default=_json_default,
+                    sort_keys=True,
+                ),
+                flush=True,
+            )
+        except Exception as exc:
+            try:
+                service.store.record_event(
+                    "strategy_lab_cycle_failed",
+                    service.account_plan.account_id,
+                    {
+                        "error_type": type(exc).__name__,
+                        "message": str(exc),
+                    },
+                )
+            finally:
+                write_health(
+                    settings.strategy_lab_health_path,
+                    "error",
+                    {"error_type": type(exc).__name__},
+                )
+            print(
+                json.dumps(
+                    {
+                        "status": "error",
+                        "component": "strategy_lab",
+                        "error_type": type(exc).__name__,
+                        "message": str(exc),
+                    },
+                    sort_keys=True,
+                ),
+                file=sys.stderr,
+                flush=True,
+            )
+            if once:
+                return 1
+        if once:
+            return 0
+        if stop_event.wait(settings.strategy_lab_cycle_seconds):
+            print(
+                json.dumps(
+                    {
+                        "status": "stopped",
+                        "component": "strategy_lab",
+                    },
+                    sort_keys=True,
+                ),
+                flush=True,
+            )
+            return 0
+
+
+def _strategy_lab_healthcheck() -> int:
+    settings = Settings.from_env()
+    healthy, result = check_health(
+        settings.strategy_lab_health_path,
+        settings.strategy_lab_health_max_age_seconds,
+    )
+    print(json.dumps(result, sort_keys=True))
+    return 0 if healthy else 1
+
+
 def _evidence_catalog() -> int:
     print(
         json.dumps(
@@ -728,9 +820,16 @@ def _dashboard() -> int:
         research_health_max_age_seconds=(
             settings.research_health_max_age_seconds
         ),
+        strategy_lab_health_path=settings.strategy_lab_health_path,
+        strategy_lab_health_max_age_seconds=(
+            settings.strategy_lab_health_max_age_seconds
+        ),
         automation_enabled=settings.automation_enabled,
         paper_order_submission_enabled=settings.enable_paper_orders,
         emergency_stop=settings.emergency_stop,
+        account_plans=load_account_plans(
+            settings.portfolio_config_path
+        ),
     )
     server = create_dashboard_server(
         host=settings.dashboard_host,
@@ -875,6 +974,22 @@ def build_parser() -> argparse.ArgumentParser:
         "research-healthcheck",
         help="Check whether the latest research cycle is fresh",
     )
+    strategy_lab_parser = subparsers.add_parser(
+        "strategy-lab",
+        help=(
+            "Continuously validate configured intraday models across "
+            "the account watchlist"
+        ),
+    )
+    strategy_lab_parser.add_argument(
+        "--once",
+        action="store_true",
+        help="Run one Strategy Lab cycle and exit",
+    )
+    subparsers.add_parser(
+        "strategy-lab-healthcheck",
+        help="Check whether the latest Strategy Lab cycle is fresh",
+    )
     subparsers.add_parser(
         "evidence-catalog",
         help="Print strategy evidence, caveats, and admission status",
@@ -948,6 +1063,10 @@ def main(argv: list[str] | None = None) -> int:
             return _research(args.once)
         if args.command == "research-healthcheck":
             return _research_healthcheck()
+        if args.command == "strategy-lab":
+            return _strategy_lab(args.once)
+        if args.command == "strategy-lab-healthcheck":
+            return _strategy_lab_healthcheck()
         if args.command == "evidence-catalog":
             return _evidence_catalog()
         if args.command == "research-backtest":

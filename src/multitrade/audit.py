@@ -27,6 +27,7 @@ if TYPE_CHECKING:
         PortfolioRiskReport,
         ResearchBacktestReport,
     )
+    from multitrade.strategy_lab import StrategyLabReport
     from multitrade.strategies.base import StrategySignal
 
 
@@ -350,6 +351,29 @@ class SqliteAuditStore:
 
                 CREATE INDEX IF NOT EXISTS idx_portfolio_risk_recent
                 ON portfolio_risk_reports(evaluated_at DESC);
+
+                CREATE TABLE IF NOT EXISTS strategy_lab_reports (
+                    report_id TEXT PRIMARY KEY,
+                    account_id TEXT NOT NULL,
+                    strategy_id TEXT NOT NULL,
+                    strategy_version TEXT NOT NULL,
+                    timeframe TEXT NOT NULL,
+                    evaluated_at TEXT NOT NULL,
+                    configuration_enabled INTEGER NOT NULL,
+                    paper_execution_configured INTEGER NOT NULL,
+                    symbols_requested_json TEXT NOT NULL,
+                    symbols_covered_json TEXT NOT NULL,
+                    missing_symbols_json TEXT NOT NULL,
+                    symbol_results_json TEXT NOT NULL,
+                    aggregate_metrics_json TEXT NOT NULL,
+                    gates_json TEXT NOT NULL,
+                    warnings_json TEXT NOT NULL,
+                    readiness_status TEXT NOT NULL,
+                    execution_eligible INTEGER NOT NULL
+                );
+
+                CREATE INDEX IF NOT EXISTS idx_strategy_lab_recent
+                ON strategy_lab_reports(evaluated_at DESC);
                 """
             )
             self._ensure_column(
@@ -1585,6 +1609,57 @@ class SqliteAuditStore:
         finally:
             self._close_if_needed(connection)
 
+    def record_strategy_lab_report(
+        self, report: "StrategyLabReport"
+    ) -> None:
+        connection = self._connect()
+        try:
+            connection.execute(
+                """
+                INSERT INTO strategy_lab_reports (
+                    report_id, account_id, strategy_id, strategy_version,
+                    timeframe, evaluated_at, configuration_enabled,
+                    paper_execution_configured, symbols_requested_json,
+                    symbols_covered_json, missing_symbols_json,
+                    symbol_results_json, aggregate_metrics_json,
+                    gates_json, warnings_json, readiness_status,
+                    execution_eligible
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                ON CONFLICT(report_id) DO UPDATE SET
+                    evaluated_at = excluded.evaluated_at,
+                    symbol_results_json = excluded.symbol_results_json,
+                    aggregate_metrics_json =
+                        excluded.aggregate_metrics_json,
+                    gates_json = excluded.gates_json,
+                    warnings_json = excluded.warnings_json,
+                    readiness_status = excluded.readiness_status,
+                    execution_eligible = excluded.execution_eligible
+                """,
+                (
+                    report.report_id,
+                    report.account_id,
+                    report.strategy_id,
+                    report.strategy_version,
+                    report.timeframe,
+                    report.evaluated_at.isoformat(),
+                    int(report.configuration_enabled),
+                    int(report.paper_execution_configured),
+                    _json(report.symbols_requested),
+                    _json(report.symbols_covered),
+                    _json(report.missing_symbols),
+                    _json(
+                        [asdict(item) for item in report.symbol_results]
+                    ),
+                    _json(report.aggregate_metrics),
+                    _json(report.gates),
+                    _json(report.warnings),
+                    report.readiness_status,
+                    int(report.execution_eligible),
+                ),
+            )
+        finally:
+            self._close_if_needed(connection)
+
     def active_risk(self) -> Decimal:
         connection = self._connect()
         try:
@@ -2070,6 +2145,67 @@ class SqliteAuditReader:
                 "reason_codes": json.loads(
                     row["reason_codes_json"]
                 ),
+                "execution_eligible": bool(
+                    row["execution_eligible"]
+                ),
+            }
+            for row in rows
+        ]
+
+    def recent_strategy_lab_reports(
+        self, limit: int = 30
+    ) -> list[dict[str, Any]]:
+        safe_limit = max(1, min(limit, 100))
+        with closing(self._connect()) as connection:
+            rows = connection.execute(
+                """
+                SELECT report_id, account_id, strategy_id,
+                       strategy_version, timeframe, evaluated_at,
+                       configuration_enabled,
+                       paper_execution_configured,
+                       symbols_requested_json, symbols_covered_json,
+                       missing_symbols_json, symbol_results_json,
+                       aggregate_metrics_json, gates_json,
+                       warnings_json, readiness_status,
+                       execution_eligible
+                FROM strategy_lab_reports
+                ORDER BY evaluated_at DESC, strategy_id
+                LIMIT ?
+                """,
+                (safe_limit,),
+            ).fetchall()
+        return [
+            {
+                "report_id": row["report_id"],
+                "account_id": row["account_id"],
+                "strategy_id": row["strategy_id"],
+                "strategy_version": row["strategy_version"],
+                "timeframe": row["timeframe"],
+                "evaluated_at": row["evaluated_at"],
+                "configuration_enabled": bool(
+                    row["configuration_enabled"]
+                ),
+                "paper_execution_configured": bool(
+                    row["paper_execution_configured"]
+                ),
+                "symbols_requested": json.loads(
+                    row["symbols_requested_json"]
+                ),
+                "symbols_covered": json.loads(
+                    row["symbols_covered_json"]
+                ),
+                "missing_symbols": json.loads(
+                    row["missing_symbols_json"]
+                ),
+                "symbol_results": json.loads(
+                    row["symbol_results_json"]
+                ),
+                "aggregate_metrics": json.loads(
+                    row["aggregate_metrics_json"]
+                ),
+                "gates": json.loads(row["gates_json"]),
+                "warnings": json.loads(row["warnings_json"]),
+                "readiness_status": row["readiness_status"],
                 "execution_eligible": bool(
                     row["execution_eligible"]
                 ),

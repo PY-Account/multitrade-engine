@@ -1,5 +1,31 @@
 # Changelog
 
+## 0.6.0 - 2026-07-28
+
+- Added an isolated, always-on Strategy Lab for every configured intraday
+  model and every symbol in the account watchlist.
+- Added cross-symbol out-of-sample aggregation, minimum trade and breadth
+  gates, pooled profit factor, worst drawdown, and profitable-symbol coverage.
+- Added a second validation pass under adverse trading costs; no lab result
+  can edit strategy permissions or authorize execution.
+- Restricted intraday backtests to the regular New York session, blocked
+  next-session entries, and forced open simulated positions out at session
+  end.
+- Bounded backtest feature history to keep long Strategy Lab cycles linear
+  enough for the VPS while preserving all strategy lookbacks.
+- Added persistent Strategy Lab reports, health monitoring, CLI commands, and
+  a dedicated hardened Compose service.
+- Reorganized the dashboard into Account, Strategy Lab, Allocation & Risk,
+  and Operations workspaces with horizontal secondary tabs and an
+  account-selection boundary.
+- Added an account allocation/readiness view and a continuous model-validation
+  scorecard.
+- Added published backtest-overfitting evidence and explicit disclosure that
+  the full probability-of-backtest-overfitting method is not yet implemented.
+
+This release remains Alpaca Paper-only. Strategy Lab readiness is evidence for
+continued observation, not evidence of profitability and not order approval.
+
 ## 0.5.0 - 2026-07-28
 
 - Added next-open research-model backtesting so a daily decision cannot earn

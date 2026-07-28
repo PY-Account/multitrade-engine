@@ -125,7 +125,7 @@ Credit spreads and iron condors are not routed automatically in this release.
 
 ## Validation gates
 
-The stored out-of-sample gates currently require:
+The single-symbol out-of-sample gates currently require:
 
 - At least 20 trades.
 - Positive net profit.
@@ -135,3 +135,19 @@ The stored out-of-sample gates currently require:
 
 Passing does not automatically edit `paper_execution_allowed`. Approval
 remains a deliberate configuration change reviewed after Paper observation.
+
+The continuous Strategy Lab adds portfolio-wide gates:
+
+- At least two covered symbols, or every symbol when the watchlist is smaller.
+- At least 30 combined out-of-sample trades.
+- Positive median out-of-sample return.
+- At least half of covered symbols profitable.
+- Pooled profit factor of at least 1.10.
+- Worst symbol drawdown no greater than 10%.
+- Positive median return with 25-basis-point modeled slippage.
+- At least half of the individual symbol validations passing.
+
+Intraday validation uses only the 09:30-16:00 New York regular session and
+forces open test positions to close before the session ends. The lab records
+every configured model, including disabled candidates. It never changes
+configuration or order permissions.

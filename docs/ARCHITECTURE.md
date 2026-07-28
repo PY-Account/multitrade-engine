@@ -42,6 +42,14 @@ straight into an executable strategy: a candidate must have a plausible
 mechanism, independent support, chronological out-of-sample results, realistic
 costs, stability checks, and a Paper observation period.
 
+An independent `strategy-lab` worker refreshes raw intraday history every six
+hours. It evaluates each configured model across the complete account
+watchlist using chronological 60/40 splits, next-bar entries, regular US
+sessions, forced session-end exits, base costs, and adverse-cost stress. It
+stores every model report rather than selecting only a favorable trial.
+Readiness is an analytical label and has no path to broker credentials or
+order permission.
+
 ### Pattern and regime analysis
 
 `FeatureEngine` calculates decision-time features without future data.
@@ -99,9 +107,16 @@ realized P/L.
 
 Backtests enter on the next bar, include configurable costs, cap position size
 by risk and capital, and resolve an ambiguous stop/target bar to the stop.
-Walk-forward validation uses chronological 60/40 samples and stores each gate.
+Intraday tests exclude extended hours and close open positions at the end of
+each regular session. Walk-forward validation uses chronological 60/40
+samples and stores each gate.
 Passing a historical gate is evidence for further Paper testing, not proof of
 future performance.
+
+The Strategy Lab adds cross-symbol coverage, pooled trade count, median
+out-of-sample return, profitable-symbol breadth, pooled profit factor, worst
+drawdown, adverse-cost return, and per-symbol validation gates. A fully
+passing result can only be labeled an extended-Paper-observation candidate.
 
 The daily evidence model has a separate simulator. A decision after day `t`
 closes can change exposure only at day `t+1`'s open; its first credited return
@@ -114,18 +129,23 @@ The research worker also calculates pairwise daily correlations and an
 effective-breadth estimate. This is an observation report, not a covariance
 optimizer or a hedge order generator.
 
-The dashboard is read-only. It uses authenticated HTTPS, strict security
-headers, safe DOM text rendering, SQLite query-only connections, and
-browser-local preferences. It cannot change trading configuration.
+The dashboard is read-only. Its primary workspaces are Account, Strategy Lab,
+Allocation & Risk, and Operations, with horizontal secondary navigation and
+an account selector ready for the later multi-account boundary. It uses
+authenticated HTTPS, strict security headers, safe DOM text rendering,
+SQLite query-only connections, and browser-local preferences. It cannot
+change trading configuration.
 
 ## Deployment
 
-The VPS runs five isolated containers:
+The VPS runs six isolated containers:
 
 - `engine`: frequent broker truth/reconciliation heartbeat.
 - `automation`: five-minute data, feature, signal, allocation, and guarded
   Paper cycle.
 - `research`: hourly closed-daily-bar evidence model; no execution path.
+- `strategy-lab`: six-hour intraday cross-symbol validation; no execution
+  path.
 - `dashboard`: authenticated query-only monitoring.
 - `caddy`: public TLS termination and reverse proxy.
 
@@ -135,7 +155,7 @@ shared `/app/var` volume.
 
 ## Scaling boundary
 
-Release 0.5 intentionally supports one enabled Paper account and one
+Release 0.6 intentionally supports one enabled Paper account and one
 orchestrator. Multi-account/cross-broker execution requires PostgreSQL with
 account-scoped reservations, a portfolio-wide exposure service, credential
 isolation per connector, and distributed locking. Dedicated crypto and forex

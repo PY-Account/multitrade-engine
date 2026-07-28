@@ -110,6 +110,12 @@ class Settings:
     research_health_max_age_seconds: int
     research_program_path: Path
     research_lookback_days: int
+    strategy_lab_cycle_seconds: int
+    strategy_lab_health_path: Path
+    strategy_lab_health_max_age_seconds: int
+    strategy_lab_lookback_days: int
+    strategy_lab_base_cost_bps: Decimal
+    strategy_lab_stressed_cost_bps: Decimal
     dashboard_host: str
     dashboard_port: int
     dashboard_username: str
@@ -160,6 +166,41 @@ class Settings:
             raise ValueError(
                 "TRADING_RESEARCH_HEALTH_MAX_AGE_SECONDS must be at "
                 "least twice TRADING_RESEARCH_CYCLE_SECONDS"
+            )
+        strategy_lab_cycle_seconds = _int_env(
+            "TRADING_STRATEGY_LAB_CYCLE_SECONDS",
+            "21600",
+            3600,
+            604800,
+        )
+        strategy_lab_health_max_age_seconds = _int_env(
+            "TRADING_STRATEGY_LAB_HEALTH_MAX_AGE_SECONDS",
+            "64800",
+            7200,
+            1209600,
+        )
+        if (
+            strategy_lab_health_max_age_seconds
+            < strategy_lab_cycle_seconds * 2
+        ):
+            raise ValueError(
+                "TRADING_STRATEGY_LAB_HEALTH_MAX_AGE_SECONDS must be "
+                "at least twice TRADING_STRATEGY_LAB_CYCLE_SECONDS"
+            )
+        strategy_lab_base_cost_bps = _decimal_env(
+            "TRADING_STRATEGY_LAB_BASE_COST_BPS", "10"
+        )
+        strategy_lab_stressed_cost_bps = _decimal_env(
+            "TRADING_STRATEGY_LAB_STRESSED_COST_BPS", "25"
+        )
+        if (
+            strategy_lab_base_cost_bps < Decimal("0")
+            or strategy_lab_stressed_cost_bps
+            < strategy_lab_base_cost_bps
+        ):
+            raise ValueError(
+                "Strategy Lab costs must be non-negative and stressed "
+                "costs cannot be below base costs"
             )
         market_data_feed = os.getenv(
             "TRADING_MARKET_DATA_FEED", "iex"
@@ -241,6 +282,26 @@ class Settings:
             ),
             research_lookback_days=_int_env(
                 "TRADING_RESEARCH_LOOKBACK_DAYS", "1500", 400, 1500
+            ),
+            strategy_lab_cycle_seconds=strategy_lab_cycle_seconds,
+            strategy_lab_health_path=Path(
+                os.getenv(
+                    "TRADING_STRATEGY_LAB_HEALTH_PATH",
+                    "var/strategy-lab-health.json",
+                )
+            ),
+            strategy_lab_health_max_age_seconds=(
+                strategy_lab_health_max_age_seconds
+            ),
+            strategy_lab_lookback_days=_int_env(
+                "TRADING_STRATEGY_LAB_LOOKBACK_DAYS",
+                "120",
+                30,
+                365,
+            ),
+            strategy_lab_base_cost_bps=strategy_lab_base_cost_bps,
+            strategy_lab_stressed_cost_bps=(
+                strategy_lab_stressed_cost_bps
             ),
             dashboard_host=os.getenv(
                 "DASHBOARD_HOST", "127.0.0.1"

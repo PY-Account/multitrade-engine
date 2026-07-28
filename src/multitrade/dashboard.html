@@ -87,6 +87,57 @@
     .subcopy { margin: 6px 0 0; font-size: .83rem; }
     .header-tools { display: flex; align-items: end; flex-direction: column; gap: 12px; }
     .header-actions { display: flex; align-items: center; gap: 9px; }
+    .workspace-nav {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 14px;
+      margin-top: 26px;
+      border-bottom: 1px solid var(--line);
+    }
+    .primary-tabs, .secondary-tabs {
+      display: flex;
+      gap: 5px;
+      overflow-x: auto;
+      scrollbar-width: thin;
+    }
+    .primary-tabs button, .secondary-tabs button {
+      white-space: nowrap;
+      border-color: transparent;
+      background: transparent;
+      border-radius: 9px 9px 0 0;
+    }
+    .primary-tabs button[aria-selected="true"] {
+      color: var(--accent);
+      border-color: var(--line);
+      border-bottom-color: var(--bg);
+      background: var(--panel);
+      font-weight: 750;
+    }
+    .secondary-tabs {
+      margin-top: 10px;
+      padding: 6px;
+      border: 1px solid var(--line);
+      border-radius: 11px;
+      background: var(--panel-2);
+    }
+    .secondary-tabs button { border-radius: 7px; }
+    .secondary-tabs button[aria-selected="true"] {
+      color: var(--text);
+      background: var(--panel);
+      border-color: var(--line);
+      font-weight: 700;
+    }
+    .account-switcher {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      color: var(--muted);
+      font-size: .76rem;
+      white-space: nowrap;
+      padding-bottom: 7px;
+    }
+    .workspace-view[hidden] { display: none !important; }
     button, select {
       border: 1px solid var(--line);
       border-radius: 9px;
@@ -171,6 +222,8 @@
       .header-tools { align-items: start; }
       .two-column { grid-template-columns: 1fr; }
       .preference-grid { grid-template-columns: 1fr; }
+      .workspace-nav { align-items: stretch; flex-direction: column; }
+      .account-switcher { padding-bottom: 10px; }
     }
     @media (max-width: 560px) {
       .summary-grid { grid-template-columns: repeat(2, 1fr); }
@@ -195,10 +248,26 @@
     </div>
   </header>
 
-  <section class="summary-grid" aria-label="System summary">
+  <nav class="workspace-nav" aria-label="Primary workspace">
+    <div class="primary-tabs" id="primary-tabs" role="tablist">
+      <button type="button" data-primary-tab="account" aria-selected="true">Account</button>
+      <button type="button" data-primary-tab="strategy-lab" aria-selected="false">Strategy Lab</button>
+      <button type="button" data-primary-tab="allocation" aria-selected="false">Allocation &amp; Risk</button>
+      <button type="button" data-primary-tab="operations" aria-selected="false">Operations</button>
+    </div>
+    <label class="account-switcher">Account
+      <select id="account-select" aria-label="Selected account">
+        <option value="alpaca-paper">alpaca-paper</option>
+      </select>
+    </label>
+  </nav>
+  <nav class="secondary-tabs" id="secondary-tabs" aria-label="Workspace section" role="tablist"></nav>
+
+  <section class="summary-grid workspace-view" data-primary="account" data-secondary="overview" aria-label="System summary">
     <article class="card"><div class="label">Engine</div><div class="value" id="engine">--</div></article>
     <article class="card"><div class="label">Strategy service</div><div class="value" id="automation">--</div></article>
     <article class="card"><div class="label">Research service</div><div class="value" id="research">--</div></article>
+    <article class="card"><div class="label">Strategy Lab</div><div class="value" id="strategy-lab">--</div></article>
     <article class="card"><div class="label">US market</div><div class="value" id="market">--</div></article>
     <article class="card"><div class="label">Paper equity</div><div class="value" id="equity">--</div></article>
     <article class="card"><div class="label">Buying power</div><div class="value" id="buying-power">--</div></article>
@@ -206,7 +275,7 @@
     <article class="card"><div class="label">Reserved risk</div><div class="value" id="risk">--</div></article>
   </section>
 
-  <section class="two-column">
+  <section class="two-column workspace-view" data-primary="allocation" data-secondary="risk">
     <article class="panel">
       <div class="panel-head">
         <div>
@@ -238,7 +307,19 @@
     </article>
   </section>
 
-  <section class="panel">
+  <section class="panel workspace-view" data-primary="allocation" data-secondary="plan">
+    <div class="panel-head">
+      <div><h2>Account strategy allocation</h2><p class="subcopy">Configured capital weights, risk budgets, confidence thresholds, and Paper permissions for the selected account. This dashboard is read-only.</p></div>
+    </div>
+    <div class="table-wrap">
+      <table>
+        <thead><tr><th>Strategy</th><th>Enabled</th><th class="number">Capital weight</th><th class="number">Risk / trade</th><th class="number">Minimum confidence</th><th>Paper permission</th><th>Lab readiness</th></tr></thead>
+        <tbody id="allocations"></tbody>
+      </table>
+    </div>
+  </section>
+
+  <section class="panel workspace-view" data-primary="account" data-secondary="portfolio">
     <div class="panel-head">
       <div><h2>Open positions</h2><p class="subcopy" id="positions-copy">No data yet.</p></div>
     </div>
@@ -250,7 +331,7 @@
     </div>
   </section>
 
-  <section class="panel">
+  <section class="panel workspace-view" data-primary="strategy-lab" data-secondary="market-model">
     <div class="panel-head">
       <div><h2>Evidence-weighted market model</h2><p class="subcopy">Hourly, closed-daily-bar observations. Risk multipliers are analytical outputs only and cannot place orders.</p></div>
     </div>
@@ -262,7 +343,7 @@
     </div>
   </section>
 
-  <section class="panel">
+  <section class="panel workspace-view" data-primary="strategy-lab" data-secondary="market-model">
     <div class="panel-head">
       <div><h2>Research model validation</h2><p class="subcopy">Next-open simulation after decision time, including exposure-change costs and a fully invested benchmark. Passing gates permits only extended Paper observation.</p></div>
     </div>
@@ -274,7 +355,7 @@
     </div>
   </section>
 
-  <section class="panel">
+  <section class="panel workspace-view" data-primary="allocation" data-secondary="concentration">
     <div class="panel-head">
       <div><h2>Universe correlation and concentration</h2><p class="subcopy">Equal-importance observation of recent daily-return relationships. This diagnoses apparent diversification that may collapse into one correlated bet.</p></div>
     </div>
@@ -286,7 +367,7 @@
     </div>
   </section>
 
-  <section class="panel">
+  <section class="panel workspace-view" data-primary="strategy-lab" data-secondary="evidence">
     <div class="panel-head">
       <div><h2>Research evidence registry</h2><p class="subcopy">Published support, contradictory caveats, and internal admission status. External evidence never authorizes deployment by itself.</p></div>
     </div>
@@ -298,7 +379,7 @@
     </div>
   </section>
 
-  <section class="panel">
+  <section class="panel workspace-view" data-primary="strategy-lab" data-secondary="monitoring">
     <div class="panel-head">
       <div><h2>Strategy bots</h2><p class="subcopy">Latest closed-bar evaluation for each strategy and symbol.</p></div>
     </div>
@@ -310,7 +391,7 @@
     </div>
   </section>
 
-  <section class="panel">
+  <section class="panel workspace-view" data-primary="strategy-lab" data-secondary="monitoring">
     <div class="panel-head">
       <div><h2>Strategy signals</h2><p class="subcopy">Deterministic, versioned signals with decision-time evidence.</p></div>
     </div>
@@ -322,7 +403,7 @@
     </div>
   </section>
 
-  <section class="panel">
+  <section class="panel workspace-view" data-primary="account" data-secondary="trades">
     <div class="panel-head">
       <div><h2>Trade decisions</h2><p class="subcopy">Risk-reviewed dry runs and Paper orders. Select a record to visualize its price context.</p></div>
     </div>
@@ -334,7 +415,7 @@
     </div>
   </section>
 
-  <section class="panel">
+  <section class="panel workspace-view" data-primary="account" data-secondary="trades">
     <div class="panel-head">
       <div><h2>Price context</h2><p class="subcopy" id="chart-copy">Choose a trade decision to display stored market bars, entry reference, stop, and target.</p></div>
     </div>
@@ -343,7 +424,19 @@
     </div>
   </section>
 
-  <section class="panel">
+  <section class="panel workspace-view" data-primary="strategy-lab" data-secondary="validation">
+    <div class="panel-head">
+      <div><h2>Continuous Strategy Lab</h2><p class="subcopy">Portfolio-wide out-of-sample evaluation using next-bar entries, base costs, adverse-cost stress, cross-symbol breadth gates, and no automatic execution promotion.</p></div>
+    </div>
+    <div class="table-wrap">
+      <table>
+        <thead><tr><th>Evaluated</th><th>Strategy</th><th>Coverage</th><th class="number">OOS trades</th><th class="number">Median return</th><th class="number">Stressed return</th><th class="number">Profit factor</th><th class="number">Worst drawdown</th><th>Gates</th><th>Readiness</th><th>Execution</th></tr></thead>
+        <tbody id="strategy-lab-reports"></tbody>
+      </table>
+    </div>
+  </section>
+
+  <section class="panel workspace-view" data-primary="strategy-lab" data-secondary="validation">
     <div class="panel-head">
       <div><h2>Backtest validation</h2><p class="subcopy">Results include slippage and conservative same-bar stop handling. A result is not proof of future performance.</p></div>
     </div>
@@ -355,7 +448,7 @@
     </div>
   </section>
 
-  <section class="panel">
+  <section class="panel workspace-view" data-primary="account" data-secondary="portfolio">
     <div class="panel-head">
       <div><h2>Open orders</h2><p class="subcopy" id="orders-copy">No data yet.</p></div>
     </div>
@@ -367,7 +460,7 @@
     </div>
   </section>
 
-  <section class="panel">
+  <section class="panel workspace-view" data-primary="operations" data-secondary="audit">
     <div class="panel-head">
       <div><h2>Recent audit events</h2><p class="subcopy">Decision and reconciliation records. Raw details remain available for diagnosis.</p></div>
     </div>
@@ -449,6 +542,107 @@
   let dateTimePartsFormatter;
   let moneyFormatter;
   let quantityFormatter;
+  let activePrimary = "account";
+  let activeSecondary = "overview";
+  let selectedAccountId = "alpaca-paper";
+  const SECONDARY_NAVIGATION = {
+    account: [
+      ["overview", "Overview"],
+      ["portfolio", "Positions & Orders"],
+      ["trades", "Trades & Charts"],
+    ],
+    "strategy-lab": [
+      ["validation", "Model Validation"],
+      ["monitoring", "Signals & Bots"],
+      ["market-model", "Market Model"],
+      ["evidence", "Evidence"],
+    ],
+    allocation: [
+      ["plan", "Strategy Allocation"],
+      ["risk", "Risk Authority"],
+      ["concentration", "Concentration"],
+    ],
+    operations: [
+      ["audit", "Audit Log"],
+    ],
+  };
+
+  function setWorkspace(primary, secondary = null) {
+    const options = SECONDARY_NAVIGATION[primary] || [];
+    const allowed = new Set(options.map(item => item[0]));
+    activePrimary = primary;
+    activeSecondary = allowed.has(secondary)
+      ? secondary
+      : options[0]?.[0];
+    for (const button of document.querySelectorAll("[data-primary-tab]")) {
+      button.setAttribute(
+        "aria-selected",
+        String(button.dataset.primaryTab === activePrimary)
+      );
+    }
+    const secondaryTabs = document.getElementById("secondary-tabs");
+    secondaryTabs.replaceChildren();
+    for (const [id, label] of options) {
+      const button = document.createElement("button");
+      button.type = "button";
+      button.dataset.secondaryTab = id;
+      button.textContent = label;
+      button.setAttribute(
+        "aria-selected",
+        String(id === activeSecondary)
+      );
+      button.addEventListener(
+        "click",
+        () => setWorkspace(activePrimary, id)
+      );
+      secondaryTabs.appendChild(button);
+    }
+    for (const view of document.querySelectorAll(".workspace-view")) {
+      view.hidden = !(
+        view.dataset.primary === activePrimary
+        && view.dataset.secondary === activeSecondary
+      );
+    }
+    try {
+      sessionStorage.setItem(
+        "multitrade-workspace-v1",
+        JSON.stringify({
+          primary: activePrimary,
+          secondary: activeSecondary,
+        })
+      );
+    } catch (error) {
+      // Navigation state remains valid for this page.
+    }
+  }
+
+  function initializeNavigation() {
+    let saved = {};
+    try {
+      saved = JSON.parse(
+        sessionStorage.getItem("multitrade-workspace-v1") || "{}"
+      );
+    } catch (error) {
+      saved = {};
+    }
+    for (const button of document.querySelectorAll("[data-primary-tab]")) {
+      button.addEventListener(
+        "click",
+        () => setWorkspace(button.dataset.primaryTab)
+      );
+    }
+    setWorkspace(
+      SECONDARY_NAVIGATION[saved.primary] ? saved.primary : "account",
+      saved.secondary
+    );
+    document.getElementById("account-select").addEventListener(
+      "change",
+      event => {
+        selectedAccountId = event.target.value;
+        refresh();
+      }
+    );
+  }
 
   function loadPreferences() {
     try {
@@ -669,6 +863,118 @@
         [localTime(order.submitted_at), ""],
       ];
       for (const [value, className] of values) row.appendChild(cell(value, className));
+      body.appendChild(row);
+    }
+  }
+
+  function renderAccountSelector(accounts) {
+    const selector = document.getElementById("account-select");
+    const previous = selectedAccountId || selector.value;
+    selector.replaceChildren();
+    const rows = accounts.length
+      ? accounts
+      : [{
+          account_id: "alpaca-paper",
+          broker: "alpaca",
+          environment: "paper",
+        }];
+    for (const account of rows) {
+      const option = document.createElement("option");
+      option.value = account.account_id;
+      option.textContent = `${account.account_id} \u00b7 ${account.broker} ${account.environment}`;
+      selector.appendChild(option);
+    }
+    selectedAccountId = rows.some(
+      account => account.account_id === previous
+    ) ? previous : rows[0].account_id;
+    selector.value = selectedAccountId;
+    selector.disabled = rows.length < 2;
+  }
+
+  function renderAllocations(accounts, labReports) {
+    const body = document.getElementById("allocations");
+    body.replaceChildren();
+    const account = accounts.find(
+      item => item.account_id === selectedAccountId
+    );
+    const allocations = account?.allocations || [];
+    if (!allocations.length) {
+      emptyRow(body, 7, "No account allocation configuration is available.");
+      return;
+    }
+    const latestByStrategy = new Map();
+    for (const report of labReports) {
+      if (
+        report.account_id === selectedAccountId
+        && !latestByStrategy.has(report.strategy_id)
+      ) {
+        latestByStrategy.set(report.strategy_id, report);
+      }
+    }
+    for (const allocation of allocations) {
+      const report = latestByStrategy.get(allocation.strategy_id);
+      const readiness = report?.readiness_status
+        ?.replaceAll("_", " ") || "awaiting lab cycle";
+      const values = [
+        [allocation.strategy_id, ""],
+        [allocation.enabled ? "Enabled" : "Disabled", allocation.enabled ? "ok" : "warn"],
+        [percent(allocation.capital_weight), "number"],
+        [percent(allocation.risk_fraction), "number"],
+        [percent(allocation.minimum_confidence), "number"],
+        [allocation.paper_execution_allowed ? "Configured" : "Blocked", allocation.paper_execution_allowed ? "warn" : "ok"],
+        [readiness, report?.readiness_status === "extended_paper_observation_candidate" ? "ok" : "warn"],
+      ];
+      const row = document.createElement("tr");
+      for (const [value, className] of values) {
+        row.appendChild(cell(value, className));
+      }
+      body.appendChild(row);
+    }
+  }
+
+  function renderStrategyLabReports(reports) {
+    const body = document.getElementById("strategy-lab-reports");
+    body.replaceChildren();
+    const latest = [];
+    const seen = new Set();
+    for (const report of reports) {
+      if (
+        report.account_id !== selectedAccountId
+        || seen.has(report.strategy_id)
+      ) continue;
+      seen.add(report.strategy_id);
+      latest.push(report);
+    }
+    if (!latest.length) {
+      emptyRow(body, 11, "The continuous Strategy Lab has not completed its first cycle.");
+      return;
+    }
+    for (const report of latest) {
+      const metrics = report.aggregate_metrics || {};
+      const passedGates = Object.values(report.gates || {})
+        .filter(Boolean).length;
+      const totalGates = Object.keys(report.gates || {}).length;
+      const profitFactor = metrics.pooled_profit_factor == null
+        ? "--"
+        : Number(metrics.pooled_profit_factor).toFixed(2);
+      const readiness = report.readiness_status.replaceAll("_", " ");
+      const values = [
+        [localTime(report.evaluated_at), ""],
+        [`${report.strategy_id} v${report.strategy_version}`, ""],
+        [`${(report.symbols_covered || []).length}/${(report.symbols_requested || []).length}`, ""],
+        [metrics.out_of_sample_trade_count ?? 0, "number"],
+        [percent(metrics.median_out_of_sample_return), Number(metrics.median_out_of_sample_return || 0) >= 0 ? "number ok" : "number bad"],
+        [percent(metrics.median_stressed_return), Number(metrics.median_stressed_return || 0) >= 0 ? "number ok" : "number bad"],
+        [profitFactor, "number"],
+        [percent(metrics.worst_maximum_drawdown), "number"],
+        [`${passedGates}/${totalGates}`, passedGates === totalGates && totalGates ? "ok" : "warn"],
+        [readiness, report.readiness_status === "extended_paper_observation_candidate" ? "ok" : "warn"],
+        [report.execution_eligible ? "Eligible" : "Blocked", report.execution_eligible ? "bad" : "ok"],
+      ];
+      const row = document.createElement("tr");
+      for (const [value, className] of values) {
+        row.appendChild(cell(value, className));
+      }
       body.appendChild(row);
     }
   }
@@ -1026,6 +1332,8 @@
     if (event.event_type === "strategy_cycle_completed") return "The guarded strategy cycle completed.";
     if (event.event_type === "research_cycle_completed") return "The observation-only evidence model completed.";
     if (event.event_type === "research_cycle_failed") return `The research cycle failed: ${payload.error_type || "unknown error"}.`;
+    if (event.event_type === "strategy_lab_cycle_completed") return "Portfolio-wide intraday strategy validation completed.";
+    if (event.event_type === "strategy_lab_cycle_failed") return `The Strategy Lab cycle failed: ${payload.error_type || "unknown error"}.`;
     if (event.event_type === "backtest_completed") return "A reproducible backtest completed.";
     if (event.event_type === "strategy_validation_completed") {
       return `Walk-forward validation ${payload.passed ? "passed" : "failed"} its configured gates.`;
@@ -1079,6 +1387,11 @@
         data.research.healthy ? "ok" : "bad"
       );
       setStatus(
+        "strategy-lab",
+        data.strategy_lab.healthy ? "Healthy" : "Attention",
+        data.strategy_lab.healthy ? "ok" : "bad"
+      );
+      setStatus(
         "market",
         market == null ? "Unavailable" : (market.is_open ? "Open" : "Closed"),
         market == null ? "bad" : (market.is_open ? "ok" : "warn")
@@ -1120,12 +1433,18 @@
       document.getElementById("risk-bar").style.width = `${Math.min(100, Math.max(0, utilization))}%`;
 
       renderControls(account);
+      renderAccountSelector(data.configured_accounts || []);
       renderPositions(data.positions || []);
       renderOrders(data.open_orders || []);
       renderStrategyRuntime(data.strategy_runtime || []);
       renderResearchDecisions(data.research_decisions || []);
       renderResearchBacktests(data.research_backtests || []);
       renderPortfolioRiskReports(data.portfolio_risk_reports || []);
+      renderStrategyLabReports(data.strategy_lab_reports || []);
+      renderAllocations(
+        data.configured_accounts || [],
+        data.strategy_lab_reports || []
+      );
       renderEvidenceCatalog(data.evidence_catalog || []);
       renderSignals(data.signals || []);
       renderTradeRecords(data.trade_records || []);
@@ -1138,6 +1457,7 @@
   }
 
   initializePreferences();
+  initializeNavigation();
   refresh();
   setInterval(refresh, 15000);
 </script>
