@@ -1,6 +1,6 @@
 # Defined-Risk Options Paper Operations
 
-Release 0.12 supports defined-risk options only on Alpaca Paper. This is an
+Release 0.13 supports defined-risk options only on Alpaca Paper. This is an
 engineering and measurement program, not evidence that an option strategy is
 profitable and not permission for live trading.
 
@@ -64,6 +64,12 @@ sells at the bid. It submits one reduce-only closing MLeg when a configured
 profit target, loss limit, or pre-expiration boundary triggers. The exit order
 uses `buy_to_close`/`sell_to_close` on every leg. A broker fill is linked back
 to the opening intent, realizes package P/L, and releases the opening risk.
+
+The emergency stop blocks new opening risk, not eligible reduce-only option
+closes. Reduce-only submission remains available while
+`TRADING_ENABLE_PAPER_ORDERS=true`, even if automation entries are disabled or
+the emergency stop is active. Setting `TRADING_ENABLE_PAPER_ORDERS=false`
+blocks every application submission, including exits.
 
 These exits are application-managed. Alpaca does not provide the stock-style
 bracket used by the equity bots for these packages. A process, network, data,

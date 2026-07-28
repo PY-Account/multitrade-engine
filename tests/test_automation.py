@@ -1,3 +1,4 @@
+import json
 from dataclasses import replace
 from datetime import datetime, timedelta, timezone
 from decimal import Decimal
@@ -6,7 +7,10 @@ from tempfile import TemporaryDirectory
 from unittest import TestCase
 
 from multitrade.audit import SqliteAuditReader, SqliteAuditStore
-from multitrade.automation import PaperAutomationService
+from multitrade.automation import (
+    PaperAutomationService,
+    PaperAutomationSupervisor,
+)
 from multitrade.brokers.base import (
     BrokerAccount,
     BrokerMarketClock,
@@ -162,6 +166,11 @@ class OptionFakeBroker(FakeBroker):
             status="accepted",
             raw={},
         )
+
+
+class FailingBroker(FakeBroker):
+    def reconcile(self) -> BrokerReconciliation:
+        raise RuntimeError("account connection failed")
 
 
 class FakeOptionData:
@@ -349,3 +358,123 @@ class AutomationTests(TestCase):
                 trades[0]["strategy_id"],
                 "breakout_retest_bull_call",
             )
+
+    def test_multi_account_supervisor_isolates_account_failure(
+        self,
+    ) -> None:
+        with TemporaryDirectory() as directory:
+            now = datetime(
+                2026, 1, 5, 18, 0, tzinfo=timezone.utc
+            )
+            settings = replace(
+                Settings.from_env(),
+                automation_enabled=False,
+                enable_paper_orders=False,
+                db_path=Path(directory) / "trading.db",
+                strategy_health_path=(
+                    Path(directory) / "strategy-health.json"
+                ),
+                market_max_bar_age_seconds=900,
+            )
+
+            def plan(account_id: str) -> AccountPlan:
+                allocation = StrategyAllocation(
+                    strategy_id="breakout_retest",
+                    enabled=True,
+                    capital_weight=Decimal("0.20"),
+                    risk_fraction=Decimal("0.005"),
+                    minimum_confidence=Decimal("0.60"),
+                )
+                return AccountPlan(
+                    account_id=account_id,
+                    broker="alpaca",
+                    environment="paper",
+                    enabled=True,
+                    asset_classes=(AssetClass.STOCK,),
+                    watchlist=("AAPL",),
+                    timeframe="5Min",
+                    maximum_positions=4,
+                    maximum_daily_orders=6,
+                    symbol_cooldown_minutes=60,
+                    allocations={
+                        allocation.strategy_id: allocation
+                    },
+                )
+
+            store = SqliteAuditStore(settings.db_path)
+            successful = PaperAutomationService(
+                settings=settings,
+                broker=FakeBroker(now),
+                market_data=FakeMarketData(test_bars(now)),
+                store=store,
+                account_plan=plan("paper-a"),
+            )
+            failing = PaperAutomationService(
+                settings=settings,
+                broker=FailingBroker(now),
+                market_data=FakeMarketData(test_bars(now)),
+                store=store,
+                account_plan=plan("paper-b"),
+            )
+            result = PaperAutomationSupervisor(
+                settings=settings,
+                services=(successful, failing),
+                store=store,
+            ).run_cycle(now=now)
+            health = json.loads(
+                settings.strategy_health_path.read_text(
+                    encoding="utf-8"
+                )
+            )
+
+            self.assertEqual(result.status, "degraded")
+            self.assertEqual(result.accounts_succeeded, 1)
+            self.assertEqual(result.accounts_failed, 1)
+            self.assertEqual(
+                result.failures[0].account_id, "paper-b"
+            )
+            self.assertEqual(health["status"], "degraded")
+            self.assertEqual(
+                health["details"]["accounts_configured"], 2
+            )
+
+    def test_expected_broker_identity_mismatch_fails_closed(
+        self,
+    ) -> None:
+        with TemporaryDirectory() as directory:
+            now = datetime(
+                2026, 1, 5, 18, 0, tzinfo=timezone.utc
+            )
+            settings = replace(
+                Settings.from_env(),
+                db_path=Path(directory) / "trading.db",
+                strategy_health_path=(
+                    Path(directory) / "strategy-health.json"
+                ),
+            )
+            plan = AccountPlan(
+                account_id="paper-a",
+                broker="alpaca",
+                environment="paper",
+                enabled=True,
+                asset_classes=(AssetClass.STOCK,),
+                watchlist=("AAPL",),
+                timeframe="5Min",
+                maximum_positions=4,
+                maximum_daily_orders=6,
+                symbol_cooldown_minutes=60,
+                allocations={},
+                expected_broker_account_id="expected-account",
+            )
+            service = PaperAutomationService(
+                settings=settings,
+                broker=FakeBroker(now),
+                market_data=FakeMarketData(test_bars(now)),
+                store=SqliteAuditStore(settings.db_path),
+                account_plan=plan,
+            )
+
+            with self.assertRaisesRegex(
+                ValueError, "identity mismatch"
+            ):
+                service.run_cycle(now=now)

@@ -5,6 +5,8 @@
       "broker": "alpaca",
       "environment": "paper",
       "enabled": true,
+      "credential_env_prefix": "ALPACA",
+      "expected_broker_account_id": "",
       "asset_classes": ["stock", "option"],
       "watchlist": ["SPY", "QQQ", "AAPL", "MSFT"],
       "timeframe": "5Min",

@@ -57,6 +57,23 @@ class AutomationCycleResult:
     reasons: tuple[str, ...]
 
 
+@dataclass(frozen=True, slots=True)
+class AccountCycleFailure:
+    account_id: str
+    error_type: str
+    message: str
+
+
+@dataclass(frozen=True, slots=True)
+class AutomationPortfolioCycleResult:
+    status: str
+    accounts_configured: int
+    accounts_succeeded: int
+    accounts_failed: int
+    results: tuple[AutomationCycleResult, ...]
+    failures: tuple[AccountCycleFailure, ...]
+
+
 class PaperAutomationService:
     def __init__(
         self,
@@ -100,39 +117,59 @@ class PaperAutomationService:
             risk_engine=RiskEngine(settings.risk_policy),
             audit_store=store,
             enable_order_submission=settings.paper_execution_enabled,
+            enable_reduce_only_submission=(
+                settings.enable_paper_orders
+            ),
         )
 
     @classmethod
     def from_settings(cls, settings: Settings) -> "PaperAutomationService":
-        settings.require_alpaca_credentials()
         plans = load_account_plans(settings.portfolio_config_path)
         enabled_plans = tuple(plan for plan in plans if plan.enabled)
         if len(enabled_plans) != 1:
             raise ValueError(
-                "The current runtime requires exactly one enabled "
-                "Paper account plan"
+                "PaperAutomationService.from_settings requires exactly "
+                "one enabled Paper account; use "
+                "PaperAutomationSupervisor for multiple accounts"
             )
+        return cls.from_account_plan(
+            settings, enabled_plans[0]
+        )
+
+    @classmethod
+    def from_account_plan(
+        cls,
+        settings: Settings,
+        account_plan: AccountPlan,
+        *,
+        store: SqliteAuditStore | None = None,
+    ) -> "PaperAutomationService":
+        key_id, secret_key, base_url = (
+            settings.alpaca_credentials_for(
+                account_plan.credential_env_prefix
+            )
+        )
         broker = AlpacaPaperBroker(
-            settings.alpaca_key_id,
-            settings.alpaca_secret_key,
-            base_url=settings.alpaca_base_url,
+            key_id,
+            secret_key,
+            base_url=base_url,
         )
         market_data = AlpacaMarketDataClient(
-            settings.alpaca_key_id,
-            settings.alpaca_secret_key,
+            key_id,
+            secret_key,
             feed=settings.market_data_feed,
         )
         option_data = AlpacaOptionChainClient(
-            settings.alpaca_key_id,
-            settings.alpaca_secret_key,
+            key_id,
+            secret_key,
             feed=settings.option_data_feed,
         )
         return cls(
             settings=settings,
             broker=broker,
             market_data=market_data,
-            store=SqliteAuditStore(settings.db_path),
-            account_plan=enabled_plans[0],
+            store=store or SqliteAuditStore(settings.db_path),
+            account_plan=account_plan,
             option_data=option_data,
         )
 
@@ -143,6 +180,7 @@ class PaperAutomationService:
             timezone.utc
         )
         reconciliation = self.broker.reconcile()
+        self._validate_broker_identity(reconciliation)
         snapshot = self.store.apply_account_equity_state(
             self.account_plan.account_id,
             reconciliation.account_snapshot(),
@@ -426,6 +464,18 @@ class PaperAutomationService:
             asdict(result),
         )
         return result
+
+    def _validate_broker_identity(
+        self, reconciliation: BrokerReconciliation
+    ) -> None:
+        expected = self.account_plan.expected_broker_account_id
+        observed = reconciliation.account.broker_account_id
+        if expected and observed != expected:
+            raise ValueError(
+                "Broker account identity mismatch for "
+                f"{self.account_plan.account_id}: expected {expected}, "
+                f"observed {observed or 'missing'}"
+            )
 
     def _manage_option_positions(
         self,
@@ -992,3 +1042,100 @@ class PaperAutomationService:
         ):
             return "symbol_cooldown_active"
         return None
+
+
+class PaperAutomationSupervisor:
+    """Run account-isolated Paper cycles inside one supervised process."""
+
+    def __init__(
+        self,
+        *,
+        settings: Settings,
+        services: tuple[PaperAutomationService, ...],
+        store: SqliteAuditStore,
+    ) -> None:
+        if not services:
+            raise ValueError(
+                "At least one enabled Paper account is required"
+            )
+        account_ids = [
+            service.account_plan.account_id for service in services
+        ]
+        if len(set(account_ids)) != len(account_ids):
+            raise ValueError(
+                "Automation services must have unique account IDs"
+            )
+        self.settings = settings
+        self.services = services
+        self.store = store
+
+    @classmethod
+    def from_settings(
+        cls, settings: Settings
+    ) -> "PaperAutomationSupervisor":
+        plans = load_account_plans(settings.portfolio_config_path)
+        enabled_plans = tuple(plan for plan in plans if plan.enabled)
+        if not enabled_plans:
+            raise ValueError(
+                "At least one enabled Paper account plan is required"
+            )
+        store = SqliteAuditStore(settings.db_path)
+        services = tuple(
+            PaperAutomationService.from_account_plan(
+                settings,
+                plan,
+                store=store,
+            )
+            for plan in enabled_plans
+        )
+        return cls(
+            settings=settings,
+            services=services,
+            store=store,
+        )
+
+    def run_cycle(
+        self, *, now: datetime | None = None
+    ) -> AutomationPortfolioCycleResult:
+        results: list[AutomationCycleResult] = []
+        failures: list[AccountCycleFailure] = []
+        for service in self.services:
+            try:
+                results.append(service.run_cycle(now=now))
+            except Exception as exc:
+                failure = AccountCycleFailure(
+                    account_id=service.account_plan.account_id,
+                    error_type=type(exc).__name__,
+                    message=str(exc),
+                )
+                failures.append(failure)
+                self.store.record_event(
+                    "strategy_account_cycle_failed",
+                    service.account_plan.account_id,
+                    asdict(failure),
+                )
+        if not failures:
+            status = "ok"
+        elif results:
+            status = "degraded"
+        else:
+            status = "error"
+        aggregate = AutomationPortfolioCycleResult(
+            status=status,
+            accounts_configured=len(self.services),
+            accounts_succeeded=len(results),
+            accounts_failed=len(failures),
+            results=tuple(results),
+            failures=tuple(failures),
+        )
+        write_health(
+            self.settings.strategy_health_path,
+            status,
+            asdict(aggregate),
+        )
+        self.store.record_event(
+            "strategy_portfolio_cycle_completed",
+            "paper-portfolio",
+            asdict(aggregate),
+        )
+        return aggregate

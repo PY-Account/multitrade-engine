@@ -53,6 +53,7 @@ def check_health(
         "status": payload.get("status", "invalid"),
         "updated_at": updated_at.isoformat(),
         "age_seconds": max(0, round(age_seconds, 3)),
+        "details": payload.get("details") or {},
     }
     if age_seconds < -60:
         return False, {**result, "reason": "timestamp_is_in_the_future"}

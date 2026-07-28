@@ -1,6 +1,8 @@
+import json
 from datetime import datetime, timedelta, timezone
 from decimal import Decimal
 from pathlib import Path
+from tempfile import TemporaryDirectory
 from unittest import TestCase
 
 from multitrade.brokers.alpaca import AlpacaPaperBroker
@@ -169,3 +171,50 @@ class StrategyTests(TestCase):
         self.assertEqual(payload["order_class"], "bracket")
         self.assertIn("take_profit", payload)
         self.assertIn("stop_loss", payload)
+
+    def test_multiple_accounts_require_unique_credentials_and_pinned_ids(
+        self,
+    ) -> None:
+        source = (
+            Path(__file__).parents[1]
+            / "config"
+            / "paper_portfolio.json"
+        )
+        payload = json.loads(source.read_text(encoding="utf-8"))
+        first = payload["accounts"][0]
+        first["expected_broker_account_id"] = "broker-account-a"
+        second = json.loads(json.dumps(first))
+        second["account_id"] = "alpaca-paper-b"
+        second["expected_broker_account_id"] = "broker-account-b"
+        payload["accounts"].append(second)
+
+        with TemporaryDirectory() as directory:
+            path = Path(directory) / "portfolio.json"
+            path.write_text(
+                json.dumps(payload), encoding="utf-8"
+            )
+            with self.assertRaisesRegex(
+                ValueError, "unique credential_env_prefix"
+            ):
+                load_account_plans(path)
+
+            second["credential_env_prefix"] = "ALPACA_FUND_B"
+            second["expected_broker_account_id"] = ""
+            path.write_text(
+                json.dumps(payload), encoding="utf-8"
+            )
+            with self.assertRaisesRegex(
+                ValueError, "expected_broker_account_id"
+            ):
+                load_account_plans(path)
+
+            second["expected_broker_account_id"] = "broker-account-b"
+            path.write_text(
+                json.dumps(payload), encoding="utf-8"
+            )
+            plans = load_account_plans(path)
+
+        self.assertEqual(len(plans), 2)
+        self.assertEqual(
+            plans[1].credential_env_prefix, "ALPACA_FUND_B"
+        )

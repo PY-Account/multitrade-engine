@@ -210,6 +210,7 @@ class AlpacaPaperBroker:
             options_trading_level=int(
                 account.get("options_trading_level") or 0
             ),
+            broker_account_id=str(account.get("id", "")).strip(),
         )
         market = BrokerMarketClock(
             timestamp=str(clock_payload.get("timestamp", "")),

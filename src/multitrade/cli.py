@@ -11,7 +11,7 @@ from decimal import Decimal
 from typing import Any
 
 from multitrade.audit import SqliteAuditStore
-from multitrade.automation import PaperAutomationService
+from multitrade.automation import PaperAutomationSupervisor
 from multitrade.backtest import Backtester, StrategyValidator
 from multitrade.brokers.alpaca import AlpacaPaperBroker
 from multitrade.config import Settings, load_env_file
@@ -147,6 +147,32 @@ def _doctor() -> int:
         enabled_accounts = [
             plan.account_id for plan in plans if plan.enabled
         ]
+        account_credentials = []
+        for plan in plans:
+            if not plan.enabled:
+                continue
+            try:
+                settings.alpaca_credentials_for(
+                    plan.credential_env_prefix
+                )
+                credentials_ready = True
+                credential_error = None
+            except ValueError as exc:
+                credentials_ready = False
+                credential_error = str(exc)
+            account_credentials.append(
+                {
+                    "account_id": plan.account_id,
+                    "environment_prefix": (
+                        plan.credential_env_prefix
+                    ),
+                    "credentials_ready": credentials_ready,
+                    "broker_identity_pinned": bool(
+                        plan.expected_broker_account_id
+                    ),
+                    "error": credential_error,
+                }
+            )
         option_allocations = [
             {
                 "account_id": plan.account_id,
@@ -170,6 +196,7 @@ def _doctor() -> int:
         portfolio_configuration_valid = False
         portfolio_configuration_error = str(exc)
         enabled_accounts = []
+        account_credentials = []
         option_allocations = []
     try:
         research_program = load_research_program(
@@ -333,19 +360,23 @@ def _doctor() -> int:
         "asset_universe_execution_enabled": False,
         "sec_user_agent_present": bool(settings.sec_user_agent),
         "enabled_accounts": enabled_accounts,
+        "account_credentials": account_credentials,
+        "multi_account_runtime": True,
     }
     print(json.dumps(checks, indent=2, sort_keys=True))
     return (
         0
         if (
-            checks["api_key_present"]
-            and checks["api_secret_present"]
-            and checks["dashboard_credentials_valid"]
+            checks["dashboard_credentials_valid"]
             and checks["portfolio_configuration_valid"]
             and checks["research_configuration_valid"]
             and checks["asset_universe_configuration_valid"]
             and checks["strategy_experiments_valid"]
-            and len(checks["enabled_accounts"]) == 1
+            and len(checks["enabled_accounts"]) >= 1
+            and all(
+                account["credentials_ready"]
+                for account in checks["account_credentials"]
+            )
         )
         else 1
     )
@@ -353,12 +384,34 @@ def _doctor() -> int:
 
 def _run(once: bool) -> int:
     settings = Settings.from_env()
-    settings.require_alpaca_credentials()
-    broker = AlpacaPaperBroker(
-        key_id=settings.alpaca_key_id,
-        secret_key=settings.alpaca_secret_key,
-        base_url=settings.alpaca_base_url,
+    plans = tuple(
+        plan
+        for plan in load_account_plans(
+            settings.portfolio_config_path
+        )
+        if plan.enabled
     )
+    if not plans:
+        raise ValueError(
+            "At least one enabled Paper account plan is required"
+        )
+    runtimes = []
+    for plan in plans:
+        key_id, secret_key, base_url = (
+            settings.alpaca_credentials_for(
+                plan.credential_env_prefix
+            )
+        )
+        runtimes.append(
+            (
+                plan,
+                AlpacaPaperBroker(
+                    key_id=key_id,
+                    secret_key=secret_key,
+                    base_url=base_url,
+                ),
+            )
+        )
     store = SqliteAuditStore(settings.db_path)
     stop_event = threading.Event()
 
@@ -371,91 +424,113 @@ def _run(once: bool) -> int:
         signal.signal(signal.SIGINT, request_shutdown)
 
     while True:
-        try:
-            reconciliation = broker.reconcile()
-            snapshot = store.apply_account_equity_state(
-                "alpaca-paper",
-                reconciliation.account_snapshot(),
-                reconciliation.observed_at,
-            )
-            store.record_order_reconciliation(
-                "alpaca-paper", reconciliation
-            )
-            active_risk = store.active_risk()
-            summary = {
-                "account_status": reconciliation.account.status,
-                "equity": reconciliation.account.equity,
-                "buying_power": reconciliation.account.buying_power,
-                "gross_notional": reconciliation.account.gross_notional,
-                "positions_count": len(reconciliation.positions),
-                "open_orders_count": len(reconciliation.open_orders),
-                "market_open": reconciliation.market.is_open,
-                "request_ids": reconciliation.request_ids,
-                "reserved_active_risk": active_risk,
-            }
-            store.record_broker_state(
-                "alpaca-paper",
-                reconciliation.observed_at,
-                asdict(reconciliation),
-                summary,
-            )
-            print(
-                json.dumps(
-                    {
-                        "status": "ok",
-                        "environment": "paper",
-                        "equity": format(snapshot.equity, "f"),
-                        "active_risk": format(active_risk, "f"),
-                        "market_open": reconciliation.market.is_open,
-                        "positions": len(reconciliation.positions),
-                        "open_orders": len(reconciliation.open_orders),
-                    },
-                    sort_keys=True,
-                ),
-                flush=True,
-            )
-            write_health(
-                settings.health_path,
-                "ok",
-                {
-                    "environment": "paper",
-                    "equity": format(snapshot.equity, "f"),
-                    "active_risk": format(active_risk, "f"),
-                    "market_open": reconciliation.market.is_open,
-                    "positions_count": len(reconciliation.positions),
+        results = []
+        failures = []
+        for plan, broker in runtimes:
+            try:
+                reconciliation = broker.reconcile()
+                expected = plan.expected_broker_account_id
+                observed = (
+                    reconciliation.account.broker_account_id
+                )
+                if expected and observed != expected:
+                    raise ValueError(
+                        "Broker account identity mismatch for "
+                        f"{plan.account_id}: expected {expected}, "
+                        f"observed {observed or 'missing'}"
+                    )
+                snapshot = store.apply_account_equity_state(
+                    plan.account_id,
+                    reconciliation.account_snapshot(),
+                    reconciliation.observed_at,
+                )
+                store.record_order_reconciliation(
+                    plan.account_id, reconciliation
+                )
+                active_risk = store.active_risk(plan.account_id)
+                summary = {
+                    "account_status": reconciliation.account.status,
+                    "equity": reconciliation.account.equity,
+                    "buying_power": (
+                        reconciliation.account.buying_power
+                    ),
+                    "gross_notional": (
+                        reconciliation.account.gross_notional
+                    ),
+                    "positions_count": len(
+                        reconciliation.positions
+                    ),
                     "open_orders_count": len(
                         reconciliation.open_orders
                     ),
-                    "observed_at": (
-                        reconciliation.observed_at.isoformat()
+                    "market_open": (
+                        reconciliation.market.is_open
                     ),
-                },
-            )
-        except Exception as exc:
-            store.record_event(
-                "heartbeat_failed",
-                "alpaca-paper",
-                {"error_type": type(exc).__name__, "message": str(exc)},
-            )
-            print(
-                json.dumps(
+                    "request_ids": reconciliation.request_ids,
+                    "reserved_active_risk": active_risk,
+                }
+                store.record_broker_state(
+                    plan.account_id,
+                    reconciliation.observed_at,
+                    asdict(reconciliation),
+                    summary,
+                )
+                results.append(
                     {
-                        "status": "error",
-                        "error_type": type(exc).__name__,
-                        "message": str(exc),
-                    },
-                    sort_keys=True,
-                ),
-                file=sys.stderr,
-                flush=True,
-            )
-            write_health(
-                settings.health_path,
-                "error",
-                {"error_type": type(exc).__name__},
-            )
-            if once:
-                return 1
+                        "account_id": plan.account_id,
+                        "environment": "paper",
+                        "equity": format(snapshot.equity, "f"),
+                        "active_risk": format(active_risk, "f"),
+                        "market_open": (
+                            reconciliation.market.is_open
+                        ),
+                        "positions": len(
+                            reconciliation.positions
+                        ),
+                        "open_orders": len(
+                            reconciliation.open_orders
+                        ),
+                        "observed_at": (
+                            reconciliation.observed_at.isoformat()
+                        ),
+                    }
+                )
+            except Exception as exc:
+                failure = {
+                    "account_id": plan.account_id,
+                    "error_type": type(exc).__name__,
+                    "message": str(exc),
+                }
+                failures.append(failure)
+                store.record_event(
+                    "heartbeat_failed",
+                    plan.account_id,
+                    failure,
+                )
+        status = (
+            "ok"
+            if not failures
+            else "degraded"
+            if results
+            else "error"
+        )
+        output = {
+            "status": status,
+            "environment": "paper",
+            "accounts_configured": len(runtimes),
+            "accounts_succeeded": len(results),
+            "accounts_failed": len(failures),
+            "accounts": results,
+            "failures": failures,
+        }
+        print(
+            json.dumps(output, sort_keys=True),
+            file=sys.stderr if failures else sys.stdout,
+            flush=True,
+        )
+        write_health(settings.health_path, status, output)
+        if once and failures:
+            return 1
         if once:
             return 0
         if stop_event.wait(settings.heartbeat_seconds):
@@ -480,7 +555,7 @@ def _healthcheck() -> int:
 
 def _automate(once: bool) -> int:
     settings = Settings.from_env()
-    service = PaperAutomationService.from_settings(settings)
+    supervisor = PaperAutomationSupervisor.from_settings(settings)
     stop_event = threading.Event()
 
     def request_shutdown(signum, frame) -> None:
@@ -493,7 +568,7 @@ def _automate(once: bool) -> int:
 
     while True:
         try:
-            result = service.run_cycle()
+            result = supervisor.run_cycle()
             print(
                 json.dumps(
                     asdict(result),
@@ -502,22 +577,14 @@ def _automate(once: bool) -> int:
                 ),
                 flush=True,
             )
+            if once and result.accounts_failed:
+                return 1
         except Exception as exc:
-            try:
-                service.store.record_event(
-                    "strategy_cycle_failed",
-                    service.account_plan.account_id,
-                    {
-                        "error_type": type(exc).__name__,
-                        "message": str(exc),
-                    },
-                )
-            finally:
-                write_health(
-                    settings.strategy_health_path,
-                    "error",
-                    {"error_type": type(exc).__name__},
-                )
+            write_health(
+                settings.strategy_health_path,
+                "error",
+                {"error_type": type(exc).__name__},
+            )
             print(
                 json.dumps(
                     {
@@ -559,9 +626,78 @@ def _automation_healthcheck() -> int:
     return 0 if healthy else 1
 
 
+def _run_account_services_cycle(
+    services,
+    *,
+    component: str,
+    health_path,
+) -> dict[str, Any]:
+    results = []
+    failures = []
+    for service in services:
+        try:
+            results.append(asdict(service.run_cycle()))
+        except Exception as exc:
+            failure = {
+                "account_id": service.account_plan.account_id,
+                "error_type": type(exc).__name__,
+                "message": str(exc),
+            }
+            failures.append(failure)
+            service.store.record_event(
+                f"{component}_account_cycle_failed",
+                service.account_plan.account_id,
+                failure,
+            )
+    status = (
+        "ok"
+        if not failures
+        else "degraded"
+        if results
+        else "error"
+    )
+    payload = {
+        "status": status,
+        "component": component,
+        "accounts_configured": len(services),
+        "accounts_succeeded": len(results),
+        "accounts_failed": len(failures),
+        "results": results,
+        "failures": failures,
+    }
+    serializable_payload = json.loads(
+        json.dumps(payload, default=_json_default)
+    )
+    write_health(health_path, status, serializable_payload)
+    return serializable_payload
+
+
 def _research(once: bool) -> int:
     settings = Settings.from_env()
-    service = ContinuousResearchService.from_settings(settings)
+    plans = tuple(
+        plan
+        for plan in load_account_plans(
+            settings.portfolio_config_path
+        )
+        if plan.enabled
+    )
+    if not plans:
+        raise ValueError(
+            "At least one enabled Paper account plan is required"
+        )
+    research_store = SqliteAuditStore(settings.db_path)
+    research_program = load_research_program(
+        settings.research_program_path
+    )
+    services = tuple(
+        ContinuousResearchService.from_account_plan(
+            settings,
+            plan,
+            store=research_store,
+            program=research_program,
+        )
+        for plan in plans
+    )
     stop_event = threading.Event()
 
     def request_shutdown(signum, frame) -> None:
@@ -574,31 +710,27 @@ def _research(once: bool) -> int:
 
     while True:
         try:
-            result = service.run_cycle()
+            result = _run_account_services_cycle(
+                services,
+                component="continuous_research",
+                health_path=settings.research_health_path,
+            )
             print(
                 json.dumps(
-                    asdict(result),
+                    result,
                     default=_json_default,
                     sort_keys=True,
                 ),
                 flush=True,
             )
+            if once and result["accounts_failed"]:
+                return 1
         except Exception as exc:
-            try:
-                service.store.record_event(
-                    "research_cycle_failed",
-                    service.account_plan.account_id,
-                    {
-                        "error_type": type(exc).__name__,
-                        "message": str(exc),
-                    },
-                )
-            finally:
-                write_health(
-                    settings.research_health_path,
-                    "error",
-                    {"error_type": type(exc).__name__},
-                )
+            write_health(
+                settings.research_health_path,
+                "error",
+                {"error_type": type(exc).__name__},
+            )
             print(
                 json.dumps(
                     {
@@ -642,7 +774,26 @@ def _research_healthcheck() -> int:
 
 def _strategy_lab(once: bool) -> int:
     settings = Settings.from_env()
-    service = ContinuousStrategyLabService.from_settings(settings)
+    plans = tuple(
+        plan
+        for plan in load_account_plans(
+            settings.portfolio_config_path
+        )
+        if plan.enabled
+    )
+    if not plans:
+        raise ValueError(
+            "At least one enabled Paper account plan is required"
+        )
+    strategy_lab_store = SqliteAuditStore(settings.db_path)
+    services = tuple(
+        ContinuousStrategyLabService.from_account_plan(
+            settings,
+            plan,
+            store=strategy_lab_store,
+        )
+        for plan in plans
+    )
     stop_event = threading.Event()
 
     def request_shutdown(signum, frame) -> None:
@@ -655,31 +806,27 @@ def _strategy_lab(once: bool) -> int:
 
     while True:
         try:
-            result = service.run_cycle()
+            result = _run_account_services_cycle(
+                services,
+                component="continuous_strategy_lab",
+                health_path=settings.strategy_lab_health_path,
+            )
             print(
                 json.dumps(
-                    asdict(result),
+                    result,
                     default=_json_default,
                     sort_keys=True,
                 ),
                 flush=True,
             )
+            if once and result["accounts_failed"]:
+                return 1
         except Exception as exc:
-            try:
-                service.store.record_event(
-                    "strategy_lab_cycle_failed",
-                    service.account_plan.account_id,
-                    {
-                        "error_type": type(exc).__name__,
-                        "message": str(exc),
-                    },
-                )
-            finally:
-                write_health(
-                    settings.strategy_lab_health_path,
-                    "error",
-                    {"error_type": type(exc).__name__},
-                )
+            write_health(
+                settings.strategy_lab_health_path,
+                "error",
+                {"error_type": type(exc).__name__},
+            )
             print(
                 json.dumps(
                     {
@@ -723,7 +870,30 @@ def _strategy_lab_healthcheck() -> int:
 
 def _asset_universe(once: bool) -> int:
     settings = Settings.from_env()
-    service = ContinuousAssetUniverseService.from_settings(settings)
+    plans = tuple(
+        plan
+        for plan in load_account_plans(
+            settings.portfolio_config_path
+        )
+        if plan.enabled
+    )
+    if not plans:
+        raise ValueError(
+            "At least one enabled Paper account plan is required"
+        )
+    universe_store = SqliteAuditStore(settings.db_path)
+    universe_program = load_asset_universe_program(
+        settings.asset_universe_config_path
+    )
+    services = tuple(
+        ContinuousAssetUniverseService.from_account_plan(
+            settings,
+            plan,
+            store=universe_store,
+            program=universe_program,
+        )
+        for plan in plans
+    )
     stop_event = threading.Event()
 
     def request_shutdown(signum, frame) -> None:
@@ -736,31 +906,27 @@ def _asset_universe(once: bool) -> int:
 
     while True:
         try:
-            result = service.run_cycle()
+            result = _run_account_services_cycle(
+                services,
+                component="continuous_asset_universe",
+                health_path=settings.asset_universe_health_path,
+            )
             print(
                 json.dumps(
-                    asdict(result),
+                    result,
                     default=_json_default,
                     sort_keys=True,
                 ),
                 flush=True,
             )
+            if once and result["accounts_failed"]:
+                return 1
         except Exception as exc:
-            try:
-                service.store.record_event(
-                    "asset_universe_cycle_failed",
-                    service.account_plan.account_id,
-                    {
-                        "error_type": type(exc).__name__,
-                        "message": str(exc),
-                    },
-                )
-            finally:
-                write_health(
-                    settings.asset_universe_health_path,
-                    "error",
-                    {"error_type": type(exc).__name__},
-                )
+            write_health(
+                settings.asset_universe_health_path,
+                "error",
+                {"error_type": type(exc).__name__},
+            )
             print(
                 json.dumps(
                     {

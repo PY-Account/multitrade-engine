@@ -1947,8 +1947,14 @@
       const response = await fetch("/api/overview?limit=40", {cache:"no-store"});
       if (!response.ok) throw new Error(`HTTP ${response.status}`);
       const data = await response.json();
-      const account = data.account;
-      const market = data.market;
+      renderAccountSelector(data.configured_accounts || []);
+      const accountView = data.account_views?.[selectedAccountId] || {};
+      const account = accountView.account ?? data.account;
+      const market = accountView.market ?? data.market;
+      const accountRisk = accountView.risk ?? data.risk;
+      const accountConnection = accountView.connection ?? data.connection;
+      const positions = accountView.positions ?? data.positions ?? [];
+      const openOrders = accountView.open_orders ?? data.open_orders ?? [];
       const release = data.release || {};
 
       setText(
@@ -1990,7 +1996,7 @@
       setText("equity", money(account?.equity));
       setText("buying-power", money(account?.buying_power));
       setText("notional", money(account?.gross_notional));
-      setText("risk", money(data.risk.active_amount));
+      setText("risk", money(accountRisk.active_amount));
       setText("cash", money(account?.cash));
       setText("margin", money(account?.maintenance_margin));
       setText("daytrades", account?.daytrade_count ?? "--");
@@ -2004,12 +2010,12 @@
       setText("market-next", localTime(nextMarketEvent));
       setText(
         "updated",
-        data.connection?.observed_at
-          ? `Broker synchronized ${localTime(data.connection.observed_at)}`
+        accountConnection?.observed_at
+          ? `Broker synchronized ${localTime(accountConnection.observed_at)}`
           : "Waiting for broker reconciliation..."
       );
 
-      const utilization = Number(data.risk.utilization_percent || 0);
+      const utilization = Number(accountRisk.utilization_percent || 0);
       const mode = data.operating_mode || {};
       const executionCopy = mode.paper_execution_enabled
         ? "Guarded Alpaca Paper execution is enabled."
@@ -2019,14 +2025,13 @@
           ? "Automation is running in risk-evaluated dry-run mode."
           : "Signals are observation-only; no orders can be sent.";
       setText("risk-copy", `${utilization.toFixed(2)}% of the aggregate ceiling is reserved. ${executionCopy}`);
-      setText("risk-capacity", money(data.risk.aggregate_capacity_amount));
-      setText("trade-capacity", money(data.risk.per_trade_capacity_amount));
+      setText("risk-capacity", money(accountRisk.aggregate_capacity_amount));
+      setText("trade-capacity", money(accountRisk.per_trade_capacity_amount));
       document.getElementById("risk-bar").style.width = `${Math.min(100, Math.max(0, utilization))}%`;
 
       renderControls(account);
-      renderAccountSelector(data.configured_accounts || []);
-      renderPositions(data.positions || []);
-      renderOrders(data.open_orders || []);
+      renderPositions(positions);
+      renderOrders(openOrders);
       renderStrategyRuntime(data.strategy_runtime || []);
       renderResearchDecisions(data.research_decisions || []);
       renderResearchBacktests(data.research_backtests || []);

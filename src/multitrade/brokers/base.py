@@ -37,6 +37,7 @@ class BrokerAccount:
     options_buying_power: Decimal = Decimal("0")
     options_approved_level: int = 0
     options_trading_level: int = 0
+    broker_account_id: str = ""
 
 
 @dataclass(frozen=True, slots=True)

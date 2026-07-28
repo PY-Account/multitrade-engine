@@ -22,11 +22,15 @@ class TradingEngine:
         risk_engine: RiskEngine,
         audit_store: SqliteAuditStore,
         enable_order_submission: bool = False,
+        enable_reduce_only_submission: bool = False,
     ) -> None:
         self.broker = broker
         self.risk_engine = risk_engine
         self.audit_store = audit_store
         self.enable_order_submission = enable_order_submission
+        self.enable_reduce_only_submission = (
+            enable_reduce_only_submission
+        )
 
     def process(
         self,
@@ -42,10 +46,17 @@ class TradingEngine:
         if not decision.approved:
             return EngineResult(decision=decision)
 
-        if not self.enable_order_submission or not allow_submission:
+        submission_enabled = (
+            self.enable_order_submission
+            or (
+                intent.reduce_only
+                and self.enable_reduce_only_submission
+            )
+        )
+        if not submission_enabled or not allow_submission:
             disabled_reason = (
                 "paper_order_submission_disabled"
-                if not self.enable_order_submission
+                if not submission_enabled
                 else "strategy_paper_execution_not_approved"
             )
             self.audit_store.record_event(

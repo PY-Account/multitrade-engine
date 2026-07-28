@@ -56,6 +56,50 @@ class EnvironmentFileTests(TestCase):
             with self.assertRaisesRegex(ValueError, "at least 16"):
                 settings.require_dashboard_credentials()
 
+    def test_custom_alpaca_credentials_are_resolved_by_prefix(
+        self,
+    ) -> None:
+        with patch.dict(
+            os.environ,
+            {
+                "FUND_A_API_KEY_ID": "paper-key-a",
+                "FUND_A_API_SECRET_KEY": "paper-secret-a",
+                "FUND_A_BASE_URL": (
+                    "https://paper-api.alpaca.markets"
+                ),
+            },
+            clear=True,
+        ):
+            credentials = Settings.from_env().alpaca_credentials_for(
+                "FUND_A"
+            )
+
+        self.assertEqual(
+            credentials,
+            (
+                "paper-key-a",
+                "paper-secret-a",
+                "https://paper-api.alpaca.markets",
+            ),
+        )
+
+    def test_custom_alpaca_credentials_refuse_live_endpoint(
+        self,
+    ) -> None:
+        with patch.dict(
+            os.environ,
+            {
+                "FUND_A_API_KEY_ID": "key",
+                "FUND_A_API_SECRET_KEY": "secret",
+                "FUND_A_BASE_URL": "https://api.alpaca.markets",
+            },
+            clear=True,
+        ):
+            with self.assertRaisesRegex(
+                ValueError, "paper-api.alpaca.markets"
+            ):
+                Settings.from_env().alpaca_credentials_for("FUND_A")
+
 
 class HealthFileTests(TestCase):
     def test_fresh_successful_heartbeat_is_healthy(self) -> None:
@@ -70,6 +114,9 @@ class HealthFileTests(TestCase):
 
             self.assertTrue(healthy)
             self.assertEqual(result["status"], "ok")
+            self.assertEqual(
+                result["details"]["environment"], "paper"
+            )
 
     def test_stale_heartbeat_is_unhealthy(self) -> None:
         with TemporaryDirectory() as temporary_directory:

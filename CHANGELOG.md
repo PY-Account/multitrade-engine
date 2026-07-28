@@ -1,5 +1,34 @@
 # Changelog
 
+## 0.13.0 - 2026-07-28
+
+- Replaced the single-account runtime restriction with an isolated
+  multi-account Alpaca Paper supervisor for reconciliation, strategy
+  automation, daily research, Strategy Lab, and Asset Universe cycles.
+- Added per-account credential namespaces referenced by configuration while
+  keeping every secret in the VPS environment file.
+- Required unique credential namespaces and explicit expected Alpaca account
+  IDs whenever multiple accounts are enabled, preventing swapped credentials
+  from trading the wrong Paper account.
+- Added broker account identity normalization and fail-closed verification
+  before any account state, risk decision, or order cycle is processed.
+- Added per-account failure isolation with aggregate `ok`, `degraded`, or
+  `error` health and retained structured account failure details.
+- Separated opening-order permission from reduce-only option protection:
+  the emergency entry stop can no longer silently disable managed closes
+  while the global Paper-order transport remains enabled.
+- Added complete account views to the dashboard API and made the account
+  selector switch broker state, positions, orders, buying power, and risk
+  capacity instead of configuration alone.
+- Updated Strategy Lab to evaluate unique source models once per account even
+  when stock and option allocations share the same signal model.
+- Added multi-account configuration, credential, identity, supervisor,
+  dashboard-isolation, and health-detail regression tests.
+
+This release is still Alpaca Paper-only. The tracked portfolio contains one
+account, so existing deployment secrets remain compatible and no new account
+is enabled automatically.
+
 ## 0.12.0 - 2026-07-28
 
 - Made risk reservations explicitly account-scoped and persisted the asset

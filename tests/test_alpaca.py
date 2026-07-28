@@ -58,6 +58,7 @@ class AlpacaPayloadTests(TestCase):
         broker._request = Mock(
             side_effect=[
                 {
+                    "id": "paper-account-uuid",
                     "status": "ACTIVE",
                     "currency": "usd",
                     "equity": "10000",
@@ -132,6 +133,10 @@ class AlpacaPayloadTests(TestCase):
 
         self.assertEqual(reconciliation.environment, "paper")
         self.assertEqual(reconciliation.account.status, "active")
+        self.assertEqual(
+            reconciliation.account.broker_account_id,
+            "paper-account-uuid",
+        )
         self.assertEqual(
             reconciliation.account.gross_notional, Decimal("1500")
         )

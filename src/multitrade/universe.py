@@ -808,7 +808,6 @@ class ContinuousAssetUniverseService:
     def from_settings(
         cls, settings: Settings
     ) -> "ContinuousAssetUniverseService":
-        settings.require_alpaca_credentials()
         plans = tuple(
             plan
             for plan in load_account_plans(
@@ -818,29 +817,49 @@ class ContinuousAssetUniverseService:
         )
         if len(plans) != 1:
             raise ValueError(
-                "Asset Universe requires exactly one enabled Paper account"
+                "ContinuousAssetUniverseService.from_settings requires "
+                "exactly one enabled Paper account"
             )
+        return cls.from_account_plan(settings, plans[0])
+
+    @classmethod
+    def from_account_plan(
+        cls,
+        settings: Settings,
+        account_plan: AccountPlan,
+        *,
+        store: SqliteAuditStore | None = None,
+        program: AssetUniverseProgram | None = None,
+    ) -> "ContinuousAssetUniverseService":
+        key_id, secret_key, base_url = (
+            settings.alpaca_credentials_for(
+                account_plan.credential_env_prefix
+            )
+        )
         sec_client = (
             SecCompanyFactsClient(settings.sec_user_agent)
             if settings.sec_user_agent
             else None
         )
         return cls(
-            account_plan=plans[0],
-            program=load_asset_universe_program(
-                settings.asset_universe_config_path
+            account_plan=account_plan,
+            program=(
+                program
+                or load_asset_universe_program(
+                    settings.asset_universe_config_path
+                )
             ),
             broker=AlpacaPaperBroker(
-                settings.alpaca_key_id,
-                settings.alpaca_secret_key,
-                base_url=settings.alpaca_base_url,
+                key_id,
+                secret_key,
+                base_url=base_url,
             ),
             market_data=AlpacaMarketDataClient(
-                settings.alpaca_key_id,
-                settings.alpaca_secret_key,
+                key_id,
+                secret_key,
                 feed=settings.market_data_feed,
             ),
-            store=SqliteAuditStore(settings.db_path),
+            store=store or SqliteAuditStore(settings.db_path),
             health_path=settings.asset_universe_health_path,
             sec_client=sec_client,
         )

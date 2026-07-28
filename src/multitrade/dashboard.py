@@ -164,10 +164,27 @@ class DashboardData:
         else:
             universe_healthy = False
             universe_health = {"status": "not_configured"}
+        account_ids = [
+            plan.account_id for plan in self.account_plans
+        ] or ["alpaca-paper"]
+        primary_account_id = account_ids[0]
         try:
-            state = self.reader.latest_broker_state("alpaca-paper")
-            active_risk = self.reader.active_risk()
-            reservations = self.reader.reservation_summary()
+            broker_states = {
+                account_id: self.reader.latest_broker_state(
+                    account_id
+                )
+                for account_id in account_ids
+            }
+            active_risks = {
+                account_id: self.reader.active_risk(account_id)
+                for account_id in account_ids
+            }
+            reservation_summaries = {
+                account_id: self.reader.reservation_summary(
+                    account_id
+                )
+                for account_id in account_ids
+            }
             events = self.reader.recent_events(event_limit)
             signals = self.reader.recent_signals(event_limit)
             strategy_runtime = self.reader.strategy_runtime()
@@ -200,9 +217,9 @@ class DashboardData:
             )
             storage: dict[str, Any] = {"status": "ok"}
         except (FileNotFoundError, OSError, sqlite3.Error):
-            state = None
-            active_risk = Decimal("0")
-            reservations = {}
+            broker_states = {}
+            active_risks = {}
+            reservation_summaries = {}
             events = []
             signals = []
             strategy_runtime = []
@@ -219,10 +236,6 @@ class DashboardData:
             asset_universe_reports = []
             storage = {"status": "unavailable"}
 
-        account: dict[str, Any] | None = None
-        market: dict[str, Any] | None = None
-        positions: list[dict[str, Any]] = []
-        open_orders: list[dict[str, Any]] = []
         operating_mode = {
             "automation_enabled": self.automation_enabled,
             "paper_order_submission_enabled": (
@@ -234,13 +247,6 @@ class DashboardData:
                 and self.paper_order_submission_enabled
                 and not self.emergency_stop
             ),
-        }
-        connection: dict[str, Any] = {
-            "broker": "alpaca",
-            "environment": "paper",
-            "operating_mode": operating_mode,
-            "observed_at": None,
-            "request_ids": [],
         }
         configured_accounts = [
             {
@@ -258,6 +264,12 @@ class DashboardData:
                 "maximum_daily_orders": plan.maximum_daily_orders,
                 "symbol_cooldown_minutes": (
                     plan.symbol_cooldown_minutes
+                ),
+                "credential_env_prefix": (
+                    plan.credential_env_prefix
+                ),
+                "broker_identity_pinned": bool(
+                    plan.expected_broker_account_id
                 ),
                 "allocations": [
                     {
@@ -344,37 +356,91 @@ class DashboardData:
             for plan in self.account_plans
         ]
 
-        if state is not None:
-            payload = state["payload"]
-            account = payload.get("account")
-            market = payload.get("market")
-            positions = payload.get("positions") or []
-            open_orders = payload.get("open_orders") or []
-            connection = {
-                "broker": payload.get("broker", "alpaca"),
-                "environment": payload.get("environment", "paper"),
+        account_views: dict[str, dict[str, Any]] = {}
+        for account_id in account_ids:
+            state = broker_states.get(account_id)
+            account: dict[str, Any] | None = None
+            market: dict[str, Any] | None = None
+            positions: list[dict[str, Any]] = []
+            open_orders: list[dict[str, Any]] = []
+            connection: dict[str, Any] = {
+                "broker": "alpaca",
+                "environment": "paper",
                 "operating_mode": operating_mode,
-                "observed_at": state["observed_at"],
-                "request_ids": payload.get("request_ids") or [],
+                "observed_at": None,
+                "request_ids": [],
             }
-        elif storage["status"] == "ok":
-            heartbeat = self.reader.latest_event("account_heartbeat")
-            if heartbeat is not None:
-                account = heartbeat["payload"]
-                connection["observed_at"] = heartbeat["occurred_at"]
+            if state is not None:
+                payload = state["payload"]
+                account = payload.get("account")
+                market = payload.get("market")
+                positions = payload.get("positions") or []
+                open_orders = payload.get("open_orders") or []
+                connection = {
+                    "broker": payload.get("broker", "alpaca"),
+                    "environment": payload.get(
+                        "environment", "paper"
+                    ),
+                    "operating_mode": operating_mode,
+                    "observed_at": state["observed_at"],
+                    "request_ids": (
+                        payload.get("request_ids") or []
+                    ),
+                }
+            active_risk = active_risks.get(
+                account_id, Decimal("0")
+            )
+            equity = (
+                self._decimal(account.get("equity"))
+                if account is not None
+                else Decimal("0")
+            )
+            aggregate_capacity = equity * self.max_total_open
+            per_trade_capacity = equity * self.max_per_trade
+            utilization = (
+                active_risk
+                / aggregate_capacity
+                * Decimal("100")
+                if aggregate_capacity > 0
+                else Decimal("0")
+            )
+            account_views[account_id] = {
+                "account_id": account_id,
+                "account": account,
+                "market": market,
+                "positions": positions,
+                "open_orders": open_orders,
+                "connection": connection,
+                "risk": {
+                    "active_amount": format(active_risk, "f"),
+                    "aggregate_ceiling_fraction": format(
+                        self.max_total_open, "f"
+                    ),
+                    "per_trade_ceiling_fraction": format(
+                        self.max_per_trade, "f"
+                    ),
+                    "aggregate_capacity_amount": format(
+                        aggregate_capacity, "f"
+                    ),
+                    "per_trade_capacity_amount": format(
+                        per_trade_capacity, "f"
+                    ),
+                    "utilization_percent": format(
+                        utilization, ".4f"
+                    ),
+                    "reservations": (
+                        reservation_summaries.get(account_id, {})
+                    ),
+                },
+            }
 
-        equity = (
-            self._decimal(account.get("equity"))
-            if account is not None
-            else Decimal("0")
-        )
-        aggregate_capacity = equity * self.max_total_open
-        per_trade_capacity = equity * self.max_per_trade
-        utilization = (
-            active_risk / aggregate_capacity * Decimal("100")
-            if aggregate_capacity > 0
-            else Decimal("0")
-        )
+        primary_view = account_views[primary_account_id]
+        account = primary_view["account"]
+        market = primary_view["market"]
+        positions = primary_view["positions"]
+        open_orders = primary_view["open_orders"]
+        connection = primary_view["connection"]
+        risk = primary_view["risk"]
         return {
             "release": {
                 "version": self.release_version,
@@ -416,27 +482,12 @@ class DashboardData:
             "connection": connection,
             "operating_mode": operating_mode,
             "account": account,
+            "account_views": account_views,
             "configured_accounts": configured_accounts,
             "market": market,
             "positions": positions,
             "open_orders": open_orders,
-            "risk": {
-                "active_amount": format(active_risk, "f"),
-                "aggregate_ceiling_fraction": format(
-                    self.max_total_open, "f"
-                ),
-                "per_trade_ceiling_fraction": format(
-                    self.max_per_trade, "f"
-                ),
-                "aggregate_capacity_amount": format(
-                    aggregate_capacity, "f"
-                ),
-                "per_trade_capacity_amount": format(
-                    per_trade_capacity, "f"
-                ),
-                "utilization_percent": format(utilization, ".4f"),
-                "reservations": reservations,
-            },
+            "risk": risk,
             "events": events,
             "signals": signals,
             "strategy_runtime": strategy_runtime,
@@ -490,7 +541,7 @@ class DashboardData:
 
 
 class DashboardRequestHandler(BaseHTTPRequestHandler):
-    server_version = "MultiTradeDashboard/0.12.0"
+    server_version = "MultiTradeDashboard/0.13.0"
     sys_version = ""
     data_service: DashboardData
     expected_authorization: str

@@ -104,7 +104,8 @@ derived from account, strategy/version, symbol, action, and closed-bar time.
 
 ### Portfolio manager
 
-`paper_portfolio.json` defines the account watchlist, timeframe, maximum
+`paper_portfolio.json` defines each account's credential namespace, optional
+broker-account identity pin, watchlist, timeframe, maximum
 positions, maximum daily orders, symbol cooldown, capital weights, confidence
 filters, risk budgets, per-strategy execution-symbol subsets, and per-strategy
 Paper approval. Every execution symbol must belong to the account watchlist.
@@ -196,7 +197,8 @@ optimizer or a hedge order generator.
 The dashboard is read-only. Its primary workspaces are Account, Asset Universe,
 Strategy Lab, Allocation & Risk, and Operations, with horizontal secondary
 navigation, a dedicated family-comparison view, a model-trial registry, and an
-account selector ready for the later multi-account boundary.
+account selector that changes the broker state, positions, orders, risk
+capacity, allocations, runtime evidence, and strategy statistics together.
 It uses
 authenticated HTTPS, strict security headers, safe DOM text rendering,
 SQLite query-only connections, and browser-local preferences. It cannot
@@ -223,9 +225,14 @@ shared `/app/var` volume.
 
 ## Scaling boundary
 
-Release 0.12 intentionally supports one enabled Paper account and one
-orchestrator. Multi-account/cross-broker execution still requires PostgreSQL
-or an equivalent coordinated store, a portfolio-wide exposure service, credential
-isolation per connector, and distributed locking. Dedicated crypto and forex
-adapters must normalize their different sessions, leverage, order types, and
-failure modes before being allowed through the same risk authority.
+Release 0.13 supports multiple Alpaca Paper accounts under one local
+supervisor. Credentials are isolated by environment-variable prefix, every
+multi-account connection is pinned to the expected Alpaca account UUID, and a
+failure is contained to that account while the aggregate component health
+becomes degraded. Account cycles are deliberately sequential.
+
+Horizontal or multi-host execution still requires PostgreSQL or an equivalent
+coordinated store, a portfolio-wide exposure service, a distributed lease per
+account, and cross-instance idempotency. Dedicated crypto and forex adapters
+must normalize their different sessions, leverage, order types, and failure
+modes before being allowed through the same risk authority.

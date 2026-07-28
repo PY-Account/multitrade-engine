@@ -15,7 +15,12 @@ from multitrade.experiments import (
     StrategyExperimentProgram,
 )
 from multitrade.market import MarketBar
-from multitrade.portfolio import AccountPlan, StrategyAllocation
+from multitrade.portfolio import (
+    AccountPlan,
+    StrategyAllocation,
+    load_account_plans,
+)
+from multitrade.strategies import default_equity_strategies
 from multitrade.strategies.base import (
     SignalAction,
     StrategyContext,
@@ -195,6 +200,38 @@ class FakeMarketData:
 
 
 class StrategyLabTests(TestCase):
+    def test_execution_vehicles_collapse_to_unique_source_models(
+        self,
+    ) -> None:
+        plan = load_account_plans(
+            Path(__file__).parents[1]
+            / "config"
+            / "paper_portfolio.json"
+        )[0]
+        with TemporaryDirectory() as directory:
+            service = ContinuousStrategyLabService(
+                account_plan=plan,
+                strategies=default_equity_strategies(),
+                market_data=FakeMarketData(),
+                store=SqliteAuditStore(
+                    Path(directory) / "trading.db"
+                ),
+                health_path=str(
+                    Path(directory) / "strategy-lab-health.json"
+                ),
+            )
+
+        self.assertEqual(
+            set(service.strategy_allocations),
+            set(default_equity_strategies()),
+        )
+        self.assertEqual(
+            service.strategy_allocations[
+                "breakout_retest"
+            ].strategy_id,
+            "breakout_retest",
+        )
+
     def test_chronological_folds_are_non_overlapping(self) -> None:
         report = StrategyValidator(
             FrequentTestStrategy(),

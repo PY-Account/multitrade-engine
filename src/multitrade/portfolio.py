@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+import re
 from dataclasses import dataclass
 from decimal import Decimal, ROUND_DOWN
 from pathlib import Path
@@ -71,12 +72,23 @@ class AccountPlan:
     maximum_daily_orders: int
     symbol_cooldown_minutes: int
     allocations: dict[str, StrategyAllocation]
+    credential_env_prefix: str = "ALPACA"
+    expected_broker_account_id: str = ""
 
     def __post_init__(self) -> None:
         if not self.account_id or not self.broker:
             raise ValueError("Account identity and broker are required")
+        if self.broker != "alpaca":
+            raise ValueError("Only Alpaca Paper accounts are implemented")
         if self.environment != "paper":
             raise ValueError("Only Paper account plans are supported")
+        if not re.fullmatch(
+            r"[A-Z][A-Z0-9_]{0,63}", self.credential_env_prefix
+        ):
+            raise ValueError(
+                "credential_env_prefix must contain only uppercase "
+                "letters, numbers, and underscores"
+            )
         if not self.watchlist:
             raise ValueError("Account watchlist cannot be empty")
         if self.maximum_positions < 1:
@@ -281,8 +293,34 @@ def load_account_plans(path: str | Path) -> tuple[AccountPlan, ...]:
                     row.get("symbol_cooldown_minutes", 60)
                 ),
                 allocations=allocations,
+                credential_env_prefix=str(
+                    row.get("credential_env_prefix", "ALPACA")
+                ).strip(),
+                expected_broker_account_id=str(
+                    row.get("expected_broker_account_id", "")
+                ).strip(),
             )
         )
+    enabled_plans = tuple(plan for plan in plans if plan.enabled)
+    credential_prefixes = [
+        plan.credential_env_prefix for plan in enabled_plans
+    ]
+    if len(set(credential_prefixes)) != len(credential_prefixes):
+        raise ValueError(
+            "Enabled accounts must use unique credential_env_prefix values"
+        )
+    if len(enabled_plans) > 1:
+        missing_identities = [
+            plan.account_id
+            for plan in enabled_plans
+            if not plan.expected_broker_account_id
+        ]
+        if missing_identities:
+            raise ValueError(
+                "Multiple enabled accounts require "
+                "expected_broker_account_id for: "
+                + ", ".join(sorted(missing_identities))
+            )
     return tuple(plans)
 
 

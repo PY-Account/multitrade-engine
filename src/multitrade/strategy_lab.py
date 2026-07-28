@@ -22,7 +22,11 @@ from multitrade.market import (
     MarketBar,
     closed_bars,
 )
-from multitrade.portfolio import AccountPlan, load_account_plans
+from multitrade.portfolio import (
+    AccountPlan,
+    StrategyAllocation,
+    load_account_plans,
+)
 from multitrade.robustness import TradeSequenceStressTester
 from multitrade.strategies import (
     default_equity_strategies,
@@ -209,11 +213,15 @@ class StrategyLabEvaluator:
         strategy: Strategy,
         bars_by_symbol: dict[str, tuple[MarketBar, ...]],
         symbols: Iterable[str] | None = None,
+        allocation: StrategyAllocation | None = None,
         experiment_binding: StrategyExperimentBinding | None = None,
         evaluated_at: datetime | None = None,
     ) -> StrategyLabReport:
         evaluated_at = evaluated_at or datetime.now(timezone.utc)
-        allocation = account_plan.allocations[strategy.strategy_id]
+        allocation = (
+            allocation
+            or account_plan.allocations[strategy.strategy_id]
+        )
         results: list[StrategySymbolResult] = []
         missing: list[str] = []
         requested_symbols = tuple(
@@ -670,7 +678,16 @@ class ContinuousStrategyLabService:
             or equity_strategy_from_parameters
         )
         self.comparison_strategies: dict[str, Strategy] = {}
-        unknown = set(account_plan.allocations) - set(strategies)
+        self.strategy_allocations: dict[str, StrategyAllocation] = {}
+        for allocation in account_plan.allocations.values():
+            source_id = allocation.source_strategy_id
+            existing = self.strategy_allocations.get(source_id)
+            if (
+                existing is None
+                or allocation.strategy_id == source_id
+            ):
+                self.strategy_allocations[source_id] = allocation
+        unknown = set(self.strategy_allocations) - set(strategies)
         if unknown:
             raise ValueError(
                 "Unknown strategy allocations: "
@@ -678,7 +695,7 @@ class ContinuousStrategyLabService:
             )
         if self.experiment_program is not None:
             missing_experiments = (
-                set(account_plan.allocations)
+                set(self.strategy_allocations)
                 - set(
                     self.experiment_program.experiments_by_strategy
                 )
@@ -693,7 +710,7 @@ class ContinuousStrategyLabService:
                 .comparison_experiments_by_id.items()
             ):
                 if experiment.strategy_id not in (
-                    self.account_plan.allocations
+                    self.strategy_allocations
                 ):
                     raise ValueError(
                         "Comparison experiment has no account "
@@ -715,7 +732,6 @@ class ContinuousStrategyLabService:
     def from_settings(
         cls, settings: Settings
     ) -> "ContinuousStrategyLabService":
-        settings.require_alpaca_credentials()
         plans = tuple(
             plan
             for plan in load_account_plans(
@@ -725,17 +741,31 @@ class ContinuousStrategyLabService:
         )
         if len(plans) != 1:
             raise ValueError(
-                "Strategy Lab requires exactly one enabled Paper account"
+                "ContinuousStrategyLabService.from_settings requires "
+                "exactly one enabled Paper account"
             )
+        return cls.from_account_plan(settings, plans[0])
+
+    @classmethod
+    def from_account_plan(
+        cls,
+        settings: Settings,
+        account_plan: AccountPlan,
+        *,
+        store: SqliteAuditStore | None = None,
+    ) -> "ContinuousStrategyLabService":
+        key_id, secret_key, _ = settings.alpaca_credentials_for(
+            account_plan.credential_env_prefix
+        )
         return cls(
-            account_plan=plans[0],
+            account_plan=account_plan,
             strategies=default_equity_strategies(),
             market_data=AlpacaMarketDataClient(
-                settings.alpaca_key_id,
-                settings.alpaca_secret_key,
+                key_id,
+                secret_key,
                 feed=settings.market_data_feed,
             ),
-            store=SqliteAuditStore(settings.db_path),
+            store=store or SqliteAuditStore(settings.db_path),
             health_path=str(settings.strategy_lab_health_path),
             universe_program=load_asset_universe_program(
                 settings.asset_universe_config_path
@@ -789,7 +819,7 @@ class ContinuousStrategyLabService:
                 if self.universe_program is not None
                 else self.account_plan.watchlist
             )
-            for strategy_id in self.account_plan.allocations
+            for strategy_id in self.strategy_allocations
         }
         requested_symbols = tuple(
             dict.fromkeys(
@@ -815,7 +845,7 @@ class ContinuousStrategyLabService:
         evaluator = StrategyLabEvaluator(config=self.config)
         reports: list[StrategyLabReport] = []
         baseline_count = 0
-        for strategy_id in self.account_plan.allocations:
+        for strategy_id in self.strategy_allocations:
             strategy = self.strategies[strategy_id]
             experiment_binding = (
                 self.experiment_program.bind(
@@ -830,6 +860,7 @@ class ContinuousStrategyLabService:
                 strategy=strategy,
                 bars_by_symbol=usable,
                 symbols=symbols_by_strategy[strategy_id],
+                allocation=self.strategy_allocations[strategy_id],
                 experiment_binding=experiment_binding,
                 evaluated_at=evaluated_at,
             )
@@ -880,6 +911,9 @@ class ContinuousStrategyLabService:
                 strategy=strategy,
                 bars_by_symbol=usable,
                 symbols=symbols_by_strategy[strategy.strategy_id],
+                allocation=self.strategy_allocations[
+                    strategy.strategy_id
+                ],
                 experiment_binding=experiment_binding,
                 evaluated_at=evaluated_at,
             )

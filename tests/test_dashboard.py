@@ -11,10 +11,12 @@ from urllib.request import Request, urlopen
 
 from multitrade.audit import SqliteAuditStore
 from multitrade.dashboard import DashboardData, create_dashboard_server
+from multitrade.domain import AssetClass
 from multitrade.experiments import (
     load_strategy_experiment_program,
 )
 from multitrade.health import write_health
+from multitrade.portfolio import AccountPlan
 from multitrade.universe import load_asset_universe_program
 
 
@@ -170,6 +172,82 @@ class DashboardTests(TestCase):
             )
             self.assertFalse(
                 result["strategy_lab"]["execution_enabled"]
+            )
+
+    def test_overview_exposes_isolated_views_for_each_account(
+        self,
+    ) -> None:
+        with TemporaryDirectory() as directory:
+            service, db_path, _ = self._fixture(directory)
+            observed_at = datetime.now(timezone.utc)
+            SqliteAuditStore(db_path).record_broker_state(
+                "paper-b",
+                observed_at,
+                {
+                    "broker": "alpaca",
+                    "environment": "paper",
+                    "account": {
+                        "status": "active",
+                        "currency": "USD",
+                        "equity": Decimal("25000"),
+                        "buying_power": Decimal("50000"),
+                        "cash": Decimal("25000"),
+                        "maintenance_margin": Decimal("0"),
+                        "gross_notional": Decimal("0"),
+                    },
+                    "market": {"is_open": False},
+                    "positions": [],
+                    "open_orders": [],
+                    "request_ids": ["paper-b-request"],
+                },
+                {"equity": Decimal("25000")},
+            )
+
+            def plan(
+                account_id: str, prefix: str
+            ) -> AccountPlan:
+                return AccountPlan(
+                    account_id=account_id,
+                    broker="alpaca",
+                    environment="paper",
+                    enabled=True,
+                    asset_classes=(AssetClass.STOCK,),
+                    watchlist=("AAPL",),
+                    timeframe="5Min",
+                    maximum_positions=4,
+                    maximum_daily_orders=6,
+                    symbol_cooldown_minutes=60,
+                    allocations={},
+                    credential_env_prefix=prefix,
+                    expected_broker_account_id=(
+                        f"broker-{account_id}"
+                    ),
+                )
+
+            service.account_plans = (
+                plan("alpaca-paper", "ALPACA"),
+                plan("paper-b", "ALPACA_FUND_B"),
+            )
+            result = service.overview()
+
+            self.assertEqual(
+                set(result["account_views"]),
+                {"alpaca-paper", "paper-b"},
+            )
+            self.assertEqual(
+                result["account_views"]["paper-b"]["account"][
+                    "equity"
+                ],
+                "25000",
+            )
+            self.assertEqual(
+                result["account_views"]["paper-b"]["risk"][
+                    "per_trade_capacity_amount"
+                ],
+                "750.00",
+            )
+            self.assertEqual(
+                result["account_views"]["paper-b"]["positions"], []
             )
 
     def test_http_dashboard_requires_authentication(self) -> None:

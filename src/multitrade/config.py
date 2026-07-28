@@ -427,6 +427,40 @@ class Settings:
                 "ALPACA_API_KEY_ID and ALPACA_API_SECRET_KEY are required"
             )
 
+    def alpaca_credentials_for(
+        self, environment_prefix: str = "ALPACA"
+    ) -> tuple[str, str, str]:
+        """Resolve one Paper account without putting secrets in JSON."""
+        if not re.fullmatch(r"[A-Z][A-Z0-9_]{0,63}", environment_prefix):
+            raise ValueError(
+                "Alpaca credential environment prefix must contain only "
+                "uppercase letters, numbers, and underscores"
+            )
+        if environment_prefix == "ALPACA":
+            key_id = self.alpaca_key_id
+            secret_key = self.alpaca_secret_key
+            base_url = self.alpaca_base_url
+        else:
+            key_id = os.getenv(
+                f"{environment_prefix}_API_KEY_ID", ""
+            ).strip()
+            secret_key = os.getenv(
+                f"{environment_prefix}_API_SECRET_KEY", ""
+            ).strip()
+            base_url = os.getenv(
+                f"{environment_prefix}_BASE_URL", PAPER_URL
+            ).strip().rstrip("/")
+        if base_url != PAPER_URL:
+            raise ValueError(
+                f"{environment_prefix}_BASE_URL must be {PAPER_URL}"
+            )
+        if not key_id or not secret_key:
+            raise ValueError(
+                f"{environment_prefix}_API_KEY_ID and "
+                f"{environment_prefix}_API_SECRET_KEY are required"
+            )
+        return key_id, secret_key, base_url
+
     def require_dashboard_credentials(self) -> None:
         if not self.dashboard_username or not self.dashboard_password:
             raise ValueError(

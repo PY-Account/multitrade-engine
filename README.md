@@ -5,10 +5,10 @@ algorithmic-trading organization. It separates market analysis, strategy
 signals, portfolio allocation, central risk approval, broker execution,
 reconciliation, audit, backtesting, and monitoring.
 
-Release 0.12 adds guarded, defined-risk options operation and account-scoped
-strategy statistics to controlled Alpaca Paper observation and dry-run
-testing. It does not support live trading and it does not claim that any
-strategy is profitable.
+Release 0.13 adds isolated multi-account Alpaca Paper supervision on top of
+the defined-risk option operation and account-scoped statistics introduced in
+0.12. It does not support live trading and it does not claim that any strategy
+is profitable.
 
 ## Safety invariants
 
@@ -58,6 +58,10 @@ The 3% and 10% figures are hard ceilings, not operating targets.
   range mean reversion.
 - Account-specific watchlists, strategy weights, confidence filters, risk
   budgets, position limits, order limits, cooldowns, and Paper approvals.
+- Multiple Alpaca Paper accounts in one VPS runtime, each with a unique
+  credential namespace, broker-account identity pin, independent
+  reconciliation, allocations, risk reservations, research results, and
+  failure isolation.
 - Centralized sizing, atomic SQLite risk reservations, duplicate prevention,
   and broker lifecycle reconciliation.
 - Conservative backtesting with next-bar entry, modeled costs, stop-first
@@ -136,10 +140,13 @@ Behavior:
 | Both true, strategy approval false | Per-strategy dry run |
 | Both true, stock strategy approval true | Guarded Alpaca Paper bracket submission |
 | Both true, option approval true, Level/OPRA/quote checks pass | Guarded Alpaca Paper option or MLeg submission |
-| Emergency stop true | No new Paper submission |
+| Emergency stop true | No new opening order; eligible reduce-only option protection may continue |
 
-The emergency stop does not cancel or close existing broker orders or
-positions. Those remain visible and must still be managed at Alpaca.
+The emergency stop blocks new exposure but does not cancel broker orders.
+When `TRADING_ENABLE_PAPER_ORDERS=true`, application-managed reduce-only option
+exits may still submit so an entry stop does not disable position protection.
+Set `TRADING_ENABLE_PAPER_ORDERS=false` to block every application submission;
+existing broker orders and positions must then be managed directly at Alpaca.
 
 ## Verification
 
@@ -237,13 +244,16 @@ in [`docs/MODEL_TRIAL_REGISTRY.md`](docs/MODEL_TRIAL_REGISTRY.md).
 Defined-risk option selection, lifecycle, theta accounting, and Paper gates are
 documented in
 [`docs/OPTIONS_PAPER_OPERATIONS.md`](docs/OPTIONS_PAPER_OPERATIONS.md).
+Multi-account credentials, identity pinning, configuration, and failure
+semantics are documented in
+[`docs/MULTI_ACCOUNT_OPERATIONS.md`](docs/MULTI_ACCOUNT_OPERATIONS.md).
 
 ## Current boundary
 
-This release supports one enabled Alpaca Paper account in the running workers.
-Reservations, configuration, and strategy statistics are account-scoped, but
-true simultaneous multi-account execution,
-PostgreSQL portfolio aggregation, dedicated crypto/forex broker adapters,
-role-based administration/MFA, and any live-trading program remain separate
-future releases. SQLite is safe here only because execution is intentionally a
-single account/single orchestrator.
+This release supports multiple Alpaca Paper accounts in one supervised VPS
+instance. Account cycles are isolated and sequential inside each worker, and
+all database writes remain local to the one Compose deployment. Horizontal
+multi-host execution, PostgreSQL portfolio aggregation, cross-account net
+exposure controls, dedicated crypto/forex broker adapters, role-based
+administration/MFA, and any live-trading program remain separate future
+releases.
