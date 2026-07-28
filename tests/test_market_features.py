@@ -106,6 +106,86 @@ class MarketDataTests(TestCase):
         self.assertEqual(result["AAPL"][0].feed, "iex")
         self.assertEqual(result["AAPL"][0].adjustment, "raw")
 
+    def test_stock_bar_pagination_supports_large_strategy_universe(
+        self,
+    ) -> None:
+        client = AlpacaMarketDataClient(
+            "paper-key", "paper-secret", feed="iex"
+        )
+        calls = []
+
+        def request(path, query):
+            calls.append((path, query))
+            page = len(calls)
+            return {
+                "bars": {
+                    "AAPL": [
+                        {
+                            "t": (
+                                datetime(
+                                    2026,
+                                    1,
+                                    2,
+                                    14,
+                                    30,
+                                    tzinfo=timezone.utc,
+                                )
+                                + timedelta(minutes=5 * page)
+                            ).isoformat(),
+                            "o": 100,
+                            "h": 102,
+                            "l": 99,
+                            "c": 101,
+                            "v": 5000,
+                            "n": 200,
+                            "vw": 100.8,
+                        }
+                    ]
+                },
+                "next_page_token": (
+                    f"page-{page + 1}" if page < 21 else None
+                ),
+            }
+
+        client._request = request
+        start = datetime(2026, 1, 2, tzinfo=timezone.utc)
+        result = client.fetch_stock_bars(
+            ["AAPL"],
+            "5Min",
+            start,
+            start + timedelta(days=120),
+        )
+
+        self.assertEqual(len(calls), 21)
+        self.assertEqual(len(result["AAPL"]), 21)
+        self.assertEqual(
+            calls[1][1]["page_token"], "page-2"
+        )
+
+    def test_stock_bar_pagination_repeated_token_fails_closed(
+        self,
+    ) -> None:
+        client = AlpacaMarketDataClient(
+            "paper-key", "paper-secret", feed="iex"
+        )
+        client._request = Mock(
+            return_value={
+                "bars": {"AAPL": []},
+                "next_page_token": "repeated",
+            }
+        )
+        start = datetime(2026, 1, 2, tzinfo=timezone.utc)
+
+        with self.assertRaisesRegex(
+            RuntimeError, "repeated a page token"
+        ):
+            client.fetch_stock_bars(
+                ["AAPL"],
+                "5Min",
+                start,
+                start + timedelta(days=120),
+            )
+
     def test_research_adjustment_is_sent_and_recorded(self) -> None:
         client = AlpacaMarketDataClient(
             "paper-key", "paper-secret", feed="iex"

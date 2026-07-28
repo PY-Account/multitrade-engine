@@ -167,10 +167,12 @@ class AlpacaMarketDataClient:
         start: datetime,
         end: datetime,
         *,
-        max_pages: int = 20,
+        max_pages: int = 60,
         adjustment: str = "raw",
     ) -> dict[str, tuple[MarketBar, ...]]:
         timeframe_seconds(timeframe)
+        if not 1 <= max_pages <= 100:
+            raise ValueError("max_pages must be between 1 and 100")
         normalized_symbols = tuple(
             dict.fromkeys(
                 symbol.strip().upper()
@@ -200,6 +202,7 @@ class AlpacaMarketDataClient:
             symbol: [] for symbol in normalized_symbols
         }
         page_token: str | None = None
+        seen_page_tokens: set[str] = set()
         for _ in range(max_pages):
             query = {
                 "symbols": ",".join(normalized_symbols),
@@ -228,12 +231,19 @@ class AlpacaMarketDataClient:
                     )
                     for row in rows
                 )
-            page_token = payload.get("next_page_token")
-            if not page_token:
+            next_page_token = payload.get("next_page_token")
+            if not next_page_token:
                 break
+            page_token = str(next_page_token)
+            if page_token in seen_page_tokens:
+                raise MarketDataError(
+                    "Alpaca stock-bars pagination repeated a page token"
+                )
+            seen_page_tokens.add(page_token)
         else:
             raise MarketDataError(
-                "Alpaca stock-bars pagination exceeded the safety limit"
+                "Alpaca stock-bars pagination exceeded the "
+                f"{max_pages}-page safety limit"
             )
 
         return {

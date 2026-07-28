@@ -1,5 +1,19 @@
 # Changelog
 
+## 0.17.1 - 2026-07-28
+
+- Raised the bounded Alpaca stock-bar pagination budget from 20 to 60 pages
+  so the accelerated validator can load the configured multi-symbol, 120-day,
+  five-minute dataset instead of stopping after 200,000 bars.
+- Added an explicit 100-page absolute ceiling and repeated-page-token
+  detection, preserving fail-closed protection against unbounded or malformed
+  pagination.
+- Added regression coverage for a successful 21-page historical request and
+  a repeated-token failure.
+
+This patch changes data retrieval capacity only. It does not change strategy
+rules, research gates, risk limits, Paper permissions, or execution authority.
+
 ## 0.17.0 - 2026-07-28
 
 - Added `multitrade accelerated-validation --workers N`, which downloads an
