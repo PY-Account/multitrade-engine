@@ -102,6 +102,11 @@ The 3% and 10% figures are hard ceilings, not operating targets.
 - Managed option exits use atomic close MLeg orders for configured profit,
   loss, and pre-expiration limits. Fill reconciliation records package P/L
   using Alpaca's signed net-price convention.
+- A non-executable option evidence worker freezes every selected package and
+  replays only its exact contracts with conservative historical trade-bar
+  marks, missing-leg coverage, MFE/MAE, underwater time, and policy-exit
+  diagnostics. It never labels bar proxies or modeled theta as realized
+  profit.
 - Per-account/per-strategy Paper statistics: signals, decisions, state counts,
   wins/losses, realized P/L, realized R, profit factor, realized drawdown,
   option P/L, positive-theta-trade P/L, and current modeled theta exposure.
@@ -225,6 +230,7 @@ docker compose --profile public-dashboard logs --tail=100 engine
 docker compose --profile public-dashboard logs --tail=100 research
 docker compose --profile public-dashboard logs --tail=100 asset-universe
 docker compose --profile public-dashboard logs --tail=100 strategy-lab
+docker compose --profile public-dashboard logs --tail=100 option-evidence
 ```
 
 The controlled testing sequence is documented in

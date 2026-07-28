@@ -173,6 +173,39 @@ services:
         max-size: "10m"
         max-file: "5"
 
+  option-evidence:
+    build: *app-build
+    image: multitrade-engine:local
+    restart: unless-stopped
+    init: true
+    env_file:
+      - .env
+    volumes:
+      - engine-data:/app/var
+    command: ["multitrade", "option-evidence"]
+    read_only: true
+    tmpfs:
+      - /tmp:size=64m,mode=1777
+    security_opt:
+      - no-new-privileges:true
+    cap_drop:
+      - ALL
+    stop_grace_period: 30s
+    depends_on:
+      engine:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "multitrade", "option-evidence-healthcheck"]
+      interval: 30m
+      timeout: 10s
+      start_period: 10m
+      retries: 3
+    logging:
+      driver: json-file
+      options:
+        max-size: "10m"
+        max-file: "5"
+
   asset-universe:
     build: *app-build
     image: multitrade-engine:local

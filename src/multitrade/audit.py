@@ -280,6 +280,67 @@ class SqliteAuditStore:
                 CREATE INDEX IF NOT EXISTS idx_trade_records_recent
                 ON trade_records(created_at DESC);
 
+                CREATE TABLE IF NOT EXISTS option_package_observations (
+                    signal_id TEXT PRIMARY KEY,
+                    intent_id TEXT,
+                    account_id TEXT NOT NULL,
+                    strategy_id TEXT NOT NULL,
+                    structure TEXT,
+                    underlying TEXT NOT NULL,
+                    status TEXT NOT NULL,
+                    data_feed TEXT,
+                    opening_net_price TEXT,
+                    requested_quantity TEXT,
+                    estimated_risk_per_package TEXT,
+                    modeled_delta TEXT,
+                    modeled_gamma TEXT,
+                    modeled_theta_per_day TEXT,
+                    modeled_vega TEXT,
+                    legs_json TEXT NOT NULL,
+                    details_json TEXT NOT NULL,
+                    decision_at TEXT NOT NULL,
+                    updated_at TEXT NOT NULL
+                );
+
+                CREATE INDEX IF NOT EXISTS idx_option_observations_account
+                ON option_package_observations(
+                    account_id, decision_at DESC
+                );
+
+                CREATE TABLE IF NOT EXISTS option_package_evidence (
+                    intent_id TEXT PRIMARY KEY,
+                    account_id TEXT NOT NULL,
+                    strategy_id TEXT NOT NULL,
+                    structure TEXT NOT NULL,
+                    underlying TEXT NOT NULL,
+                    timeframe TEXT NOT NULL,
+                    data_feed TEXT NOT NULL,
+                    evidence_type TEXT NOT NULL,
+                    price_basis TEXT NOT NULL,
+                    evaluated_at TEXT NOT NULL,
+                    data_start TEXT,
+                    data_end TEXT,
+                    aligned_points INTEGER NOT NULL,
+                    union_points INTEGER NOT NULL,
+                    coverage_fraction TEXT NOT NULL,
+                    latest_proxy_pnl TEXT,
+                    maximum_favorable_excursion TEXT,
+                    maximum_adverse_excursion TEXT,
+                    time_underwater_fraction TEXT,
+                    first_policy_exit_reason TEXT,
+                    first_policy_exit_at TEXT,
+                    first_policy_exit_proxy_pnl TEXT,
+                    warnings_json TEXT NOT NULL,
+                    path_json TEXT NOT NULL,
+                    details_json TEXT NOT NULL,
+                    updated_at TEXT NOT NULL
+                );
+
+                CREATE INDEX IF NOT EXISTS idx_option_evidence_account
+                ON option_package_evidence(
+                    account_id, evaluated_at DESC
+                );
+
                 CREATE TABLE IF NOT EXISTS backtest_runs (
                     run_id TEXT PRIMARY KEY,
                     strategy_id TEXT NOT NULL,
@@ -1927,6 +1988,300 @@ class SqliteAuditStore:
         finally:
             self._close_if_needed(connection)
 
+    def record_option_observation(
+        self,
+        signal: "StrategySignal",
+        intent: TradeIntent | None,
+        *,
+        status: str,
+        details: dict[str, Any] | None = None,
+    ) -> None:
+        """Persist the decision-time option package, without implying a fill."""
+        if intent is not None and intent.asset_class.value != "option":
+            raise ValueError("Option observation requires an option intent")
+        permitted_statuses = {
+            "construction_rejected",
+            "selected_observation_only",
+            "selected_for_risk_review",
+        }
+        if status not in permitted_statuses:
+            raise ValueError("Unsupported option-observation status")
+
+        def modeled_greek(name: str) -> Decimal | None:
+            if intent is None:
+                return None
+            values = [
+                (
+                    getattr(leg, name)
+                    * Decimal(leg.multiplier)
+                    * Decimal(leg.ratio)
+                    * (
+                        Decimal("1")
+                        if leg.side.value == "buy"
+                        else Decimal("-1")
+                    )
+                )
+                for leg in intent.option_legs
+                if getattr(leg, name) is not None
+            ]
+            return sum(values, start=ZERO) if values else None
+
+        payload = {
+            **(details or {}),
+            **(
+                {"intent_explanation": intent.explanation}
+                if intent is not None
+                else {}
+            ),
+        }
+        explanation = intent.explanation if intent is not None else {}
+        now = datetime.now(timezone.utc).isoformat()
+        connection = self._connect()
+        try:
+            connection.execute("BEGIN IMMEDIATE")
+            connection.execute(
+                """
+                INSERT INTO option_package_observations (
+                    signal_id, intent_id, account_id, strategy_id,
+                    structure, underlying, status, data_feed,
+                    opening_net_price, requested_quantity,
+                    estimated_risk_per_package, modeled_delta,
+                    modeled_gamma, modeled_theta_per_day, modeled_vega,
+                    legs_json, details_json, decision_at, updated_at
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?,
+                          ?, ?, ?)
+                ON CONFLICT(signal_id) DO UPDATE SET
+                    intent_id = excluded.intent_id,
+                    status = excluded.status,
+                    structure = excluded.structure,
+                    data_feed = excluded.data_feed,
+                    opening_net_price = excluded.opening_net_price,
+                    requested_quantity = excluded.requested_quantity,
+                    estimated_risk_per_package =
+                        excluded.estimated_risk_per_package,
+                    modeled_delta = excluded.modeled_delta,
+                    modeled_gamma = excluded.modeled_gamma,
+                    modeled_theta_per_day =
+                        excluded.modeled_theta_per_day,
+                    modeled_vega = excluded.modeled_vega,
+                    legs_json = excluded.legs_json,
+                    details_json = excluded.details_json,
+                    updated_at = excluded.updated_at
+                """,
+                (
+                    signal.signal_id,
+                    intent.intent_id if intent is not None else None,
+                    signal.account_id,
+                    signal.strategy_id,
+                    (
+                        explanation.get("structure")
+                        if intent is not None
+                        else payload.get("structure")
+                    ),
+                    signal.symbol,
+                    status,
+                    explanation.get("data_feed"),
+                    (
+                        format(intent.limit_price, "f")
+                        if (
+                            intent is not None
+                            and intent.limit_price is not None
+                        )
+                        else None
+                    ),
+                    (
+                        format(intent.requested_quantity, "f")
+                        if intent is not None
+                        else None
+                    ),
+                    (
+                        format(
+                            Decimal(
+                                str(
+                                    explanation[
+                                        "estimated_risk_per_package"
+                                    ]
+                                )
+                            ),
+                            "f",
+                        )
+                        if explanation.get(
+                            "estimated_risk_per_package"
+                        )
+                        is not None
+                        else None
+                    ),
+                    (
+                        format(modeled_greek("delta"), "f")
+                        if modeled_greek("delta") is not None
+                        else None
+                    ),
+                    (
+                        format(modeled_greek("gamma"), "f")
+                        if modeled_greek("gamma") is not None
+                        else None
+                    ),
+                    (
+                        format(modeled_greek("theta"), "f")
+                        if modeled_greek("theta") is not None
+                        else None
+                    ),
+                    (
+                        format(modeled_greek("vega"), "f")
+                        if modeled_greek("vega") is not None
+                        else None
+                    ),
+                    _json(intent.option_legs if intent is not None else ()),
+                    _json(payload),
+                    signal.created_at.isoformat(),
+                    now,
+                ),
+            )
+            self._insert_event(
+                connection,
+                "option_package_observed",
+                signal.signal_id,
+                {
+                    "account_id": signal.account_id,
+                    "strategy_id": signal.strategy_id,
+                    "underlying": signal.symbol,
+                    "status": status,
+                    "intent_id": (
+                        intent.intent_id if intent is not None else None
+                    ),
+                    "structure": explanation.get("structure"),
+                    "execution_proof": False,
+                },
+            )
+            connection.execute("COMMIT")
+        except Exception:
+            if connection.in_transaction:
+                connection.execute("ROLLBACK")
+            raise
+        finally:
+            self._close_if_needed(connection)
+
+    def record_option_package_evidence(
+        self, report: dict[str, Any]
+    ) -> None:
+        required = {
+            "intent_id",
+            "account_id",
+            "strategy_id",
+            "structure",
+            "underlying",
+            "timeframe",
+            "data_feed",
+            "evidence_type",
+            "price_basis",
+            "evaluated_at",
+            "aligned_points",
+            "union_points",
+            "coverage_fraction",
+            "warnings",
+            "path",
+            "details",
+        }
+        missing = required - set(report)
+        if missing:
+            raise ValueError(
+                "Option evidence is missing: "
+                + ", ".join(sorted(missing))
+            )
+        now = datetime.now(timezone.utc).isoformat()
+        connection = self._connect()
+        try:
+            connection.execute("BEGIN IMMEDIATE")
+            connection.execute(
+                """
+                INSERT INTO option_package_evidence (
+                    intent_id, account_id, strategy_id, structure,
+                    underlying, timeframe, data_feed, evidence_type,
+                    price_basis, evaluated_at, data_start, data_end,
+                    aligned_points, union_points, coverage_fraction,
+                    latest_proxy_pnl, maximum_favorable_excursion,
+                    maximum_adverse_excursion,
+                    time_underwater_fraction,
+                    first_policy_exit_reason, first_policy_exit_at,
+                    first_policy_exit_proxy_pnl, warnings_json,
+                    path_json, details_json, updated_at
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?,
+                          ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                ON CONFLICT(intent_id) DO UPDATE SET
+                    evaluated_at = excluded.evaluated_at,
+                    data_start = excluded.data_start,
+                    data_end = excluded.data_end,
+                    aligned_points = excluded.aligned_points,
+                    union_points = excluded.union_points,
+                    coverage_fraction = excluded.coverage_fraction,
+                    latest_proxy_pnl = excluded.latest_proxy_pnl,
+                    maximum_favorable_excursion =
+                        excluded.maximum_favorable_excursion,
+                    maximum_adverse_excursion =
+                        excluded.maximum_adverse_excursion,
+                    time_underwater_fraction =
+                        excluded.time_underwater_fraction,
+                    first_policy_exit_reason =
+                        excluded.first_policy_exit_reason,
+                    first_policy_exit_at =
+                        excluded.first_policy_exit_at,
+                    first_policy_exit_proxy_pnl =
+                        excluded.first_policy_exit_proxy_pnl,
+                    warnings_json = excluded.warnings_json,
+                    path_json = excluded.path_json,
+                    details_json = excluded.details_json,
+                    updated_at = excluded.updated_at
+                """,
+                (
+                    report["intent_id"],
+                    report["account_id"],
+                    report["strategy_id"],
+                    report["structure"],
+                    report["underlying"],
+                    report["timeframe"],
+                    report["data_feed"],
+                    report["evidence_type"],
+                    report["price_basis"],
+                    report["evaluated_at"],
+                    report.get("data_start"),
+                    report.get("data_end"),
+                    int(report["aligned_points"]),
+                    int(report["union_points"]),
+                    str(report["coverage_fraction"]),
+                    report.get("latest_proxy_pnl"),
+                    report.get("maximum_favorable_excursion"),
+                    report.get("maximum_adverse_excursion"),
+                    report.get("time_underwater_fraction"),
+                    report.get("first_policy_exit_reason"),
+                    report.get("first_policy_exit_at"),
+                    report.get("first_policy_exit_proxy_pnl"),
+                    _json(report["warnings"]),
+                    _json(report["path"]),
+                    _json(report["details"]),
+                    now,
+                ),
+            )
+            self._insert_event(
+                connection,
+                "option_evidence_updated",
+                report["intent_id"],
+                {
+                    "account_id": report["account_id"],
+                    "strategy_id": report["strategy_id"],
+                    "aligned_points": report["aligned_points"],
+                    "coverage_fraction": report["coverage_fraction"],
+                    "evidence_type": report["evidence_type"],
+                    "execution_enabled": False,
+                },
+            )
+            connection.execute("COMMIT")
+        except Exception:
+            if connection.in_transaction:
+                connection.execute("ROLLBACK")
+            raise
+        finally:
+            self._close_if_needed(connection)
+
     def record_backtest(
         self,
         *,
@@ -2756,6 +3111,138 @@ class SqliteAuditReader:
                 "explanation": json.loads(row["explanation_json"]),
                 "created_at": row["created_at"],
                 "updated_at": row["updated_at"],
+            }
+            for row in rows
+        ]
+
+    def recent_option_observations(
+        self,
+        limit: int = 100,
+        *,
+        account_id: str | None = None,
+    ) -> list[dict[str, Any]]:
+        safe_limit = max(1, min(limit, 500))
+        where = "WHERE account_id = ?" if account_id is not None else ""
+        parameters: tuple[Any, ...] = (
+            (account_id, safe_limit)
+            if account_id is not None
+            else (safe_limit,)
+        )
+        with closing(self._connect()) as connection:
+            rows = connection.execute(
+                f"""
+                SELECT signal_id, intent_id, account_id, strategy_id,
+                       structure, underlying, status, data_feed,
+                       opening_net_price, requested_quantity,
+                       estimated_risk_per_package, modeled_delta,
+                       modeled_gamma, modeled_theta_per_day, modeled_vega,
+                       legs_json, details_json, decision_at, updated_at
+                FROM option_package_observations
+                {where}
+                ORDER BY decision_at DESC LIMIT ?
+                """,
+                parameters,
+            ).fetchall()
+        return [
+            {
+                "signal_id": row["signal_id"],
+                "intent_id": row["intent_id"],
+                "account_id": row["account_id"],
+                "strategy_id": row["strategy_id"],
+                "structure": row["structure"],
+                "underlying": row["underlying"],
+                "status": row["status"],
+                "data_feed": row["data_feed"],
+                "opening_net_price": row["opening_net_price"],
+                "requested_quantity": row["requested_quantity"],
+                "estimated_risk_per_package": row[
+                    "estimated_risk_per_package"
+                ],
+                "modeled_delta": row["modeled_delta"],
+                "modeled_gamma": row["modeled_gamma"],
+                "modeled_theta_per_day": row[
+                    "modeled_theta_per_day"
+                ],
+                "modeled_vega": row["modeled_vega"],
+                "legs": json.loads(row["legs_json"]),
+                "details": json.loads(row["details_json"]),
+                "decision_at": row["decision_at"],
+                "updated_at": row["updated_at"],
+                "execution_proof": False,
+            }
+            for row in rows
+        ]
+
+    def recent_option_package_evidence(
+        self,
+        limit: int = 100,
+        *,
+        account_id: str | None = None,
+    ) -> list[dict[str, Any]]:
+        safe_limit = max(1, min(limit, 500))
+        where = "WHERE account_id = ?" if account_id is not None else ""
+        parameters: tuple[Any, ...] = (
+            (account_id, safe_limit)
+            if account_id is not None
+            else (safe_limit,)
+        )
+        with closing(self._connect()) as connection:
+            rows = connection.execute(
+                f"""
+                SELECT intent_id, account_id, strategy_id, structure,
+                       underlying, timeframe, data_feed, evidence_type,
+                       price_basis, evaluated_at, data_start, data_end,
+                       aligned_points, union_points, coverage_fraction,
+                       latest_proxy_pnl, maximum_favorable_excursion,
+                       maximum_adverse_excursion,
+                       time_underwater_fraction,
+                       first_policy_exit_reason, first_policy_exit_at,
+                       first_policy_exit_proxy_pnl, warnings_json,
+                       path_json, details_json
+                FROM option_package_evidence
+                {where}
+                ORDER BY evaluated_at DESC LIMIT ?
+                """,
+                parameters,
+            ).fetchall()
+        return [
+            {
+                "intent_id": row["intent_id"],
+                "account_id": row["account_id"],
+                "strategy_id": row["strategy_id"],
+                "structure": row["structure"],
+                "underlying": row["underlying"],
+                "timeframe": row["timeframe"],
+                "data_feed": row["data_feed"],
+                "evidence_type": row["evidence_type"],
+                "price_basis": row["price_basis"],
+                "evaluated_at": row["evaluated_at"],
+                "data_start": row["data_start"],
+                "data_end": row["data_end"],
+                "aligned_points": row["aligned_points"],
+                "union_points": row["union_points"],
+                "coverage_fraction": row["coverage_fraction"],
+                "latest_proxy_pnl": row["latest_proxy_pnl"],
+                "maximum_favorable_excursion": row[
+                    "maximum_favorable_excursion"
+                ],
+                "maximum_adverse_excursion": row[
+                    "maximum_adverse_excursion"
+                ],
+                "time_underwater_fraction": row[
+                    "time_underwater_fraction"
+                ],
+                "first_policy_exit_reason": row[
+                    "first_policy_exit_reason"
+                ],
+                "first_policy_exit_at": row["first_policy_exit_at"],
+                "first_policy_exit_proxy_pnl": row[
+                    "first_policy_exit_proxy_pnl"
+                ],
+                "warnings": json.loads(row["warnings_json"]),
+                "path": json.loads(row["path_json"]),
+                "details": json.loads(row["details_json"]),
+                "execution_enabled": False,
             }
             for row in rows
         ]

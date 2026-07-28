@@ -352,6 +352,22 @@ class PaperAutomationService:
                         f"{type(exc).__name__}"
                     )
                     cycle_reasons.add(reason)
+                    if allocation.asset_class.value == "option":
+                        self.store.record_option_observation(
+                            signal,
+                            None,
+                            status="construction_rejected",
+                            details={
+                                "reason": reason,
+                                "message": str(exc),
+                                "structure": (
+                                    allocation.option_policy
+                                    .structure.value
+                                    if allocation.option_policy is not None
+                                    else None
+                                ),
+                            },
+                        )
                     self.store.update_signal_status(
                         signal.signal_id,
                         "filtered",
@@ -376,6 +392,24 @@ class PaperAutomationService:
                     )
                     continue
 
+                if intent.asset_class.value == "option":
+                    self.store.record_option_observation(
+                        signal,
+                        intent,
+                        status=(
+                            "selected_for_risk_review"
+                            if self.settings.automation_enabled
+                            else "selected_observation_only"
+                        ),
+                        details={
+                            "paper_execution_configured": (
+                                allocation.paper_execution_allowed
+                            ),
+                            "automation_enabled": (
+                                self.settings.automation_enabled
+                            ),
+                        },
+                    )
                 if not self.settings.automation_enabled:
                     counters["signals_observed"] += 1
                     self.store.update_signal_status(

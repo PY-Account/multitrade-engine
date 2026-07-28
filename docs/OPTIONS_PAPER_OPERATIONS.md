@@ -1,8 +1,11 @@
 # Defined-Risk Options Paper Operations
 
-Release 0.13 supports defined-risk options only on Alpaca Paper. This is an
+Release 0.14 supports defined-risk options only on Alpaca Paper. This is an
 engineering and measurement program, not evidence that an option strategy is
 profitable and not permission for live trading.
+
+Forward exact-contract measurement and its limitations are documented in
+[OPTION_EVIDENCE_LAB.md](OPTION_EVIDENCE_LAB.md).
 
 ## Supported structures
 

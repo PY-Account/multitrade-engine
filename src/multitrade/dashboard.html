@@ -282,6 +282,7 @@
     <article class="card"><div class="label">Strategy service</div><div class="value" id="automation">--</div></article>
     <article class="card"><div class="label">Research service</div><div class="value" id="research">--</div></article>
     <article class="card"><div class="label">Strategy Lab</div><div class="value" id="strategy-lab">--</div></article>
+    <article class="card"><div class="label">Option Evidence</div><div class="value" id="option-evidence">--</div></article>
     <article class="card"><div class="label">Asset Universe</div><div class="value" id="asset-universe">--</div></article>
     <article class="card"><div class="label">US market</div><div class="value" id="market">--</div></article>
     <article class="card"><div class="label">Paper equity</div><div class="value" id="equity">--</div></article>
@@ -427,6 +428,30 @@
       <table>
         <thead><tr><th>Evidence</th><th>Grade</th><th>Role</th><th>Finding</th><th>Caveats</th><th>Candidate</th><th>Source</th></tr></thead>
         <tbody id="evidence-catalog"></tbody>
+      </table>
+    </div>
+  </section>
+
+  <section class="panel workspace-view" data-primary="strategy-lab" data-secondary="options">
+    <div class="panel-head">
+      <div><h2>Option package observations</h2><p class="subcopy">Frozen decision-time structures, contract legs, and modeled Greeks. Observations include packages selected while execution is disabled and are not evidence of fills.</p></div>
+    </div>
+    <div class="table-wrap">
+      <table>
+        <thead><tr><th>Decision</th><th>Strategy</th><th>Underlying</th><th>Structure</th><th>Status</th><th>Feed</th><th class="number">Opening net</th><th class="number">Risk / package</th><th class="number">Modeled theta/day</th><th>Contracts</th></tr></thead>
+        <tbody id="option-observations"></tbody>
+      </table>
+    </div>
+  </section>
+
+  <section class="panel workspace-view" data-primary="strategy-lab" data-secondary="options">
+    <div class="panel-head">
+      <div><h2>Exact-contract path evidence</h2><p class="subcopy">Conservative package marks reconstructed from historical option trade bars. These are synchronized trade-bar proxies—not historical BBO quotes, executable prices, reconstructed Greeks, or realized theta attribution.</p></div>
+    </div>
+    <div class="table-wrap">
+      <table>
+        <thead><tr><th>Evaluated</th><th>Strategy</th><th>Underlying</th><th>Structure</th><th>Feed / timeframe</th><th>Coverage</th><th class="number">Latest proxy P/L</th><th class="number">MFE</th><th class="number">MAE</th><th class="number">Underwater</th><th>First policy exit</th><th>Warnings</th></tr></thead>
+        <tbody id="option-package-evidence"></tbody>
       </table>
     </div>
   </section>
@@ -675,6 +700,7 @@
       ["robustness", "Robustness"],
       ["trials", "Trial Registry"],
       ["monitoring", "Signals & Bots"],
+      ["options", "Option Evidence"],
       ["market-model", "Market Model"],
       ["evidence", "Evidence"],
     ],
@@ -1774,6 +1800,88 @@
     }
   }
 
+  function renderOptionObservations(observations) {
+    const body = document.getElementById("option-observations");
+    body.replaceChildren();
+    const rows = observations.filter(
+      item => item.account_id === selectedAccountId
+    );
+    if (!rows.length) {
+      emptyRow(
+        body,
+        10,
+        "No option package has been frozen for this account yet."
+      );
+      return;
+    }
+    for (const item of rows) {
+      const contracts = (item.legs || [])
+        .map(leg => `${leg.side} ${leg.ratio || 1} ${leg.symbol}`)
+        .join("; ");
+      const theta = item.modeled_theta_per_day == null
+        ? null
+        : Number(item.modeled_theta_per_day);
+      const values = [
+        [localTime(item.decision_at), ""],
+        [item.strategy_id, ""],
+        [item.underlying, ""],
+        [String(item.structure || "--").replaceAll("_", " "), ""],
+        [String(item.status || "unknown").replaceAll("_", " "), item.status === "construction_rejected" ? "bad" : "ok"],
+        [item.data_feed || "--", item.data_feed === "opra" ? "ok" : "warn"],
+        [item.opening_net_price == null ? "--" : money(item.opening_net_price), "number"],
+        [item.estimated_risk_per_package == null ? "--" : money(item.estimated_risk_per_package), "number"],
+        [theta == null ? "--" : money(theta), `number ${theta >= 0 ? "ok" : "warn"}`],
+        [contracts || String(item.details?.message || "--"), ""],
+      ];
+      const row = document.createElement("tr");
+      for (const [value, className] of values) {
+        row.appendChild(cell(value, className));
+      }
+      body.appendChild(row);
+    }
+  }
+
+  function renderOptionPackageEvidence(evidence) {
+    const body = document.getElementById("option-package-evidence");
+    body.replaceChildren();
+    const rows = evidence.filter(
+      item => item.account_id === selectedAccountId
+    );
+    if (!rows.length) {
+      emptyRow(
+        body,
+        12,
+        "No exact-contract option path has been evaluated yet."
+      );
+      return;
+    }
+    for (const item of rows) {
+      const latest = Number(item.latest_proxy_pnl || 0);
+      const exit = item.first_policy_exit_reason
+        ? `${String(item.first_policy_exit_reason).replaceAll("_", " ")} · ${localTime(item.first_policy_exit_at)} · ${money(item.first_policy_exit_proxy_pnl)}`
+        : "--";
+      const values = [
+        [localTime(item.evaluated_at), ""],
+        [item.strategy_id, ""],
+        [item.underlying, ""],
+        [String(item.structure || "--").replaceAll("_", " "), ""],
+        [`${item.data_feed} · ${item.timeframe}`, item.data_feed === "opra" ? "ok" : "warn"],
+        [`${item.aligned_points}/${item.union_points} · ${percent(item.coverage_fraction)}`, Number(item.coverage_fraction) >= 0.8 ? "ok" : "warn"],
+        [item.latest_proxy_pnl == null ? "--" : money(item.latest_proxy_pnl), `number ${latest >= 0 ? "ok" : "bad"}`],
+        [item.maximum_favorable_excursion == null ? "--" : money(item.maximum_favorable_excursion), "number ok"],
+        [item.maximum_adverse_excursion == null ? "--" : money(item.maximum_adverse_excursion), "number bad"],
+        [item.time_underwater_fraction == null ? "--" : percent(item.time_underwater_fraction), "number"],
+        [exit, ""],
+        [(item.warnings || []).map(value => String(value).replaceAll("_", " ")).join("; "), "warn"],
+      ];
+      const row = document.createElement("tr");
+      for (const [value, className] of values) {
+        row.appendChild(cell(value, className));
+      }
+      body.appendChild(row);
+    }
+  }
+
   function renderBacktests(backtests, validations) {
     const body = document.getElementById("backtests");
     body.replaceChildren();
@@ -1984,6 +2092,11 @@
         data.strategy_lab.healthy ? "ok" : "bad"
       );
       setStatus(
+        "option-evidence",
+        data.option_evidence.healthy ? "Healthy" : "Attention",
+        data.option_evidence.healthy ? "ok" : "bad"
+      );
+      setStatus(
         "asset-universe",
         data.asset_universe.healthy ? "Healthy" : "Attention",
         data.asset_universe.healthy ? "ok" : "bad"
@@ -2057,10 +2170,15 @@
       renderSignals(data.signals || []);
       renderTradeRecords(data.trade_records || []);
       renderStrategyPerformance(data.strategy_performance || []);
+      renderOptionObservations(data.option_observations || []);
+      renderOptionPackageEvidence(
+        data.option_package_evidence || []
+      );
       renderBacktests(data.backtests || [], data.validations || []);
       renderEvents(data.events || []);
     } catch (error) {
       setStatus("engine", "Unavailable", "bad");
+      setStatus("option-evidence", "Unavailable", "bad");
       setStatus("asset-universe", "Unavailable", "bad");
       setText("updated", "Dashboard data unavailable");
     }

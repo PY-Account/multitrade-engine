@@ -49,6 +49,8 @@ class DashboardData:
         research_health_max_age_seconds: int = 10800,
         strategy_lab_health_path: str | Path | None = None,
         strategy_lab_health_max_age_seconds: int = 64800,
+        option_evidence_health_path: str | Path | None = None,
+        option_evidence_health_max_age_seconds: int = 10800,
         asset_universe_health_path: str | Path | None = None,
         asset_universe_health_max_age_seconds: int = 259200,
         automation_enabled: bool = False,
@@ -90,6 +92,14 @@ class DashboardData:
         )
         self.strategy_lab_health_max_age_seconds = (
             strategy_lab_health_max_age_seconds
+        )
+        self.option_evidence_health_path = (
+            Path(option_evidence_health_path)
+            if option_evidence_health_path is not None
+            else None
+        )
+        self.option_evidence_health_max_age_seconds = (
+            option_evidence_health_max_age_seconds
         )
         self.asset_universe_health_path = (
             Path(asset_universe_health_path)
@@ -156,6 +166,14 @@ class DashboardData:
         else:
             strategy_lab_healthy = False
             strategy_lab_health = {"status": "not_configured"}
+        if self.option_evidence_health_path is not None:
+            option_evidence_healthy, option_evidence_health = check_health(
+                self.option_evidence_health_path,
+                self.option_evidence_health_max_age_seconds,
+            )
+        else:
+            option_evidence_healthy = False
+            option_evidence_health = {"status": "not_configured"}
         if self.asset_universe_health_path is not None:
             universe_healthy, universe_health = check_health(
                 self.asset_universe_health_path,
@@ -192,6 +210,12 @@ class DashboardData:
             strategy_performance = (
                 self.reader.strategy_performance()
             )
+            option_observations = (
+                self.reader.recent_option_observations(100)
+            )
+            option_package_evidence = (
+                self.reader.recent_option_package_evidence(100)
+            )
             backtests = self.reader.recent_backtests(20)
             validations = self.reader.recent_validations(20)
             research_decisions = (
@@ -225,6 +249,8 @@ class DashboardData:
             strategy_runtime = []
             trade_records = []
             strategy_performance = []
+            option_observations = []
+            option_package_evidence = []
             backtests = []
             validations = []
             research_decisions = []
@@ -432,6 +458,16 @@ class DashboardData:
                         reservation_summaries.get(account_id, {})
                     ),
                 },
+                "option_observations": [
+                    row
+                    for row in option_observations
+                    if row["account_id"] == account_id
+                ],
+                "option_package_evidence": [
+                    row
+                    for row in option_package_evidence
+                    if row["account_id"] == account_id
+                ],
             }
 
         primary_view = account_views[primary_account_id]
@@ -468,6 +504,12 @@ class DashboardData:
                 "details": strategy_lab_health,
                 "execution_enabled": False,
             },
+            "option_evidence": {
+                "healthy": option_evidence_healthy,
+                "details": option_evidence_health,
+                "execution_enabled": False,
+                "evidence_type": "exact_contract_trade_bar_proxy",
+            },
             "asset_universe": {
                 "healthy": universe_healthy,
                 "details": universe_health,
@@ -493,6 +535,8 @@ class DashboardData:
             "strategy_runtime": strategy_runtime,
             "trade_records": trade_records,
             "strategy_performance": strategy_performance,
+            "option_observations": option_observations,
+            "option_package_evidence": option_package_evidence,
             "backtests": backtests,
             "validations": validations,
             "research_decisions": research_decisions,
@@ -541,7 +585,7 @@ class DashboardData:
 
 
 class DashboardRequestHandler(BaseHTTPRequestHandler):
-    server_version = "MultiTradeDashboard/0.13.0"
+    server_version = "MultiTradeDashboard/0.14.0"
     sys_version = ""
     data_service: DashboardData
     expected_authorization: str

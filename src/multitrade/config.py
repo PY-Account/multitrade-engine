@@ -103,6 +103,12 @@ class Settings:
     portfolio_config_path: Path
     market_data_feed: str
     option_data_feed: str
+    option_evidence_cycle_seconds: int
+    option_evidence_health_path: Path
+    option_evidence_health_max_age_seconds: int
+    option_evidence_timeframe: str
+    option_evidence_maximum_observations: int
+    option_evidence_slippage_per_leg: Decimal
     market_lookback_days: int
     market_max_bar_age_seconds: int
     research_cycle_seconds: int
@@ -245,6 +251,47 @@ class Settings:
             raise ValueError(
                 "TRADING_OPTION_DATA_FEED must be indicative or opra"
             )
+        option_evidence_cycle_seconds = _int_env(
+            "TRADING_OPTION_EVIDENCE_CYCLE_SECONDS",
+            "3600",
+            300,
+            86400,
+        )
+        option_evidence_health_max_age_seconds = _int_env(
+            "TRADING_OPTION_EVIDENCE_HEALTH_MAX_AGE_SECONDS",
+            "10800",
+            900,
+            259200,
+        )
+        if (
+            option_evidence_health_max_age_seconds
+            < option_evidence_cycle_seconds * 2
+        ):
+            raise ValueError(
+                "TRADING_OPTION_EVIDENCE_HEALTH_MAX_AGE_SECONDS must "
+                "be at least twice TRADING_OPTION_EVIDENCE_CYCLE_SECONDS"
+            )
+        option_evidence_timeframe = os.getenv(
+            "TRADING_OPTION_EVIDENCE_TIMEFRAME", "15Min"
+        ).strip()
+        if option_evidence_timeframe not in {
+            "1Min",
+            "5Min",
+            "15Min",
+            "1Hour",
+            "1Day",
+        }:
+            raise ValueError(
+                "TRADING_OPTION_EVIDENCE_TIMEFRAME is unsupported"
+            )
+        option_evidence_slippage_per_leg = _decimal_env(
+            "TRADING_OPTION_EVIDENCE_SLIPPAGE_PER_LEG", "0.05"
+        )
+        if option_evidence_slippage_per_leg < Decimal("0"):
+            raise ValueError(
+                "TRADING_OPTION_EVIDENCE_SLIPPAGE_PER_LEG cannot be "
+                "negative"
+            )
 
         return cls(
             alpaca_key_id=os.getenv("ALPACA_API_KEY_ID", "").strip(),
@@ -287,6 +334,28 @@ class Settings:
             ),
             market_data_feed=market_data_feed,
             option_data_feed=option_data_feed,
+            option_evidence_cycle_seconds=(
+                option_evidence_cycle_seconds
+            ),
+            option_evidence_health_path=Path(
+                os.getenv(
+                    "TRADING_OPTION_EVIDENCE_HEALTH_PATH",
+                    "var/option-evidence-health.json",
+                )
+            ),
+            option_evidence_health_max_age_seconds=(
+                option_evidence_health_max_age_seconds
+            ),
+            option_evidence_timeframe=option_evidence_timeframe,
+            option_evidence_maximum_observations=_int_env(
+                "TRADING_OPTION_EVIDENCE_MAXIMUM_OBSERVATIONS",
+                "100",
+                1,
+                500,
+            ),
+            option_evidence_slippage_per_leg=(
+                option_evidence_slippage_per_leg
+            ),
             market_lookback_days=_int_env(
                 "TRADING_MARKET_LOOKBACK_DAYS", "10", 2, 90
             ),

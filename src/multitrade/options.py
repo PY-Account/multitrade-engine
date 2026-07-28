@@ -4,7 +4,7 @@ import hashlib
 import json
 import re
 from dataclasses import dataclass, replace
-from datetime import date, datetime
+from datetime import date, datetime, timezone
 from decimal import Decimal
 from enum import StrEnum
 from typing import Any
@@ -22,6 +22,7 @@ from multitrade.domain import (
     TradeIntent,
     ZERO,
 )
+from multitrade.market import MarketBar, timeframe_seconds
 
 
 OPTION_DATA_URL = "https://data.alpaca.markets"
@@ -288,6 +289,193 @@ class AlpacaOptionChainClient:
             raise OptionDataError(
                 f"Cannot reach Alpaca option data: {exc.reason}"
             ) from exc
+
+
+class AlpacaHistoricalOptionDataClient:
+    """Fetch exact-contract trade bars; it never reconstructs old chains."""
+
+    def __init__(
+        self,
+        key_id: str,
+        secret_key: str,
+        *,
+        feed: str = "indicative",
+        timeout_seconds: int = 20,
+    ) -> None:
+        if not key_id or not secret_key:
+            raise ValueError("Alpaca market-data credentials are required")
+        if feed not in {"indicative", "opra"}:
+            raise ValueError("Option feed must be indicative or opra")
+        self.feed = feed
+        self.timeout_seconds = timeout_seconds
+        self._headers = {
+            "APCA-API-KEY-ID": key_id,
+            "APCA-API-SECRET-KEY": secret_key,
+            "Accept": "application/json",
+        }
+        self.request_ids: list[str] = []
+
+    def fetch_bars(
+        self,
+        symbols: tuple[str, ...],
+        timeframe: str,
+        start: datetime,
+        end: datetime,
+        *,
+        max_pages: int = 20,
+    ) -> dict[str, tuple[MarketBar, ...]]:
+        timeframe_seconds(timeframe)
+        normalized = tuple(
+            dict.fromkeys(
+                symbol.strip().upper()
+                for symbol in symbols
+                if symbol.strip()
+            )
+        )
+        if not normalized:
+            raise ValueError("At least one option symbol is required")
+        if len(normalized) > 100:
+            raise ValueError("At most 100 option symbols may be requested")
+        for symbol in normalized:
+            parse_occ_symbol(symbol)
+        if start.tzinfo is None or end.tzinfo is None:
+            raise ValueError("Option-data boundaries must be timezone-aware")
+        if start >= end:
+            raise ValueError("Option-data start must precede end")
+        if not 1 <= max_pages <= 100:
+            raise ValueError("max_pages must be between 1 and 100")
+
+        grouped: dict[str, list[MarketBar]] = {
+            symbol: [] for symbol in normalized
+        }
+        self.request_ids = []
+        page_token: str | None = None
+        for _ in range(max_pages):
+            query = {
+                "symbols": ",".join(normalized),
+                "timeframe": timeframe,
+                "start": start.astimezone(timezone.utc).isoformat(),
+                "end": end.astimezone(timezone.utc).isoformat(),
+                "limit": "10000",
+                "sort": "asc",
+                "feed": self.feed,
+            }
+            if page_token:
+                query["page_token"] = page_token
+            payload = self._request("/v1beta1/options/bars", query)
+            bars_payload = payload.get("bars")
+            if not isinstance(bars_payload, dict):
+                raise OptionDataError(
+                    "Alpaca option-bars response omitted bars"
+                )
+            for symbol, rows in bars_payload.items():
+                if symbol not in grouped or not isinstance(rows, list):
+                    continue
+                grouped[symbol].extend(
+                    self._parse_bar(symbol, timeframe, row)
+                    for row in rows
+                )
+            page_token = payload.get("next_page_token")
+            if not page_token:
+                break
+        else:
+            raise OptionDataError(
+                "Alpaca option-bars pagination exceeded the safety limit"
+            )
+        return {
+            symbol: tuple(
+                sorted(
+                    {
+                        bar.timestamp.isoformat(): bar
+                        for bar in rows
+                    }.values(),
+                    key=lambda bar: bar.timestamp,
+                )
+            )
+            for symbol, rows in grouped.items()
+        }
+
+    def _parse_bar(
+        self,
+        symbol: str,
+        timeframe: str,
+        row: dict[str, Any],
+    ) -> MarketBar:
+        if not isinstance(row, dict):
+            raise OptionDataError("Alpaca option bar was not an object")
+        try:
+            timestamp = datetime.fromisoformat(
+                str(row["t"]).replace("Z", "+00:00")
+            )
+            return MarketBar(
+                symbol=symbol,
+                asset_class=AssetClass.OPTION,
+                timeframe=timeframe,
+                timestamp=timestamp,
+                open=Decimal(str(row["o"])),
+                high=Decimal(str(row["h"])),
+                low=Decimal(str(row["l"])),
+                close=Decimal(str(row["c"])),
+                volume=Decimal(str(row.get("v", "0"))),
+                trade_count=int(row.get("n") or 0),
+                vwap=(
+                    Decimal(str(row["vw"]))
+                    if row.get("vw") is not None
+                    else None
+                ),
+                feed=self.feed,
+                adjustment="raw",
+            )
+        except (KeyError, ValueError) as exc:
+            raise OptionDataError(
+                f"Invalid Alpaca option bar for {symbol}"
+            ) from exc
+
+    def _request(
+        self, path: str, query: dict[str, str]
+    ) -> dict[str, Any]:
+        request = Request(
+            f"{OPTION_DATA_URL}{path}?{urlencode(query)}",
+            headers=self._headers,
+            method="GET",
+        )
+        try:
+            with urlopen(
+                request, timeout=self.timeout_seconds
+            ) as response:
+                request_id = response.headers.get("X-Request-ID")
+                if request_id:
+                    self.request_ids.append(request_id)
+                body = response.read().decode("utf-8")
+        except HTTPError as exc:
+            request_id = (
+                exc.headers.get("X-Request-ID")
+                if exc.headers is not None
+                else None
+            )
+            if request_id:
+                self.request_ids.append(request_id)
+            body = exc.read().decode("utf-8", errors="replace")
+            context = f" request_id={request_id}" if request_id else ""
+            raise OptionDataError(
+                f"Alpaca option data returned HTTP {exc.code}:"
+                f"{context} {body[:1000]}"
+            ) from exc
+        except URLError as exc:
+            raise OptionDataError(
+                f"Cannot reach Alpaca option data: {exc.reason}"
+            ) from exc
+        try:
+            payload = json.loads(body) if body else {}
+        except json.JSONDecodeError as exc:
+            raise OptionDataError(
+                "Alpaca option-data response was not valid JSON"
+            ) from exc
+        if not isinstance(payload, dict):
+            raise OptionDataError(
+                "Alpaca option-data response was not an object"
+            )
+        return payload
 
 
 @dataclass(frozen=True, slots=True)

@@ -38,6 +38,9 @@ from multitrade.options import (
     AlpacaOptionChainClient,
     OptionLiquidityPolicy,
 )
+from multitrade.option_evidence import (
+    ContinuousOptionEvidenceService,
+)
 from multitrade.portfolio import load_account_plans
 from multitrade.research import (
     ContinuousResearchService,
@@ -304,6 +307,17 @@ def _doctor() -> int:
         "option_allocations": option_allocations,
         "option_execution_requires_opra": True,
         "option_theta_is_modeled_not_realized": True,
+        "option_evidence_timeframe": (
+            settings.option_evidence_timeframe
+        ),
+        "option_evidence_maximum_observations": (
+            settings.option_evidence_maximum_observations
+        ),
+        "option_evidence_slippage_per_leg": format(
+            settings.option_evidence_slippage_per_leg, "f"
+        ),
+        "option_evidence_type": "exact_contract_trade_bar_proxy",
+        "option_evidence_execution_enabled": False,
         "portfolio_config_path": str(settings.portfolio_config_path),
         "portfolio_configuration_valid": portfolio_configuration_valid,
         "portfolio_configuration_error": (
@@ -868,6 +882,102 @@ def _strategy_lab_healthcheck() -> int:
     return 0 if healthy else 1
 
 
+def _option_evidence(once: bool) -> int:
+    settings = Settings.from_env()
+    plans = tuple(
+        plan
+        for plan in load_account_plans(
+            settings.portfolio_config_path
+        )
+        if plan.enabled
+    )
+    if not plans:
+        raise ValueError(
+            "At least one enabled Paper account plan is required"
+        )
+    evidence_store = SqliteAuditStore(settings.db_path)
+    services = tuple(
+        ContinuousOptionEvidenceService.from_account_plan(
+            settings,
+            plan,
+            store=evidence_store,
+        )
+        for plan in plans
+    )
+    stop_event = threading.Event()
+
+    def request_shutdown(signum, frame) -> None:
+        del signum, frame
+        stop_event.set()
+
+    if not once:
+        signal.signal(signal.SIGTERM, request_shutdown)
+        signal.signal(signal.SIGINT, request_shutdown)
+
+    while True:
+        try:
+            result = _run_account_services_cycle(
+                services,
+                component="continuous_option_evidence",
+                health_path=settings.option_evidence_health_path,
+            )
+            print(
+                json.dumps(
+                    result,
+                    default=_json_default,
+                    sort_keys=True,
+                ),
+                flush=True,
+            )
+            if once and result["accounts_failed"]:
+                return 1
+        except Exception as exc:
+            write_health(
+                settings.option_evidence_health_path,
+                "error",
+                {"error_type": type(exc).__name__},
+            )
+            print(
+                json.dumps(
+                    {
+                        "status": "error",
+                        "component": "option_evidence",
+                        "error_type": type(exc).__name__,
+                        "message": str(exc),
+                    },
+                    sort_keys=True,
+                ),
+                file=sys.stderr,
+                flush=True,
+            )
+            if once:
+                return 1
+        if once:
+            return 0
+        if stop_event.wait(settings.option_evidence_cycle_seconds):
+            print(
+                json.dumps(
+                    {
+                        "status": "stopped",
+                        "component": "option_evidence",
+                    },
+                    sort_keys=True,
+                ),
+                flush=True,
+            )
+            return 0
+
+
+def _option_evidence_healthcheck() -> int:
+    settings = Settings.from_env()
+    healthy, result = check_health(
+        settings.option_evidence_health_path,
+        settings.option_evidence_health_max_age_seconds,
+    )
+    print(json.dumps(result, sort_keys=True))
+    return 0 if healthy else 1
+
+
 def _asset_universe(once: bool) -> int:
     settings = Settings.from_env()
     plans = tuple(
@@ -1205,6 +1315,12 @@ def _dashboard() -> int:
         strategy_lab_health_max_age_seconds=(
             settings.strategy_lab_health_max_age_seconds
         ),
+        option_evidence_health_path=(
+            settings.option_evidence_health_path
+        ),
+        option_evidence_health_max_age_seconds=(
+            settings.option_evidence_health_max_age_seconds
+        ),
         asset_universe_health_path=(
             settings.asset_universe_health_path
         ),
@@ -1385,6 +1501,22 @@ def build_parser() -> argparse.ArgumentParser:
         "strategy-lab-healthcheck",
         help="Check whether the latest Strategy Lab cycle is fresh",
     )
+    option_evidence_parser = subparsers.add_parser(
+        "option-evidence",
+        help=(
+            "Analyze frozen option packages with exact-contract "
+            "historical trade-bar proxies"
+        ),
+    )
+    option_evidence_parser.add_argument(
+        "--once",
+        action="store_true",
+        help="Run one option-evidence cycle and exit",
+    )
+    subparsers.add_parser(
+        "option-evidence-healthcheck",
+        help="Check whether the latest option-evidence cycle is fresh",
+    )
     universe_parser = subparsers.add_parser(
         "asset-universe",
         help=(
@@ -1477,6 +1609,10 @@ def main(argv: list[str] | None = None) -> int:
             return _strategy_lab(args.once)
         if args.command == "strategy-lab-healthcheck":
             return _strategy_lab_healthcheck()
+        if args.command == "option-evidence":
+            return _option_evidence(args.once)
+        if args.command == "option-evidence-healthcheck":
+            return _option_evidence_healthcheck()
         if args.command == "asset-universe":
             return _asset_universe(args.once)
         if args.command == "asset-universe-healthcheck":
