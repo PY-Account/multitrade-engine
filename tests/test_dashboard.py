@@ -129,6 +129,7 @@ class DashboardTests(TestCase):
             self.assertEqual(result["research_backtests"], [])
             self.assertEqual(result["portfolio_risk_reports"], [])
             self.assertEqual(result["strategy_lab_reports"], [])
+            self.assertEqual(result["strategy_model_trials"], [])
             self.assertEqual(result["asset_universe_reports"], [])
             self.assertFalse(
                 result["asset_universe"]["execution_enabled"]
@@ -214,6 +215,10 @@ class DashboardTests(TestCase):
                 self.assertIn("Continuous Strategy Lab", html)
                 self.assertIn("Chronological stability", html)
                 self.assertIn("Trade-sequence stress", html)
+                self.assertIn(
+                    "Immutable model-trial registry", html
+                )
+                self.assertIn("Trial Registry", html)
                 self.assertIn(
                     'data-secondary="robustness"', html
                 )

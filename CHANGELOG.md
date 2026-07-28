@@ -1,5 +1,26 @@
 # Changelog
 
+## 0.9.0 - 2026-07-28
+
+- Added an append-only model-trial registry for every new Strategy Lab
+  evaluation.
+- Added independent SHA-256 fingerprints for the evaluated strategy
+  implementation/parameters, laboratory and allocation configuration, and
+  exact normalized market-bar dataset.
+- Made Strategy Lab report and trial insertion atomic and blocked ordinary SQL
+  updates or deletes against registered trials and their associated reports.
+- Added per-account/per-strategy hash chains covering trial identity, outcomes,
+  gates, warnings, lineage, and the structurally false execution flag.
+- Added read-time self-hash and chain-link verification plus a dedicated
+  dashboard Trial Registry view.
+- Documented that this local ledger is tamper-evident rather than externally
+  anchored, that pre-0.9 trials are not assigned invented provenance, and that
+  PBO/Deflated-Sharpe calculations still require enough distinct candidates
+  and an untouched final holdout.
+
+This release remains Alpaca Paper-only. Trial registration preserves research
+evidence but does not promote a model or grant execution permission.
+
 ## 0.8.0 - 2026-07-28
 
 - Added fixed-parameter Strategy Lab evaluation across three configurable,

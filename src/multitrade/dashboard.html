@@ -512,6 +512,18 @@
     </div>
   </section>
 
+  <section class="panel workspace-view" data-primary="strategy-lab" data-secondary="trials">
+    <div class="panel-head">
+      <div><h2>Immutable model-trial registry</h2><p class="subcopy">Every evaluated candidate is append-only and identified by its implementation and parameters, laboratory configuration, and exact input dataset. Per-strategy hash chains expose conflicting mutation or broken lineage.</p></div>
+    </div>
+    <div class="table-wrap">
+      <table>
+        <thead><tr><th>Evaluated</th><th class="number">Sequence</th><th>Strategy</th><th>Candidate</th><th>Configuration</th><th>Dataset</th><th>Symbols</th><th class="number">Bars</th><th class="number">OOS trades</th><th class="number">Fold trades</th><th>Gates</th><th>Readiness</th><th>Integrity</th><th>Execution</th></tr></thead>
+        <tbody id="strategy-model-trials"></tbody>
+      </table>
+    </div>
+  </section>
+
   <section class="panel workspace-view" data-primary="strategy-lab" data-secondary="validation">
     <div class="panel-head">
       <div><h2>Backtest validation</h2><p class="subcopy">Results include slippage and conservative same-bar stop handling. A result is not proof of future performance.</p></div>
@@ -635,6 +647,7 @@
     "strategy-lab": [
       ["validation", "Model Validation"],
       ["robustness", "Robustness"],
+      ["trials", "Trial Registry"],
       ["monitoring", "Signals & Bots"],
       ["market-model", "Market Model"],
       ["evidence", "Evidence"],
@@ -1315,6 +1328,47 @@
     }
   }
 
+  function renderStrategyModelTrials(trials) {
+    const body = document.getElementById("strategy-model-trials");
+    body.replaceChildren();
+    const accountTrials = trials.filter(
+      trial => trial.account_id === selectedAccountId
+    );
+    if (!accountTrials.length) {
+      emptyRow(body, 14, "No immutable model trial has been registered for this account.");
+      return;
+    }
+    for (const trial of accountTrials) {
+      const metrics = trial.aggregate_metrics || {};
+      const passedGates = Object.values(trial.gates || {})
+        .filter(Boolean).length;
+      const totalGates = Object.keys(trial.gates || {}).length;
+      const readiness = (trial.readiness_status || "unknown")
+        .replaceAll("_", " ");
+      const values = [
+        [localTime(trial.evaluated_at), ""],
+        [trial.sequence, "number"],
+        [`${trial.strategy_id} v${trial.strategy_version}`, ""],
+        [(trial.candidate_fingerprint || "").slice(0, 12), ""],
+        [(trial.configuration_fingerprint || "").slice(0, 12), ""],
+        [(trial.dataset_fingerprint || "").slice(0, 12), ""],
+        [(trial.symbols_requested || []).join(", "), ""],
+        [trial.dataset_summary?.total_bars ?? 0, "number"],
+        [metrics.out_of_sample_trade_count ?? 0, "number"],
+        [metrics.chronological_trade_count ?? 0, "number"],
+        [`${passedGates}/${totalGates}`, passedGates === totalGates && totalGates ? "ok" : "warn"],
+        [readiness, trial.readiness_status === "extended_paper_observation_candidate" ? "ok" : "warn"],
+        [trial.integrity_valid ? "Verified" : "Broken", trial.integrity_valid ? "ok" : "bad"],
+        [trial.execution_eligible ? "Eligible" : "Blocked", trial.execution_eligible ? "bad" : "ok"],
+      ];
+      const row = document.createElement("tr");
+      for (const [value, className] of values) {
+        row.appendChild(cell(value, className));
+      }
+      body.appendChild(row);
+    }
+  }
+
   function renderStrategyRuntime(runtime) {
     const body = document.getElementById("strategy-runtime");
     body.replaceChildren();
@@ -1796,6 +1850,7 @@
       renderPortfolioRiskReports(data.portfolio_risk_reports || []);
       renderStrategyLabReports(data.strategy_lab_reports || []);
       renderStrategyRobustness(data.strategy_lab_reports || []);
+      renderStrategyModelTrials(data.strategy_model_trials || []);
       renderAssetCandidates(data.asset_universe_reports || []);
       renderUniverseAssignments(
         data.asset_universe?.configuration,

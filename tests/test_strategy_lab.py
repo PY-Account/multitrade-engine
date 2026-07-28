@@ -1,3 +1,5 @@
+import sqlite3
+from contextlib import closing
 from dataclasses import dataclass
 from datetime import datetime, timedelta, timezone
 from decimal import Decimal
@@ -239,6 +241,7 @@ class StrategyLabTests(TestCase):
             ).recent_strategy_lab_reports()
 
             self.assertEqual(result.reports_completed, 1)
+            self.assertEqual(result.trials_registered, 1)
             self.assertEqual(market_data.adjustment, "raw")
             self.assertEqual(len(reports), 1)
             self.assertFalse(reports[0]["execution_eligible"])
@@ -250,7 +253,115 @@ class StrategyLabTests(TestCase):
                 ),
                 3,
             )
+            trials = SqliteAuditReader(
+                db_path
+            ).recent_strategy_model_trials()
+            self.assertEqual(len(trials), 1)
+            self.assertTrue(trials[0]["integrity_valid"])
+            self.assertFalse(trials[0]["execution_eligible"])
+            self.assertEqual(
+                len(trials[0]["candidate_fingerprint"]),
+                64,
+            )
             self.assertTrue(health_path.is_file())
+
+    def test_trial_chain_is_append_only_and_tamper_evident(
+        self,
+    ) -> None:
+        with TemporaryDirectory() as directory:
+            db_path = Path(directory) / "trading.db"
+            service = ContinuousStrategyLabService(
+                account_plan=account_plan(),
+                strategies={
+                    "frequent_test": FrequentTestStrategy()
+                },
+                market_data=FakeMarketData(),
+                store=SqliteAuditStore(db_path),
+                health_path=str(
+                    Path(directory) / "strategy-lab-health.json"
+                ),
+                config=StrategyLabConfig(
+                    base_slippage_bps=Decimal("0"),
+                    stressed_slippage_bps=Decimal("10"),
+                    minimum_out_of_sample_trades=20,
+                ),
+            )
+
+            service.run_cycle()
+            service.run_cycle()
+            trials = SqliteAuditReader(
+                db_path
+            ).recent_strategy_model_trials()
+
+            self.assertEqual(len(trials), 2)
+            latest, previous = trials
+            self.assertEqual(
+                latest["previous_trial_hash"],
+                previous["trial_hash"],
+            )
+            self.assertEqual(
+                latest["candidate_fingerprint"],
+                previous["candidate_fingerprint"],
+            )
+            self.assertEqual(
+                latest["configuration_fingerprint"],
+                previous["configuration_fingerprint"],
+            )
+            self.assertEqual(
+                latest["dataset_fingerprint"],
+                previous["dataset_fingerprint"],
+            )
+            self.assertTrue(
+                all(trial["integrity_valid"] for trial in trials)
+            )
+
+            with closing(sqlite3.connect(db_path)) as connection:
+                with self.assertRaises(sqlite3.IntegrityError):
+                    connection.execute(
+                        """
+                        UPDATE strategy_model_trials
+                        SET readiness_status = 'changed'
+                        WHERE trial_id = ?
+                        """,
+                        (latest["trial_id"],),
+                    )
+            with closing(sqlite3.connect(db_path)) as connection:
+                with self.assertRaises(sqlite3.IntegrityError):
+                    connection.execute(
+                        """
+                        DELETE FROM strategy_model_trials
+                        WHERE trial_id = ?
+                        """,
+                        (latest["trial_id"],),
+                    )
+            with closing(sqlite3.connect(db_path)) as connection:
+                with self.assertRaises(sqlite3.IntegrityError):
+                    connection.execute(
+                        """
+                        UPDATE strategy_lab_reports
+                        SET readiness_status = 'changed'
+                        WHERE report_id = ?
+                        """,
+                        (latest["report_id"],),
+                    )
+            with closing(sqlite3.connect(db_path)) as connection:
+                connection.execute(
+                    "DROP TRIGGER strategy_model_trials_no_update"
+                )
+                connection.execute(
+                    """
+                    UPDATE strategy_model_trials
+                    SET candidate_definition_json = '{}'
+                    WHERE trial_id = ?
+                    """,
+                    (latest["trial_id"],),
+                )
+                connection.commit()
+            tampered = SqliteAuditReader(
+                db_path
+            ).recent_strategy_model_trials()
+            self.assertFalse(tampered[0]["self_hash_valid"])
+            self.assertFalse(tampered[0]["integrity_valid"])
 
     def test_continuous_cycle_uses_strategy_specific_research_symbols(
         self,

@@ -64,9 +64,12 @@ The current release does **not** claim to implement:
 - an automatic multiple-hypothesis correction.
 
 Those methods require a complete, immutable registry of every economically
-related candidate and parameter trial. Adding a formula without that trial
-history would provide false precision. A later implementation must first add
-that registry and preserve an untouched final holdout.
+related candidate and parameter trial. Version 0.9.0 starts that registry for
+new Strategy Lab cycles, but it does not retroactively invent trial history.
+MultiTrade must still accumulate enough distinct trials, define candidate
+families without using their outcomes, and preserve an untouched final
+holdout. Adding the formulas before those conditions exist would provide false
+precision. See `MODEL_TRIAL_REGISTRY.md`.
 
 ## Operational interpretation
 

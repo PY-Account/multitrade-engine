@@ -87,6 +87,15 @@ implementation of combinatorially symmetric cross-validation, the probability
 of backtest overfitting, or the Deflated Sharpe Ratio. See
 `ROBUSTNESS_VALIDATION.md` for the exact gates and limitations.
 
+Every new Strategy Lab evaluation is now also written to the immutable
+model-trial registry. Candidate implementation and parameters, laboratory
+configuration, and the exact input dataset receive independent fingerprints.
+Append-only database triggers and per-strategy hash chains prevent ordinary
+application/SQL mutation and expose broken lineage in the dashboard. This
+removes one important source of selective reporting, but enough distinct
+candidate trials and an untouched final holdout must exist before PBO or the
+Deflated Sharpe Ratio can be calculated responsibly.
+
 ## Daily-model validation rules
 
 The daily research simulator requests `adjustment=all` from Alpaca so splits,

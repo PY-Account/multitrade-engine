@@ -64,6 +64,14 @@ favorable trial.
 Readiness is an analytical label and has no path to broker credentials or
 order permission.
 
+The Strategy Lab report and its model-trial registry entry are committed
+atomically. The trial separately fingerprints the strategy implementation and
+parameters, validation/allocation configuration, and exact normalized market
+bars. Append-only triggers protect registered rows and their associated
+reports, while a per-account/per-strategy hash chain makes broken lineage
+visible to the read-only dashboard. This ledger is locally tamper-evident, not
+an externally signed or write-once audit service.
+
 ### Pattern and regime analysis
 
 `FeatureEngine` calculates decision-time features without future data.
@@ -149,7 +157,8 @@ optimizer or a hedge order generator.
 
 The dashboard is read-only. Its primary workspaces are Account, Asset Universe,
 Strategy Lab, Allocation & Risk, and Operations, with horizontal secondary
-navigation and an account selector ready for the later multi-account boundary.
+navigation, a model-trial registry view, and an account selector ready for the
+later multi-account boundary.
 It uses
 authenticated HTTPS, strict security headers, safe DOM text rendering,
 SQLite query-only connections, and browser-local preferences. It cannot
@@ -176,7 +185,7 @@ shared `/app/var` volume.
 
 ## Scaling boundary
 
-Release 0.8 intentionally supports one enabled Paper account and one
+Release 0.9 intentionally supports one enabled Paper account and one
 orchestrator. Multi-account/cross-broker execution requires PostgreSQL with
 account-scoped reservations, a portfolio-wide exposure service, credential
 isolation per connector, and distributed locking. Dedicated crypto and forex

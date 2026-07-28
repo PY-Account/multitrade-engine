@@ -5,7 +5,7 @@ algorithmic-trading organization. It separates market analysis, strategy
 signals, portfolio allocation, central risk approval, broker execution,
 reconciliation, audit, backtesting, and monitoring.
 
-Release 0.8 is designed for controlled Alpaca Paper observation and dry-run
+Release 0.9 is designed for controlled Alpaca Paper observation and dry-run
 testing. It does not support live trading and it does not claim that any
 strategy is profitable.
 
@@ -66,6 +66,10 @@ The 3% and 10% figures are hard ceilings, not operating targets.
   gates, evaluates frozen parameters across non-overlapping chronological
   windows, runs deterministic trade-sequence tail stress, and can never enable
   execution.
+- An append-only model-trial registry that fingerprints strategy code and
+  parameters, laboratory configuration, and exact market inputs; registered
+  trials are hash-chained per account/strategy and independently verified by
+  the read-only dashboard.
 - An Asset Universe department combining operator seeds and Alpaca's
   most-active screener, then failing closed through price, active/tradable
   status, exchange, company-size evidence, evidence age, share-volume,

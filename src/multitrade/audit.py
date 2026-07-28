@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import hashlib
 import json
 import sqlite3
 from contextlib import closing
@@ -57,6 +58,57 @@ def _json(value: Any) -> str:
         sort_keys=True,
         separators=(",", ":"),
     )
+
+
+def _strategy_trial_integrity_payload(
+    *,
+    trial_id: str,
+    report_id: str,
+    account_id: str,
+    strategy_id: str,
+    strategy_version: str,
+    evaluated_at: str,
+    candidate_fingerprint: str,
+    configuration_fingerprint: str,
+    dataset_fingerprint: str,
+    candidate_definition: dict[str, Any],
+    configuration: dict[str, Any],
+    dataset_summary: dict[str, Any],
+    symbols_requested: Iterable[str],
+    readiness_status: str,
+    aggregate_metrics: dict[str, Any],
+    gates: dict[str, bool],
+    warnings: Iterable[str],
+    previous_trial_hash: str | None,
+    execution_eligible: bool,
+) -> dict[str, Any]:
+    return {
+        "trial_id": trial_id,
+        "report_id": report_id,
+        "account_id": account_id,
+        "strategy_id": strategy_id,
+        "strategy_version": strategy_version,
+        "evaluated_at": evaluated_at,
+        "candidate_fingerprint": candidate_fingerprint,
+        "configuration_fingerprint": configuration_fingerprint,
+        "dataset_fingerprint": dataset_fingerprint,
+        "candidate_definition": candidate_definition,
+        "configuration": configuration,
+        "dataset_summary": dataset_summary,
+        "symbols_requested": tuple(symbols_requested),
+        "readiness_status": readiness_status,
+        "aggregate_metrics": aggregate_metrics,
+        "gates": gates,
+        "warnings": tuple(warnings),
+        "previous_trial_hash": previous_trial_hash,
+        "execution_eligible": execution_eligible,
+    }
+
+
+def _strategy_trial_hash(payload: dict[str, Any]) -> str:
+    return hashlib.sha256(
+        _json(payload).encode("utf-8")
+    ).hexdigest()
 
 
 class SqliteAuditStore:
@@ -375,6 +427,93 @@ class SqliteAuditStore:
 
                 CREATE INDEX IF NOT EXISTS idx_strategy_lab_recent
                 ON strategy_lab_reports(evaluated_at DESC);
+
+                CREATE TABLE IF NOT EXISTS strategy_model_trials (
+                    sequence INTEGER PRIMARY KEY AUTOINCREMENT,
+                    trial_id TEXT NOT NULL UNIQUE,
+                    report_id TEXT NOT NULL UNIQUE,
+                    account_id TEXT NOT NULL,
+                    strategy_id TEXT NOT NULL,
+                    strategy_version TEXT NOT NULL,
+                    evaluated_at TEXT NOT NULL,
+                    candidate_fingerprint TEXT NOT NULL,
+                    configuration_fingerprint TEXT NOT NULL,
+                    dataset_fingerprint TEXT NOT NULL,
+                    candidate_definition_json TEXT NOT NULL,
+                    configuration_json TEXT NOT NULL,
+                    dataset_summary_json TEXT NOT NULL,
+                    symbols_requested_json TEXT NOT NULL,
+                    readiness_status TEXT NOT NULL,
+                    aggregate_metrics_json TEXT NOT NULL,
+                    gates_json TEXT NOT NULL,
+                    warnings_json TEXT NOT NULL,
+                    previous_trial_hash TEXT,
+                    trial_hash TEXT NOT NULL UNIQUE,
+                    execution_eligible INTEGER NOT NULL
+                        CHECK (execution_eligible = 0),
+                    FOREIGN KEY (report_id)
+                        REFERENCES strategy_lab_reports(report_id)
+                );
+
+                CREATE INDEX IF NOT EXISTS idx_strategy_trials_recent
+                ON strategy_model_trials(
+                    evaluated_at DESC, strategy_id
+                );
+
+                CREATE INDEX IF NOT EXISTS idx_strategy_trials_candidate
+                ON strategy_model_trials(
+                    account_id, strategy_id, candidate_fingerprint
+                );
+
+                CREATE TRIGGER IF NOT EXISTS
+                    strategy_model_trials_no_update
+                BEFORE UPDATE ON strategy_model_trials
+                BEGIN
+                    SELECT RAISE(
+                        ABORT,
+                        'strategy_model_trials are immutable'
+                    );
+                END;
+
+                CREATE TRIGGER IF NOT EXISTS
+                    strategy_model_trials_no_delete
+                BEFORE DELETE ON strategy_model_trials
+                BEGIN
+                    SELECT RAISE(
+                        ABORT,
+                        'strategy_model_trials are immutable'
+                    );
+                END;
+
+                CREATE TRIGGER IF NOT EXISTS
+                    strategy_lab_reports_with_trial_no_update
+                BEFORE UPDATE ON strategy_lab_reports
+                WHEN EXISTS (
+                    SELECT 1
+                    FROM strategy_model_trials
+                    WHERE report_id = OLD.report_id
+                )
+                BEGIN
+                    SELECT RAISE(
+                        ABORT,
+                        'registered strategy reports are immutable'
+                    );
+                END;
+
+                CREATE TRIGGER IF NOT EXISTS
+                    strategy_lab_reports_with_trial_no_delete
+                BEFORE DELETE ON strategy_lab_reports
+                WHEN EXISTS (
+                    SELECT 1
+                    FROM strategy_model_trials
+                    WHERE report_id = OLD.report_id
+                )
+                BEGIN
+                    SELECT RAISE(
+                        ABORT,
+                        'registered strategy reports are immutable'
+                    );
+                END;
 
                 CREATE TABLE IF NOT EXISTS asset_universe_reports (
                     report_id TEXT PRIMARY KEY,
@@ -1630,6 +1769,7 @@ class SqliteAuditStore:
     ) -> None:
         connection = self._connect()
         try:
+            connection.execute("BEGIN IMMEDIATE")
             connection.execute(
                 """
                 INSERT INTO strategy_lab_reports (
@@ -1641,15 +1781,6 @@ class SqliteAuditStore:
                     gates_json, warnings_json, readiness_status,
                     execution_eligible
                 ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-                ON CONFLICT(report_id) DO UPDATE SET
-                    evaluated_at = excluded.evaluated_at,
-                    symbol_results_json = excluded.symbol_results_json,
-                    aggregate_metrics_json =
-                        excluded.aggregate_metrics_json,
-                    gates_json = excluded.gates_json,
-                    warnings_json = excluded.warnings_json,
-                    readiness_status = excluded.readiness_status,
-                    execution_eligible = excluded.execution_eligible
                 """,
                 (
                     report.report_id,
@@ -1673,6 +1804,99 @@ class SqliteAuditStore:
                     int(report.execution_eligible),
                 ),
             )
+            previous = connection.execute(
+                """
+                SELECT trial_hash
+                FROM strategy_model_trials
+                WHERE account_id = ? AND strategy_id = ?
+                ORDER BY sequence DESC
+                LIMIT 1
+                """,
+                (report.account_id, report.strategy_id),
+            ).fetchone()
+            previous_trial_hash = (
+                previous["trial_hash"]
+                if previous is not None
+                else None
+            )
+            definition = report.trial_definition
+            integrity_payload = _strategy_trial_integrity_payload(
+                trial_id=report.report_id,
+                report_id=report.report_id,
+                account_id=report.account_id,
+                strategy_id=report.strategy_id,
+                strategy_version=report.strategy_version,
+                evaluated_at=report.evaluated_at.isoformat(),
+                candidate_fingerprint=(
+                    definition.candidate_fingerprint
+                ),
+                configuration_fingerprint=(
+                    definition.configuration_fingerprint
+                ),
+                dataset_fingerprint=(
+                    definition.dataset_fingerprint
+                ),
+                candidate_definition=(
+                    definition.candidate_definition
+                ),
+                configuration=definition.configuration,
+                dataset_summary=definition.dataset_summary,
+                symbols_requested=report.symbols_requested,
+                readiness_status=report.readiness_status,
+                aggregate_metrics=report.aggregate_metrics,
+                gates=report.gates,
+                warnings=report.warnings,
+                previous_trial_hash=previous_trial_hash,
+                execution_eligible=report.execution_eligible,
+            )
+            trial_hash = _strategy_trial_hash(integrity_payload)
+            connection.execute(
+                """
+                INSERT INTO strategy_model_trials (
+                    trial_id, report_id, account_id, strategy_id,
+                    strategy_version, evaluated_at,
+                    candidate_fingerprint,
+                    configuration_fingerprint,
+                    dataset_fingerprint,
+                    candidate_definition_json,
+                    configuration_json, dataset_summary_json,
+                    symbols_requested_json, readiness_status,
+                    aggregate_metrics_json, gates_json,
+                    warnings_json, previous_trial_hash,
+                    trial_hash, execution_eligible
+                ) VALUES (
+                    ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?,
+                    ?, ?
+                )
+                """,
+                (
+                    report.report_id,
+                    report.report_id,
+                    report.account_id,
+                    report.strategy_id,
+                    report.strategy_version,
+                    report.evaluated_at.isoformat(),
+                    definition.candidate_fingerprint,
+                    definition.configuration_fingerprint,
+                    definition.dataset_fingerprint,
+                    _json(definition.candidate_definition),
+                    _json(definition.configuration),
+                    _json(definition.dataset_summary),
+                    _json(report.symbols_requested),
+                    report.readiness_status,
+                    _json(report.aggregate_metrics),
+                    _json(report.gates),
+                    _json(report.warnings),
+                    previous_trial_hash,
+                    trial_hash,
+                    int(report.execution_eligible),
+                ),
+            )
+            connection.execute("COMMIT")
+        except Exception:
+            if connection.in_transaction:
+                connection.execute("ROLLBACK")
+            raise
         finally:
             self._close_if_needed(connection)
 
@@ -2270,6 +2494,152 @@ class SqliteAuditReader:
             }
             for row in rows
         ]
+
+    def recent_strategy_model_trials(
+        self, limit: int = 100
+    ) -> list[dict[str, Any]]:
+        safe_limit = max(1, min(limit, 500))
+        with closing(self._connect()) as connection:
+            chain_rows = connection.execute(
+                """
+                SELECT sequence, account_id, strategy_id, trial_hash
+                FROM strategy_model_trials
+                ORDER BY sequence
+                """
+            ).fetchall()
+            rows = connection.execute(
+                """
+                SELECT sequence, trial_id, report_id, account_id,
+                       strategy_id, strategy_version, evaluated_at,
+                       candidate_fingerprint,
+                       configuration_fingerprint,
+                       dataset_fingerprint,
+                       candidate_definition_json,
+                       configuration_json,
+                       dataset_summary_json,
+                       symbols_requested_json,
+                       readiness_status,
+                       aggregate_metrics_json, gates_json,
+                       warnings_json, previous_trial_hash,
+                       trial_hash, execution_eligible
+                FROM strategy_model_trials
+                ORDER BY sequence DESC
+                LIMIT ?
+                """,
+                (safe_limit,),
+            ).fetchall()
+
+        expected_previous: dict[int, str | None] = {}
+        latest_by_strategy: dict[tuple[str, str], str] = {}
+        for chain_row in chain_rows:
+            key = (
+                chain_row["account_id"],
+                chain_row["strategy_id"],
+            )
+            expected_previous[chain_row["sequence"]] = (
+                latest_by_strategy.get(key)
+            )
+            latest_by_strategy[key] = chain_row["trial_hash"]
+
+        result: list[dict[str, Any]] = []
+        for row in rows:
+            candidate_definition = json.loads(
+                row["candidate_definition_json"]
+            )
+            configuration = json.loads(
+                row["configuration_json"]
+            )
+            dataset_summary = json.loads(
+                row["dataset_summary_json"]
+            )
+            symbols_requested = json.loads(
+                row["symbols_requested_json"]
+            )
+            aggregate_metrics = json.loads(
+                row["aggregate_metrics_json"]
+            )
+            gates = json.loads(row["gates_json"])
+            warnings = json.loads(row["warnings_json"])
+            integrity_payload = _strategy_trial_integrity_payload(
+                trial_id=row["trial_id"],
+                report_id=row["report_id"],
+                account_id=row["account_id"],
+                strategy_id=row["strategy_id"],
+                strategy_version=row["strategy_version"],
+                evaluated_at=row["evaluated_at"],
+                candidate_fingerprint=(
+                    row["candidate_fingerprint"]
+                ),
+                configuration_fingerprint=(
+                    row["configuration_fingerprint"]
+                ),
+                dataset_fingerprint=row["dataset_fingerprint"],
+                candidate_definition=candidate_definition,
+                configuration=configuration,
+                dataset_summary=dataset_summary,
+                symbols_requested=symbols_requested,
+                readiness_status=row["readiness_status"],
+                aggregate_metrics=aggregate_metrics,
+                gates=gates,
+                warnings=warnings,
+                previous_trial_hash=row["previous_trial_hash"],
+                execution_eligible=bool(
+                    row["execution_eligible"]
+                ),
+            )
+            self_hash_valid = (
+                _strategy_trial_hash(integrity_payload)
+                == row["trial_hash"]
+            )
+            chain_link_valid = (
+                row["previous_trial_hash"]
+                == expected_previous[row["sequence"]]
+            )
+            result.append(
+                {
+                    "sequence": row["sequence"],
+                    "trial_id": row["trial_id"],
+                    "report_id": row["report_id"],
+                    "account_id": row["account_id"],
+                    "strategy_id": row["strategy_id"],
+                    "strategy_version": row[
+                        "strategy_version"
+                    ],
+                    "evaluated_at": row["evaluated_at"],
+                    "candidate_fingerprint": row[
+                        "candidate_fingerprint"
+                    ],
+                    "configuration_fingerprint": row[
+                        "configuration_fingerprint"
+                    ],
+                    "dataset_fingerprint": row[
+                        "dataset_fingerprint"
+                    ],
+                    "candidate_definition": candidate_definition,
+                    "configuration": configuration,
+                    "dataset_summary": dataset_summary,
+                    "symbols_requested": symbols_requested,
+                    "readiness_status": row[
+                        "readiness_status"
+                    ],
+                    "aggregate_metrics": aggregate_metrics,
+                    "gates": gates,
+                    "warnings": warnings,
+                    "previous_trial_hash": row[
+                        "previous_trial_hash"
+                    ],
+                    "trial_hash": row["trial_hash"],
+                    "self_hash_valid": self_hash_valid,
+                    "chain_link_valid": chain_link_valid,
+                    "integrity_valid": (
+                        self_hash_valid and chain_link_valid
+                    ),
+                    "execution_eligible": bool(
+                        row["execution_eligible"]
+                    ),
+                }
+            )
+        return result
 
     def recent_asset_universe_reports(
         self, limit: int = 30

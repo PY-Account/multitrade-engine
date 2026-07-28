@@ -21,6 +21,10 @@ from multitrade.portfolio import AccountPlan, load_account_plans
 from multitrade.robustness import TradeSequenceStressTester
 from multitrade.strategies import default_equity_strategies
 from multitrade.strategies.base import Strategy
+from multitrade.trials import (
+    StrategyTrialDefinition,
+    build_strategy_trial_definition,
+)
 from multitrade.universe import (
     AssetUniverseProgram,
     load_asset_universe_program,
@@ -105,9 +109,18 @@ class StrategyLabReport:
     gates: dict[str, bool]
     warnings: tuple[str, ...]
     readiness_status: str
+    trial_definition: StrategyTrialDefinition
     execution_eligible: bool = False
 
     def __post_init__(self) -> None:
+        if not self.report_id or not self.account_id:
+            raise ValueError(
+                "Strategy Lab report identity is required"
+            )
+        if self.evaluated_at.tzinfo is None:
+            raise ValueError(
+                "Strategy Lab evaluation time must be timezone-aware"
+            )
         if self.execution_eligible:
             raise ValueError(
                 "Strategy Lab reports cannot authorize execution"
@@ -127,6 +140,7 @@ class StrategyLabCycleResult:
     timeframe: str
     strategies_evaluated: int
     reports_completed: int
+    trials_registered: int
     symbols_requested: int
     symbols_with_bars: int
     request_ids: tuple[str, ...]
@@ -184,6 +198,14 @@ class StrategyLabEvaluator:
         )
         if not requested_symbols:
             raise ValueError("Strategy Lab requires assigned symbols")
+        trial_definition = build_strategy_trial_definition(
+            strategy=strategy,
+            allocation=allocation,
+            account_plan=account_plan,
+            lab_config=self.config,
+            requested_symbols=requested_symbols,
+            bars_by_symbol=bars_by_symbol,
+        )
 
         for symbol in requested_symbols:
             bars = tuple(
@@ -434,6 +456,7 @@ class StrategyLabEvaluator:
             gates=gates,
             warnings=tuple(warnings),
             readiness_status=readiness,
+            trial_definition=trial_definition,
             execution_eligible=False,
         )
 
@@ -717,6 +740,7 @@ class ContinuousStrategyLabService:
             {
                 "timeframe": self.account_plan.timeframe,
                 "strategies_evaluated": len(reports),
+                "immutable_trials_registered": len(reports),
                 "symbols_requested": len(requested_symbols),
                 "symbols_with_bars": sum(
                     bool(rows) for rows in usable.values()
@@ -728,6 +752,7 @@ class ContinuousStrategyLabService:
             "account_id": self.account_plan.account_id,
             "timeframe": self.account_plan.timeframe,
             "strategies_evaluated": len(reports),
+            "immutable_trials_registered": len(reports),
             "symbols_requested": len(requested_symbols),
             "symbols_with_bars": sum(bool(rows) for rows in usable.values()),
             "execution_enabled": False,
@@ -739,6 +764,7 @@ class ContinuousStrategyLabService:
             timeframe=self.account_plan.timeframe,
             strategies_evaluated=len(self.account_plan.allocations),
             reports_completed=len(reports),
+            trials_registered=len(reports),
             symbols_requested=len(requested_symbols),
             symbols_with_bars=sum(bool(rows) for rows in usable.values()),
             request_ids=tuple(self.market_data.request_ids),

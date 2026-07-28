@@ -176,6 +176,9 @@ class DashboardData:
             strategy_lab_reports = (
                 self.reader.recent_strategy_lab_reports(40)
             )
+            strategy_model_trials = (
+                self.reader.recent_strategy_model_trials(100)
+            )
             asset_universe_reports = (
                 self.reader.recent_asset_universe_reports(20)
             )
@@ -194,6 +197,7 @@ class DashboardData:
             research_backtests = []
             portfolio_risk_reports = []
             strategy_lab_reports = []
+            strategy_model_trials = []
             asset_universe_reports = []
             storage = {"status": "unavailable"}
 
@@ -364,6 +368,7 @@ class DashboardData:
             "research_backtests": research_backtests,
             "portfolio_risk_reports": portfolio_risk_reports,
             "strategy_lab_reports": strategy_lab_reports,
+            "strategy_model_trials": strategy_model_trials,
             "asset_universe_reports": asset_universe_reports,
             "evidence_catalog": evidence_catalog(),
         }
@@ -393,7 +398,7 @@ class DashboardData:
 
 
 class DashboardRequestHandler(BaseHTTPRequestHandler):
-    server_version = "MultiTradeDashboard/0.8.0"
+    server_version = "MultiTradeDashboard/0.9.0"
     sys_version = ""
     data_service: DashboardData
     expected_authorization: str
