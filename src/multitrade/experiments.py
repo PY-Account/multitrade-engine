@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import json
 import re
-from dataclasses import asdict, dataclass
+from dataclasses import asdict, dataclass, field
 from datetime import datetime
 from pathlib import Path
 
@@ -128,6 +128,7 @@ class StrategyExperimentBinding:
     registered_before_observation: bool
     parameter_match: bool
     manifest: dict[str, object]
+    comparison_variant: bool = False
     execution_eligible: bool = False
 
     def __post_init__(self) -> None:
@@ -154,15 +155,19 @@ class StrategyExperimentBinding:
 @dataclass(frozen=True, slots=True)
 class StrategyExperimentProgram:
     experiments_by_strategy: dict[str, StrategyExperiment]
+    comparison_experiments_by_id: dict[
+        str, StrategyExperiment
+    ] = field(default_factory=dict)
 
     def __post_init__(self) -> None:
+        all_experiments = tuple(
+            self.experiments_by_strategy.values()
+        ) + tuple(self.comparison_experiments_by_id.values())
         experiment_ids = {
             experiment.experiment_id
-            for experiment in self.experiments_by_strategy.values()
+            for experiment in all_experiments
         }
-        if len(experiment_ids) != len(
-            self.experiments_by_strategy
-        ):
+        if len(experiment_ids) != len(all_experiments):
             raise ValueError("Experiment IDs must be unique")
         for strategy_id, experiment in (
             self.experiments_by_strategy.items()
@@ -171,19 +176,98 @@ class StrategyExperimentProgram:
                 raise ValueError(
                     "Experiment strategy map is inconsistent"
                 )
+        for experiment_id, experiment in (
+            self.comparison_experiments_by_id.items()
+        ):
+            if experiment_id != experiment.experiment_id:
+                raise ValueError(
+                    "Comparison experiment map is inconsistent"
+                )
+        parameter_identities: set[tuple[str, str]] = set()
+        variants: set[tuple[str, str]] = set()
+        for experiment in all_experiments:
+            baseline = self.experiments_by_strategy.get(
+                experiment.strategy_id
+            )
+            if baseline is None:
+                raise ValueError(
+                    "Comparison experiment has no baseline strategy"
+                )
+            if baseline.family_id != experiment.family_id:
+                raise ValueError(
+                    "Experiment family differs from its baseline"
+                )
+            variant_identity = (
+                experiment.strategy_id,
+                experiment.variant_id,
+            )
+            if variant_identity in variants:
+                raise ValueError(
+                    "Variant IDs must be unique per strategy"
+                )
+            variants.add(variant_identity)
+            parameter_identity = (
+                experiment.strategy_id,
+                fingerprint(experiment.expected_parameters),
+            )
+            if parameter_identity in parameter_identities:
+                raise ValueError(
+                    "Experiment parameters must be unique per strategy"
+                )
+            parameter_identities.add(parameter_identity)
+
+    @property
+    def all_experiments(self) -> tuple[StrategyExperiment, ...]:
+        return tuple(
+            self.experiments_by_strategy.values()
+        ) + tuple(self.comparison_experiments_by_id.values())
+
+    def experiments_for_strategy(
+        self, strategy_id: str
+    ) -> tuple[StrategyExperiment, ...]:
+        baseline = self.experiments_by_strategy.get(strategy_id)
+        if baseline is None:
+            return ()
+        comparisons = tuple(
+            experiment
+            for experiment in (
+                self.comparison_experiments_by_id.values()
+            )
+            if experiment.strategy_id == strategy_id
+        )
+        return (baseline,) + comparisons
 
     def bind(
         self,
         strategy: Strategy,
         *,
         evaluated_at: datetime,
+        experiment_id: str | None = None,
     ) -> StrategyExperimentBinding:
         experiment = self.experiments_by_strategy.get(
             strategy.strategy_id
         )
+        if experiment_id is not None:
+            comparison = (
+                self.comparison_experiments_by_id.get(
+                    experiment_id
+                )
+            )
+            if comparison is not None:
+                experiment = comparison
+            elif (
+                experiment is None
+                or experiment.experiment_id != experiment_id
+            ):
+                experiment = None
         if experiment is None:
             raise ValueError(
-                f"No experiment manifest for {strategy.strategy_id}"
+                "No experiment manifest for "
+                f"{strategy.strategy_id}"
+            )
+        if experiment.strategy_id != strategy.strategy_id:
+            raise ValueError(
+                "Experiment strategy differs from runtime strategy"
             )
         if experiment.status != "frozen_research":
             raise ValueError(
@@ -226,6 +310,10 @@ class StrategyExperimentProgram:
             registered_before_observation=registered_before,
             parameter_match=parameters_match,
             manifest=experiment.payload(),
+            comparison_variant=(
+                experiment.experiment_id
+                in self.comparison_experiments_by_id
+            ),
             execution_eligible=False,
         )
 
@@ -240,7 +328,20 @@ def load_strategy_experiment_program(
         raise ValueError(
             "Experiment program requires a non-empty experiments list"
         )
-    experiments: dict[str, StrategyExperiment] = {}
+    primary_ids_payload = payload.get(
+        "primary_experiment_ids", {}
+    )
+    if not isinstance(primary_ids_payload, dict):
+        raise ValueError(
+            "primary_experiment_ids must be an object"
+        )
+    declared_primary_ids = {
+        str(strategy_id): str(experiment_id)
+        for strategy_id, experiment_id in (
+            primary_ids_payload.items()
+        )
+    }
+    experiments: list[StrategyExperiment] = []
     for row in rows:
         if not isinstance(row, dict):
             raise ValueError("Every experiment must be an object")
@@ -290,12 +391,49 @@ def load_strategy_experiment_program(
                 row.get("execution_eligible", False)
             ),
         )
-        if experiment.strategy_id in experiments:
-            raise ValueError(
-                "Only one active experiment per strategy is supported"
+        experiments.append(experiment)
+    grouped: dict[str, list[StrategyExperiment]] = {}
+    for experiment in experiments:
+        grouped.setdefault(experiment.strategy_id, []).append(
+            experiment
+        )
+    unknown_primary_strategies = (
+        set(declared_primary_ids) - set(grouped)
+    )
+    if unknown_primary_strategies:
+        raise ValueError(
+            "Primary experiment references unknown strategies"
+        )
+    baselines: dict[str, StrategyExperiment] = {}
+    comparisons: dict[str, StrategyExperiment] = {}
+    for strategy_id, candidates in grouped.items():
+        declared_id = declared_primary_ids.get(strategy_id)
+        if declared_id is None:
+            if len(candidates) != 1:
+                raise ValueError(
+                    "Multiple strategy experiments require an "
+                    "explicit primary_experiment_ids entry"
+                )
+            baseline = candidates[0]
+        else:
+            matches = tuple(
+                candidate
+                for candidate in candidates
+                if candidate.experiment_id == declared_id
             )
-        experiments[experiment.strategy_id] = experiment
-    return StrategyExperimentProgram(experiments)
+            if len(matches) != 1:
+                raise ValueError(
+                    "Primary experiment ID is missing or ambiguous"
+                )
+            baseline = matches[0]
+        baselines[strategy_id] = baseline
+        for candidate in candidates:
+            if candidate.experiment_id != baseline.experiment_id:
+                comparisons[candidate.experiment_id] = candidate
+    return StrategyExperimentProgram(
+        baselines,
+        comparisons,
+    )
 
 
 def experiment_program_payload(
@@ -312,7 +450,7 @@ def experiment_program_payload(
                 ),
             }
             for experiment in sorted(
-                program.experiments_by_strategy.values(),
+                program.all_experiments,
                 key=lambda item: (
                     item.family_id,
                     item.strategy_id,

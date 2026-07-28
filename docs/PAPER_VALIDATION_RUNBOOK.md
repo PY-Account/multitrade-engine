@@ -42,6 +42,8 @@ Expected dashboard state:
 - Asset Universe recommendations or explicit failed gates appear after its
   first cycle.
 - Strategy Lab reports appear after its first, longer historical cycle.
+- The first family-comparison cycle registers one of the two sensitivity
+  variants per strategy; the other rotates in during the next six-hour slot.
 - Signals may be absent for long periods; absence is not a fault.
 - No orders are submitted.
 
@@ -54,6 +56,12 @@ automatically. In
 the dashboard, review Strategy Lab -> Model Validation and require sufficient
 symbol coverage, out-of-sample trade count, and adverse-cost results. A green
 readiness label is permission only for further observation, not for orders.
+
+Then review Strategy Lab -> Family Comparison. Baseline and selected variant
+must show the same assigned symbols for a comparable cycle. Treat favorable
+variant results as stability evidence only. Comparison variants are
+structurally `research_only`, and the current program has no untouched final
+holdout.
 
 Run each enabled candidate on every intended symbol and more than one market
 regime. Example:
@@ -140,7 +148,7 @@ at Alpaca. Do not disable the heartbeat or dashboard while exposure exists.
 
 ## Promotion rule
 
-No live-trading promotion is part of release 0.7. A separate live program
+No live-trading promotion is part of release 0.11. A separate live program
 requires independent code review, PostgreSQL, recovery drills, alerting,
 credential rotation, reconciliation tests, legal/tax review, and explicit
 authorization.

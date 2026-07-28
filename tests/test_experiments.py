@@ -5,10 +5,14 @@ from pathlib import Path
 from unittest import TestCase
 
 from multitrade.experiments import (
+    StrategyExperimentProgram,
     experiment_program_payload,
     load_strategy_experiment_program,
 )
-from multitrade.strategies import default_equity_strategies
+from multitrade.strategies import (
+    default_equity_strategies,
+    equity_strategy_from_parameters,
+)
 from multitrade.strategies.equity import BreakoutRetestStrategy
 
 
@@ -31,6 +35,11 @@ class StrategyExperimentProgramTests(TestCase):
             set(program.experiments_by_strategy),
             set(strategies),
         )
+        self.assertEqual(
+            len(program.comparison_experiments_by_id),
+            8,
+        )
+        self.assertEqual(len(program.all_experiments), 12)
         self.assertEqual(
             len(
                 {
@@ -58,6 +67,40 @@ class StrategyExperimentProgramTests(TestCase):
             self.assertEqual(
                 len(binding.manifest_fingerprint), 64
             )
+        family_counts = {}
+        for experiment in program.all_experiments:
+            family_counts[experiment.family_id] = (
+                family_counts.get(experiment.family_id, 0) + 1
+            )
+            candidate = equity_strategy_from_parameters(
+                experiment.expected_parameters
+            )
+            binding = program.bind(
+                candidate,
+                evaluated_at=datetime(
+                    2026, 7, 30, tzinfo=timezone.utc
+                ),
+                experiment_id=(
+                    None
+                    if experiment.experiment_id
+                    == program.experiments_by_strategy[
+                        experiment.strategy_id
+                    ].experiment_id
+                    else experiment.experiment_id
+                ),
+            )
+            self.assertEqual(
+                binding.variant_id,
+                experiment.variant_id,
+            )
+        self.assertEqual(
+            family_counts,
+            {
+                "intraday_breakout_continuation": 6,
+                "intraday_trend_continuation": 3,
+                "intraday_range_reversion": 3,
+            },
+        )
 
     def test_evidence_phase_and_parameter_freeze_fail_closed(
         self,
@@ -99,6 +142,7 @@ class StrategyExperimentProgramTests(TestCase):
         self.assertIn(
             "breakout_retest_baseline_2026q3", encoded
         )
+        self.assertEqual(len(payload["experiments"]), 12)
         self.assertFalse(payload["execution_enabled"])
         self.assertTrue(
             all(
@@ -106,3 +150,38 @@ class StrategyExperimentProgramTests(TestCase):
                 for item in payload["experiments"]
             )
         )
+
+    def test_duplicate_candidate_parameters_fail_closed(
+        self,
+    ) -> None:
+        baseline = self.program().experiments_by_strategy[
+            "breakout_retest"
+        ]
+        duplicate = replace(
+            baseline,
+            experiment_id="breakout_retest_duplicate_2026q3",
+            variant_id="duplicate_v1",
+        )
+
+        with self.assertRaisesRegex(
+            ValueError, "parameters must be unique"
+        ):
+            StrategyExperimentProgram(
+                {"breakout_retest": baseline},
+                {duplicate.experiment_id: duplicate},
+            )
+
+    def test_candidate_constructor_requires_exact_fields(
+        self,
+    ) -> None:
+        parameters = dict(
+            self.program().experiments_by_strategy[
+                "breakout_retest"
+            ].expected_parameters
+        )
+        parameters.pop("lookback")
+
+        with self.assertRaisesRegex(
+            ValueError, "exactly match"
+        ):
+            equity_strategy_from_parameters(parameters)

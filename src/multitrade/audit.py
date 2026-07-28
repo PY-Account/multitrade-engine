@@ -2535,17 +2535,28 @@ class SqliteAuditReader:
         with closing(self._connect()) as connection:
             rows = connection.execute(
                 """
-                SELECT report_id, account_id, strategy_id,
-                       strategy_version, timeframe, evaluated_at,
-                       configuration_enabled,
-                       paper_execution_configured,
-                       symbols_requested_json, symbols_covered_json,
-                       missing_symbols_json, symbol_results_json,
-                       aggregate_metrics_json, gates_json,
-                       warnings_json, readiness_status,
-                       execution_eligible
-                FROM strategy_lab_reports
-                ORDER BY evaluated_at DESC, strategy_id
+                SELECT reports.report_id, reports.account_id,
+                       reports.strategy_id,
+                       reports.strategy_version, reports.timeframe,
+                       reports.evaluated_at,
+                       reports.configuration_enabled,
+                       reports.paper_execution_configured,
+                       reports.symbols_requested_json,
+                       reports.symbols_covered_json,
+                       reports.missing_symbols_json,
+                       reports.symbol_results_json,
+                       reports.aggregate_metrics_json,
+                       reports.gates_json,
+                       reports.warnings_json,
+                       reports.readiness_status,
+                       reports.execution_eligible,
+                       trials.configuration_json
+                FROM strategy_lab_reports AS reports
+                LEFT JOIN strategy_model_trials AS trials
+                    ON trials.report_id = reports.report_id
+                ORDER BY reports.evaluated_at DESC,
+                         reports.strategy_id,
+                         trials.sequence
                 LIMIT ?
                 """,
                 (safe_limit,),
@@ -2582,6 +2593,13 @@ class SqliteAuditReader:
                 "gates": json.loads(row["gates_json"]),
                 "warnings": json.loads(row["warnings_json"]),
                 "readiness_status": row["readiness_status"],
+                "experiment": (
+                    json.loads(row["configuration_json"]).get(
+                        "experiment", {}
+                    )
+                    if row["configuration_json"] is not None
+                    else {}
+                ),
                 "execution_eligible": bool(
                     row["execution_eligible"]
                 ),
@@ -2753,7 +2771,9 @@ class SqliteAuditReader:
             trial_rows = connection.execute(
                 """
                 SELECT candidate_fingerprint, dataset_fingerprint,
-                       evaluated_at, configuration_json, gates_json
+                       evaluated_at, configuration_json, gates_json,
+                       symbols_requested_json, readiness_status,
+                       aggregate_metrics_json
                 FROM strategy_model_trials
                 ORDER BY sequence
                 """
@@ -2782,6 +2802,15 @@ class SqliteAuditReader:
                     experiment.get("prospective", False)
                 ),
                 "gates": json.loads(trial_row["gates_json"]),
+                "symbols_requested": json.loads(
+                    trial_row["symbols_requested_json"]
+                ),
+                "readiness_status": trial_row[
+                    "readiness_status"
+                ],
+                "aggregate_metrics": json.loads(
+                    trial_row["aggregate_metrics_json"]
+                ),
             }
             trials_by_experiment.setdefault(
                 str(experiment_id), []
@@ -2820,6 +2849,12 @@ class SqliteAuditReader:
             )
             review_not_before = datetime.fromisoformat(
                 row["review_not_before"]
+            )
+            latest = trials[-1] if trials else None
+            latest_metrics = (
+                latest["aggregate_metrics"]
+                if latest is not None
+                else {}
             )
             summaries.append(
                 {
@@ -2873,6 +2908,41 @@ class SqliteAuditReader:
                     "passing_trial_count": sum(
                         all(trial["gates"].values())
                         for trial in trials
+                    ),
+                    "latest_evaluated_at": (
+                        latest["evaluated_at"]
+                        if latest is not None
+                        else None
+                    ),
+                    "latest_symbols_requested": (
+                        latest["symbols_requested"]
+                        if latest is not None
+                        else []
+                    ),
+                    "latest_readiness_status": (
+                        latest["readiness_status"]
+                        if latest is not None
+                        else None
+                    ),
+                    "latest_primary_metric": (
+                        latest_metrics.get(
+                            manifest["primary_metric"]
+                        )
+                    ),
+                    "latest_out_of_sample_trade_count": (
+                        latest_metrics.get(
+                            "out_of_sample_trade_count", 0
+                        )
+                    ),
+                    "latest_median_stressed_return": (
+                        latest_metrics.get(
+                            "median_stressed_return"
+                        )
+                    ),
+                    "latest_worst_maximum_drawdown": (
+                        latest_metrics.get(
+                            "worst_maximum_drawdown"
+                        )
                     ),
                     "prospective_requirements_met": (
                         len(prospective) >= minimum_trials

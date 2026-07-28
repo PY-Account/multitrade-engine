@@ -110,6 +110,14 @@ timestamped registry. The current manifests explicitly state
 count nor a passing gate permits a profitability claim, PBO/Deflated-Sharpe
 claim, or execution promotion.
 
+Version 0.11 freezes two sensitivity variants around every baseline before
+prospective observation. These candidates deliberately probe nearby stricter
+and broader thresholds; they are not tuned from their future outcomes. One
+variant per strategy rotates into each six-hour cycle and receives the same
+assigned symbols as its baseline. The comparison candidate remains
+`research_only` even when all gates pass, so a favorable row cannot silently
+become the account strategy.
+
 ## Daily-model validation rules
 
 The daily research simulator requests `adjustment=all` from Alpaca so splits,

@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from dataclasses import dataclass
+from dataclasses import dataclass, fields
 from decimal import Decimal
 
 from multitrade.domain import ZERO
@@ -318,3 +318,47 @@ def default_equity_strategies() -> dict[str, Strategy]:
     return {
         strategy.strategy_id: strategy for strategy in strategies
     }
+
+
+def equity_strategy_from_parameters(
+    parameters: dict[str, object],
+) -> Strategy:
+    strategy_id = str(parameters.get("strategy_id", ""))
+    strategy_types = {
+        "breakout_retest": BreakoutRetestStrategy,
+        "trend_pullback": TrendPullbackStrategy,
+        "volatility_contraction": (
+            VolatilityContractionBreakoutStrategy
+        ),
+        "range_mean_reversion": RangeMeanReversionStrategy,
+    }
+    strategy_type = strategy_types.get(strategy_id)
+    if strategy_type is None:
+        raise ValueError(
+            f"Unsupported equity strategy: {strategy_id}"
+        )
+    expected_fields = {
+        definition.name
+        for definition in fields(strategy_type)
+    }
+    if set(parameters) != expected_fields:
+        raise ValueError(
+            "Strategy parameters do not exactly match its "
+            "constructor fields"
+        )
+    normalized: dict[str, object] = {}
+    for definition in fields(strategy_type):
+        value = parameters[definition.name]
+        default = definition.default
+        if isinstance(default, Decimal):
+            normalized[definition.name] = Decimal(str(value))
+        elif isinstance(default, int):
+            normalized[definition.name] = int(value)
+        elif isinstance(default, str):
+            normalized[definition.name] = str(value)
+        else:
+            raise TypeError(
+                "Unsupported strategy parameter type for "
+                f"{definition.name}"
+            )
+    return strategy_type(**normalized)

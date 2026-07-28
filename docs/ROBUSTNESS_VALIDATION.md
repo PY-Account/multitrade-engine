@@ -67,10 +67,11 @@ Those methods require a complete, immutable registry of every economically
 related candidate and parameter trial. Version 0.9.0 starts that registry for
 new Strategy Lab cycles, but it does not retroactively invent trial history.
 Version 0.10.0 freezes the initial candidate-family definitions and prospective
-observation boundaries, but repeated observations of one baseline are not
-distinct candidate variants. MultiTrade must still accumulate enough genuine
-variants and preserve an untouched final holdout. Adding the formulas before
-those conditions exist would provide false precision. See
+observation boundaries. Version 0.11.0 adds eight genuine parameter variants,
+bringing the family sizes to six breakout-continuation, three
+trend-continuation, and three range-reversion candidates. These are still
+small candidate sets, and no final holdout is reserved. PBO or
+Deflated-Sharpe output would therefore provide false precision. See
 `MODEL_TRIAL_REGISTRY.md` and `STRATEGY_EXPERIMENTS.md`.
 
 ## Operational interpretation

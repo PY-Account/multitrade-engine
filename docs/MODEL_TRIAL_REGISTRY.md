@@ -68,6 +68,13 @@ The Git release is the code-reviewed publication point for these manifests;
 the local SQLite copy is not an independent public preregistration service.
 An administrator with schema and filesystem control can still replace it.
 
+Version 0.11.0 adds eight distinct parameter-sensitivity candidates. Their
+strategy implementation fingerprint shares the same reviewed source scope,
+while their parameter payload produces a distinct candidate fingerprint.
+Each trial also records its variant ID, comparison flag, selected universe,
+and experiment fingerprint. Repeating a candidate on new data increments
+observations but not the family's distinct-candidate count.
+
 ## Statistical boundary
 
 The registry and experiment families supply prerequisites for the Probability

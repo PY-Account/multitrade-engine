@@ -5,7 +5,7 @@ algorithmic-trading organization. It separates market analysis, strategy
 signals, portfolio allocation, central risk approval, broker execution,
 reconciliation, audit, backtesting, and monitoring.
 
-Release 0.10 is designed for controlled Alpaca Paper observation and dry-run
+Release 0.11 is designed for controlled Alpaca Paper observation and dry-run
 testing. It does not support live trading and it does not claim that any
 strategy is profitable.
 
@@ -74,6 +74,10 @@ The 3% and 10% figures are hard ceilings, not operating targets.
   hypothesis, mechanism, exact parameters, related candidate family,
   prospective observation boundary, minimum evidence period, and explicit
   final-holdout status. Runtime parameter drift fails closed.
+- Eight research-only sensitivity variants around the four execution
+  baselines. One variant per strategy rotates into each six-hour laboratory
+  cycle using the same assigned symbols as its baseline; passing results
+  remain ineligible for automatic promotion.
 - An Asset Universe department combining operator seeds and Alpaca's
   most-active screener, then failing closed through price, active/tradable
   status, exchange, company-size evidence, evidence age, share-volume,

@@ -50,7 +50,10 @@ from multitrade.research_validation import (
     ResearchModelBacktester,
 )
 from multitrade.risk import RiskEngine
-from multitrade.strategies import default_equity_strategies
+from multitrade.strategies import (
+    default_equity_strategies,
+    equity_strategy_from_parameters,
+)
 from multitrade.strategy_lab import ContinuousStrategyLabService
 from multitrade.universe import (
     ContinuousAssetUniverseService,
@@ -200,6 +203,17 @@ def _doctor() -> int:
                 strategy,
                 evaluated_at=datetime.now(timezone.utc),
             )
+        for experiment_id, experiment in (
+            experiment_program.comparison_experiments_by_id.items()
+        ):
+            candidate = equity_strategy_from_parameters(
+                experiment.expected_parameters
+            )
+            experiment_program.bind(
+                candidate,
+                evaluated_at=datetime.now(timezone.utc),
+                experiment_id=experiment_id,
+            )
         strategy_experiments_valid = True
         strategy_experiments_error = None
         strategy_experiment_families = sorted(
@@ -274,7 +288,15 @@ def _doctor() -> int:
         "strategy_experiment_families": (
             strategy_experiment_families
         ),
+        "strategy_experiment_candidate_count": (
+            len(experiment_program.all_experiments)
+            if strategy_experiments_valid
+            else 0
+        ),
         "strategy_experiment_execution_enabled": False,
+        "strategy_lab_comparison_variants": (
+            settings.strategy_lab_comparison_variants
+        ),
         "asset_universe_config_path": str(
             settings.asset_universe_config_path
         ),

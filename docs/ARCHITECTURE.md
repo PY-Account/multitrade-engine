@@ -80,6 +80,14 @@ The immutable manifest stores the economic hypothesis, mechanism, candidate
 family, observation boundary, minimum duration and trial count, and final
 holdout status. It cannot grant execution permission.
 
+The experiment program also contains two predeclared sensitivity variants for
+each baseline. Every six-hour slot deterministically selects one variant per
+strategy and evaluates it on the same complete assigned universe as the
+baseline. The next slot rotates to the other variant. This approximately
+doubles, rather than triples, laboratory work while preserving comparable
+market inputs. Comparison variants are never registered with the automation
+service and their readiness is structurally capped at `research_only`.
+
 ### Pattern and regime analysis
 
 `FeatureEngine` calculates decision-time features without future data.
@@ -165,8 +173,8 @@ optimizer or a hedge order generator.
 
 The dashboard is read-only. Its primary workspaces are Account, Asset Universe,
 Strategy Lab, Allocation & Risk, and Operations, with horizontal secondary
-navigation, experiment-family and model-trial registry views, and an account
-selector ready for the later multi-account boundary.
+navigation, a dedicated family-comparison view, a model-trial registry, and an
+account selector ready for the later multi-account boundary.
 It uses
 authenticated HTTPS, strict security headers, safe DOM text rendering,
 SQLite query-only connections, and browser-local preferences. It cannot
@@ -193,7 +201,7 @@ shared `/app/var` volume.
 
 ## Scaling boundary
 
-Release 0.10 intentionally supports one enabled Paper account and one
+Release 0.11 intentionally supports one enabled Paper account and one
 orchestrator. Multi-account/cross-broker execution requires PostgreSQL with
 account-scoped reservations, a portfolio-wide exposure service, credential
 isolation per connector, and distributed locking. Dedicated crypto and forex

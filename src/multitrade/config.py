@@ -118,6 +118,7 @@ class Settings:
     strategy_lab_stressed_cost_bps: Decimal
     strategy_lab_chronological_folds: int
     strategy_lab_trade_sequence_paths: int
+    strategy_lab_comparison_variants: int
     strategy_experiment_program_path: Path
     asset_universe_cycle_seconds: int
     asset_universe_health_path: Path
@@ -342,6 +343,12 @@ class Settings:
                 "500",
                 100,
                 5000,
+            ),
+            strategy_lab_comparison_variants=_int_env(
+                "TRADING_STRATEGY_LAB_COMPARISON_VARIANTS",
+                "1",
+                1,
+                4,
             ),
             strategy_experiment_program_path=Path(
                 os.getenv(

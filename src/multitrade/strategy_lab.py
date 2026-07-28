@@ -4,7 +4,7 @@ from dataclasses import asdict, dataclass
 from datetime import datetime, timedelta, timezone
 from decimal import Decimal
 from statistics import median
-from typing import Any, Iterable
+from typing import Any, Callable, Iterable
 from uuid import uuid4
 
 from multitrade.audit import SqliteAuditReader, SqliteAuditStore
@@ -24,7 +24,10 @@ from multitrade.market import (
 )
 from multitrade.portfolio import AccountPlan, load_account_plans
 from multitrade.robustness import TradeSequenceStressTester
-from multitrade.strategies import default_equity_strategies
+from multitrade.strategies import (
+    default_equity_strategies,
+    equity_strategy_from_parameters,
+)
 from multitrade.strategies.base import Strategy
 from multitrade.trials import (
     StrategyTrialDefinition,
@@ -49,6 +52,8 @@ class StrategyLabConfig:
     maximum_drawdown: Decimal = Decimal("0.10")
     chronological_folds: int = 3
     trade_sequence_paths: int = 500
+    comparison_variants_per_strategy_cycle: int = 1
+    comparison_rotation_seconds: int = 21600
 
     def __post_init__(self) -> None:
         if not 30 <= self.lookback_days <= 365:
@@ -76,6 +81,16 @@ class StrategyLabConfig:
             raise ValueError("Chronological folds must be 2-6")
         if not 100 <= self.trade_sequence_paths <= 5000:
             raise ValueError("Trade-sequence paths must be 100-5000")
+        if not 1 <= (
+            self.comparison_variants_per_strategy_cycle
+        ) <= 4:
+            raise ValueError(
+                "Comparison variants per cycle must be 1-4"
+            )
+        if not 300 <= self.comparison_rotation_seconds <= 86400:
+            raise ValueError(
+                "Comparison rotation must be 300-86400 seconds"
+            )
 
 
 @dataclass(frozen=True, slots=True)
@@ -439,6 +454,18 @@ class StrategyLabEvaluator:
             warnings.append("symbols_missing_validation_history")
         if not all(gates.values()):
             warnings.append("strategy_not_ready_for_extended_paper")
+        if (
+            experiment_binding is not None
+            and experiment_binding.comparison_variant
+        ):
+            if (
+                readiness
+                == "extended_paper_observation_candidate"
+            ):
+                readiness = "research_only"
+            warnings.append(
+                "comparison_variant_requires_family_review"
+            )
         if not stress.passed:
             warnings.append("trade_sequence_stress_failed")
         if allocation.paper_execution_allowed:
@@ -626,6 +653,9 @@ class ContinuousStrategyLabService:
         config: StrategyLabConfig | None = None,
         universe_program: AssetUniverseProgram | None = None,
         experiment_program: StrategyExperimentProgram | None = None,
+        comparison_strategy_factory: (
+            Callable[[dict[str, object]], Strategy] | None
+        ) = None,
     ) -> None:
         self.account_plan = account_plan
         self.strategies = strategies
@@ -635,6 +665,11 @@ class ContinuousStrategyLabService:
         self.config = config or StrategyLabConfig()
         self.universe_program = universe_program
         self.experiment_program = experiment_program
+        self.comparison_strategy_factory = (
+            comparison_strategy_factory
+            or equity_strategy_from_parameters
+        )
+        self.comparison_strategies: dict[str, Strategy] = {}
         unknown = set(account_plan.allocations) - set(strategies)
         if unknown:
             raise ValueError(
@@ -653,6 +688,28 @@ class ContinuousStrategyLabService:
                     "Missing strategy experiment manifests: "
                     + ", ".join(sorted(missing_experiments))
                 )
+            for experiment_id, experiment in (
+                self.experiment_program
+                .comparison_experiments_by_id.items()
+            ):
+                if experiment.strategy_id not in (
+                    self.account_plan.allocations
+                ):
+                    raise ValueError(
+                        "Comparison experiment has no account "
+                        f"allocation: {experiment.strategy_id}"
+                    )
+                candidate = self.comparison_strategy_factory(
+                    experiment.expected_parameters
+                )
+                self.experiment_program.bind(
+                    candidate,
+                    evaluated_at=datetime.now(timezone.utc),
+                    experiment_id=experiment_id,
+                )
+                self.comparison_strategies[
+                    experiment_id
+                ] = candidate
 
     @classmethod
     def from_settings(
@@ -697,6 +754,12 @@ class ContinuousStrategyLabService:
                 ),
                 trade_sequence_paths=(
                     settings.strategy_lab_trade_sequence_paths
+                ),
+                comparison_variants_per_strategy_cycle=(
+                    settings.strategy_lab_comparison_variants
+                ),
+                comparison_rotation_seconds=(
+                    settings.strategy_lab_cycle_seconds
                 ),
             ),
         )
@@ -751,6 +814,7 @@ class ContinuousStrategyLabService:
         )
         evaluator = StrategyLabEvaluator(config=self.config)
         reports: list[StrategyLabReport] = []
+        baseline_count = 0
         for strategy_id in self.account_plan.allocations:
             strategy = self.strategies[strategy_id]
             experiment_binding = (
@@ -771,12 +835,65 @@ class ContinuousStrategyLabService:
             )
             self.store.record_strategy_lab_report(report)
             reports.append(report)
+            baseline_count += 1
+        comparisons_by_strategy: dict[
+            str, list[tuple[str, Strategy]]
+        ] = {}
+        for experiment_id, strategy in self.comparison_strategies.items():
+            comparisons_by_strategy.setdefault(
+                strategy.strategy_id, []
+            ).append((experiment_id, strategy))
+        rotation_slot = int(
+            evaluated_at.timestamp()
+            // self.config.comparison_rotation_seconds
+        )
+        selected_comparisons: list[tuple[str, Strategy]] = []
+        for strategy_id in sorted(comparisons_by_strategy):
+            candidates = sorted(
+                comparisons_by_strategy[strategy_id],
+                key=lambda item: item[0],
+            )
+            start_index = rotation_slot % len(candidates)
+            selected_comparisons.extend(
+                candidates[
+                    (
+                        start_index + offset
+                    ) % len(candidates)
+                ]
+                for offset in range(
+                    min(
+                        self.config
+                        .comparison_variants_per_strategy_cycle,
+                        len(candidates),
+                    )
+                )
+            )
+        comparison_count = 0
+        for experiment_id, strategy in selected_comparisons:
+            experiment_binding = self.experiment_program.bind(
+                strategy,
+                evaluated_at=evaluated_at,
+                experiment_id=experiment_id,
+            )
+            report = evaluator.evaluate(
+                account_plan=self.account_plan,
+                strategy=strategy,
+                bars_by_symbol=usable,
+                symbols=symbols_by_strategy[strategy.strategy_id],
+                experiment_binding=experiment_binding,
+                evaluated_at=evaluated_at,
+            )
+            self.store.record_strategy_lab_report(report)
+            reports.append(report)
+            comparison_count += 1
         self.store.record_event(
             "strategy_lab_cycle_completed",
             self.account_plan.account_id,
             {
                 "timeframe": self.account_plan.timeframe,
                 "strategies_evaluated": len(reports),
+                "baseline_strategies_evaluated": baseline_count,
+                "comparison_variants_evaluated": comparison_count,
                 "immutable_trials_registered": len(reports),
                 "symbols_requested": len(requested_symbols),
                 "symbols_with_bars": sum(
@@ -789,6 +906,8 @@ class ContinuousStrategyLabService:
             "account_id": self.account_plan.account_id,
             "timeframe": self.account_plan.timeframe,
             "strategies_evaluated": len(reports),
+            "baseline_strategies_evaluated": baseline_count,
+            "comparison_variants_evaluated": comparison_count,
             "immutable_trials_registered": len(reports),
             "symbols_requested": len(requested_symbols),
             "symbols_with_bars": sum(bool(rows) for rows in usable.values()),
@@ -799,7 +918,7 @@ class ContinuousStrategyLabService:
             account_id=self.account_plan.account_id,
             evaluated_at=evaluated_at,
             timeframe=self.account_plan.timeframe,
-            strategies_evaluated=len(self.account_plan.allocations),
+            strategies_evaluated=len(reports),
             reports_completed=len(reports),
             trials_registered=len(reports),
             symbols_requested=len(requested_symbols),

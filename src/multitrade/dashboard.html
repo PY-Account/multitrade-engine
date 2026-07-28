@@ -512,13 +512,13 @@
     </div>
   </section>
 
-  <section class="panel workspace-view" data-primary="strategy-lab" data-secondary="trials">
+  <section class="panel workspace-view" data-primary="strategy-lab" data-secondary="families">
     <div class="panel-head">
-      <div><h2>Preregistered strategy experiments</h2><p class="subcopy">Frozen candidate families, hypotheses, parameter snapshots, and prospective review boundaries. Meeting the observation count never grants execution or substitutes for a genuinely untouched final holdout.</p></div>
+      <div><h2>Frozen strategy-family comparison</h2><p class="subcopy">One sensitivity variant per strategy rotates into each six-hour cycle and uses the same assigned universe as its baseline. This is parameter-stability evidence, not optimization, execution approval, or a substitute for a genuinely untouched final holdout.</p></div>
     </div>
     <div class="table-wrap">
       <table>
-        <thead><tr><th>Family</th><th>Experiment</th><th>Strategy / variant</th><th>Hypothesis</th><th>Observation starts</th><th>Review not before</th><th class="number">Trials</th><th>Prospective evidence</th><th class="number">Family candidates</th><th class="number">Datasets</th><th>Holdout</th><th>Manifest</th><th>Status</th><th>Execution</th></tr></thead>
+        <thead><tr><th>Family</th><th>Candidate</th><th>Hypothesis</th><th>Latest evaluation</th><th>Symbols</th><th class="number">OOS trades</th><th class="number">Median fold return</th><th class="number">Stressed return</th><th class="number">Worst drawdown</th><th>Prospective evidence</th><th class="number">Observed / frozen candidates</th><th>Holdout</th><th>Integrity / status</th><th>Execution</th></tr></thead>
         <tbody id="strategy-experiments"></tbody>
       </table>
     </div>
@@ -657,6 +657,7 @@
       ["policies", "Policies & Sources"],
     ],
     "strategy-lab": [
+      ["families", "Family Comparison"],
       ["validation", "Model Validation"],
       ["robustness", "Robustness"],
       ["trials", "Trial Registry"],
@@ -1171,6 +1172,10 @@
     for (const report of labReports) {
       if (
         report.account_id === selectedAccountId
+        && (
+          !report.experiment?.variant_id
+          || report.experiment.variant_id === "baseline_v1"
+        )
         && !latestByStrategy.has(report.strategy_id)
       ) {
         latestByStrategy.set(report.strategy_id, report);
@@ -1206,6 +1211,10 @@
     for (const report of reports) {
       if (
         report.account_id !== selectedAccountId
+        || (
+          report.experiment?.variant_id
+          && report.experiment.variant_id !== "baseline_v1"
+        )
         || seen.has(report.strategy_id)
       ) continue;
       seen.add(report.strategy_id);
@@ -1254,6 +1263,10 @@
     for (const report of reports) {
       if (
         report.account_id !== selectedAccountId
+        || (
+          report.experiment?.variant_id
+          && report.experiment.variant_id !== "baseline_v1"
+        )
         || seen.has(report.strategy_id)
       ) continue;
       seen.add(report.strategy_id);
@@ -1371,6 +1384,8 @@
       );
       const status = requirementsMet && summary?.review_time_reached
         ? "Review due"
+        : requirementsMet
+          ? "Minimum collected"
         : prospectiveTrials
           ? "Collecting"
           : "Awaiting prospective trial";
@@ -1381,20 +1396,27 @@
               : "Broken"
           )
         : "Awaiting registration";
+      const manifestClass = !summary
+        ? "warn"
+        : summary.manifest_integrity_valid
+          ? (requirementsMet ? "ok" : "warn")
+          : "bad";
+      const readiness = summary?.latest_readiness_status
+        ?.replaceAll("_", " ") || "not evaluated";
       const values = [
         [experiment.family_id, ""],
-        [experiment.experiment_id, ""],
         [`${experiment.strategy_id} v${experiment.strategy_version} / ${experiment.variant_id}`, ""],
         [experiment.hypothesis, ""],
-        [localTime(experiment.prospective_observation_start), ""],
-        [localTime(experiment.review_not_before), ""],
-        [summary?.trial_count ?? 0, "number"],
+        [localTime(summary?.latest_evaluated_at), ""],
+        [(summary?.latest_symbols_requested || []).join(", ") || "--", ""],
+        [summary?.latest_out_of_sample_trade_count ?? 0, "number"],
+        [percent(summary?.latest_primary_metric), Number(summary?.latest_primary_metric || 0) > 0 ? "number ok" : "number warn"],
+        [percent(summary?.latest_median_stressed_return), Number(summary?.latest_median_stressed_return || 0) > 0 ? "number ok" : "number warn"],
+        [percent(summary?.latest_worst_maximum_drawdown), "number"],
         [`${prospectiveTrials}/${experiment.minimum_prospective_trials} trials · ${prospectiveDays}/${experiment.minimum_prospective_days} days`, requirementsMet ? "ok" : "warn"],
-        [summary?.family_candidate_count ?? familyCandidateDefaults.get(experiment.family_id), "number"],
-        [summary?.distinct_dataset_count ?? 0, "number"],
+        [`${summary?.family_candidate_count ?? 0}/${familyCandidateDefaults.get(experiment.family_id)}`, "number"],
         [(experiment.final_holdout_status || "not_reserved").replaceAll("_", " "), experiment.final_holdout_status === "reserved" ? "ok" : "warn"],
-        [manifestState, summary?.manifest_integrity_valid ? "ok" : "warn"],
-        [status, requirementsMet ? "ok" : "warn"],
+        [`${manifestState} / ${status} / ${readiness}`, manifestClass],
         [experiment.execution_eligible ? "Eligible" : "Blocked", experiment.execution_eligible ? "bad" : "ok"],
       ];
       const row = document.createElement("tr");
@@ -1417,6 +1439,7 @@
     }
     for (const trial of accountTrials) {
       const metrics = trial.aggregate_metrics || {};
+      const experiment = trial.configuration?.experiment || {};
       const passedGates = Object.values(trial.gates || {})
         .filter(Boolean).length;
       const totalGates = Object.keys(trial.gates || {}).length;
@@ -1425,7 +1448,7 @@
       const values = [
         [localTime(trial.evaluated_at), ""],
         [trial.sequence, "number"],
-        [`${trial.strategy_id} v${trial.strategy_version}`, ""],
+        [`${trial.strategy_id} v${trial.strategy_version} / ${experiment.variant_id || "unregistered"}`, ""],
         [(trial.candidate_fingerprint || "").slice(0, 12), ""],
         [(trial.configuration_fingerprint || "").slice(0, 12), ""],
         [(trial.dataset_fingerprint || "").slice(0, 12), ""],

@@ -146,7 +146,7 @@ class DashboardTests(TestCase):
                         "configuration"
                     ]["experiments"]
                 ),
-                4,
+                12,
             )
             self.assertEqual(
                 result["strategy_experiments"]["summaries"],
@@ -246,7 +246,11 @@ class DashboardTests(TestCase):
                     "Immutable model-trial registry", html
                 )
                 self.assertIn(
-                    "Preregistered strategy experiments", html
+                    "Frozen strategy-family comparison", html
+                )
+                self.assertIn("Family Comparison", html)
+                self.assertIn(
+                    "Observed / frozen candidates", html
                 )
                 self.assertIn("Trial Registry", html)
                 self.assertIn(

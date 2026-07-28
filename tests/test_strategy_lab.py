@@ -1,6 +1,6 @@
 import sqlite3
 from contextlib import closing
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from datetime import datetime, timedelta, timezone
 from decimal import Decimal
 from pathlib import Path
@@ -37,9 +37,13 @@ from multitrade.universe import (
 class FrequentTestStrategy:
     strategy_id: str = "frequent_test"
     version: str = "1.0.0"
+    interval_minutes: int = 15
 
     def evaluate(self, context: StrategyContext):
-        if context.bars[-1].timestamp.minute % 15:
+        if (
+            context.bars[-1].timestamp.minute
+            % self.interval_minutes
+        ):
             return None
         latest = context.bars[-1]
         return create_signal(
@@ -116,7 +120,10 @@ def account_plan(
     )
 
 
-def experiment_program() -> StrategyExperimentProgram:
+def experiment_program(
+    *,
+    with_comparison: bool = False,
+) -> StrategyExperimentProgram:
     experiment = StrategyExperiment(
         experiment_id="frequent_test_baseline_2026q3",
         family_id="test_continuation",
@@ -143,8 +150,25 @@ def experiment_program() -> StrategyExperimentProgram:
             FrequentTestStrategy()
         ),
     )
+    comparisons = {}
+    if with_comparison:
+        for label, interval in (("fast", 10), ("slow", 20)):
+            comparison = replace(
+                experiment,
+                experiment_id=(
+                    f"frequent_test_{label}_2026q3"
+                ),
+                variant_id=f"{label}_v1",
+                expected_parameters=strategy_parameters(
+                    FrequentTestStrategy(
+                        interval_minutes=interval
+                    )
+                ),
+            )
+            comparisons[comparison.experiment_id] = comparison
     return StrategyExperimentProgram(
-        {"frequent_test": experiment}
+        {"frequent_test": experiment},
+        comparisons,
     )
 
 
@@ -482,6 +506,161 @@ class StrategyLabTests(TestCase):
                         """,
                         ("frequent_test_baseline_2026q3",),
                     )
+
+    def test_comparison_variant_uses_same_research_symbols(
+        self,
+    ) -> None:
+        with TemporaryDirectory() as directory:
+            db_path = Path(directory) / "trading.db"
+            service = ContinuousStrategyLabService(
+                account_plan=account_plan(),
+                strategies={
+                    "frequent_test": FrequentTestStrategy()
+                },
+                market_data=FakeMarketData(),
+                store=SqliteAuditStore(db_path),
+                health_path=str(
+                    Path(directory) / "strategy-lab-health.json"
+                ),
+                experiment_program=experiment_program(
+                    with_comparison=True
+                ),
+                comparison_strategy_factory=lambda parameters: (
+                    FrequentTestStrategy(
+                        interval_minutes=int(
+                            parameters["interval_minutes"]
+                        )
+                    )
+                ),
+                universe_program=AssetUniverseProgram(
+                    policies={},
+                    strategy_assignments={
+                        "frequent_test": StrategyUniverseAssignment(
+                            strategy_id="frequent_test",
+                            selection_mode="manual",
+                            policy_id=None,
+                            manual_symbols=(
+                                "AAPL",
+                                "AMD",
+                                "NVDA",
+                            ),
+                            maximum_symbols=10,
+                        )
+                    },
+                    index_snapshots={},
+                    asset_references={},
+                ),
+                config=StrategyLabConfig(
+                    base_slippage_bps=Decimal("0"),
+                    stressed_slippage_bps=Decimal("10"),
+                    minimum_out_of_sample_trades=20,
+                    comparison_variants_per_strategy_cycle=1,
+                ),
+            )
+
+            result = service.run_cycle(
+                now=datetime(
+                    2026, 7, 30, 12, tzinfo=timezone.utc
+                )
+            )
+            second_result = service.run_cycle(
+                now=datetime(
+                    2026, 7, 30, 18, tzinfo=timezone.utc
+                )
+            )
+            reader = SqliteAuditReader(db_path)
+            reports = reader.recent_strategy_lab_reports()
+            trials = reader.recent_strategy_model_trials()
+            summaries = {
+                item["variant_id"]: item
+                for item in (
+                    reader.strategy_experiment_summaries()
+                )
+            }
+
+            self.assertEqual(result.strategies_evaluated, 2)
+            self.assertEqual(result.reports_completed, 2)
+            self.assertEqual(
+                second_result.strategies_evaluated, 2
+            )
+            self.assertEqual(len(reports), 4)
+            trials_by_time = {}
+            for trial in trials:
+                trials_by_time.setdefault(
+                    trial["evaluated_at"], []
+                ).append(trial)
+            self.assertEqual(len(trials_by_time), 2)
+            self.assertTrue(
+                all(
+                    len(rows) == 2
+                    and len(
+                        {
+                            row["dataset_fingerprint"]
+                            for row in rows
+                        }
+                    )
+                    == 1
+                    for rows in trials_by_time.values()
+                )
+            )
+            self.assertEqual(
+                len(
+                    {
+                        trial["candidate_fingerprint"]
+                        for trial in trials
+                    }
+                ),
+                3,
+            )
+            comparison_reports = [
+                report
+                for report in reports
+                if report["experiment"].get(
+                    "comparison_variant"
+                )
+            ]
+            self.assertEqual(len(comparison_reports), 2)
+            self.assertTrue(
+                all(
+                    report["readiness_status"]
+                    != "extended_paper_observation_candidate"
+                    for report in comparison_reports
+                )
+            )
+            self.assertTrue(
+                all(
+                    "comparison_variant_requires_family_review"
+                    in report["warnings"]
+                    for report in comparison_reports
+                )
+            )
+            self.assertEqual(
+                summaries["baseline_v1"][
+                    "latest_symbols_requested"
+                ],
+                ["AAPL", "AMD", "NVDA"],
+            )
+            self.assertEqual(
+                summaries["fast_v1"][
+                    "latest_symbols_requested"
+                ],
+                ["AAPL", "AMD", "NVDA"],
+            )
+            self.assertEqual(
+                summaries["fast_v1"][
+                    "family_candidate_count"
+                ],
+                3,
+            )
+            self.assertFalse(
+                summaries["fast_v1"]["execution_eligible"]
+            )
+            self.assertEqual(
+                summaries["slow_v1"][
+                    "latest_symbols_requested"
+                ],
+                ["AAPL", "AMD", "NVDA"],
+            )
 
     def test_continuous_cycle_uses_strategy_specific_research_symbols(
         self,

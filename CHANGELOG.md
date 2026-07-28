@@ -1,5 +1,32 @@
 # Changelog
 
+## 0.11.0 - 2026-07-28
+
+- Expanded the frozen experiment program from four baselines to twelve
+  candidates across the three predeclared economic families.
+- Added two bounded parameter-sensitivity variants for each intraday strategy
+  without adding any variant to the signal or broker-execution registry.
+- Added safe construction and exact runtime verification of configured equity
+  candidates; missing, extra, duplicate, or mistyped parameters fail closed.
+- Added deterministic six-hour rotation of one comparison variant per
+  strategy, using the same full assigned research universe as its baseline.
+  This bounds VPS work while retaining dataset comparability.
+- Structurally capped comparison-variant readiness at `research_only`, even
+  when every performance gate passes.
+- Extended immutable experiment summaries with latest symbol coverage,
+  out-of-sample trades, primary metric, stressed return, drawdown, and
+  readiness.
+- Added a dedicated Strategy Lab `Family Comparison` tab and exposed variant
+  identity in the model-trial registry while keeping baseline allocation and
+  robustness views separate.
+- Extended the deployment doctor to validate all twelve candidate
+  constructors, parameter freezes, family relationships, and runtime
+  bindings.
+
+This release remains Alpaca Paper-only. The sensitivity matrix tests whether
+results survive nearby predeclared parameters; it does not optimize a model,
+reserve a final holdout, or prove an edge.
+
 ## 0.10.0 - 2026-07-28
 
 - Added frozen, versioned experiment manifests for all four configured

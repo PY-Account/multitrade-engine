@@ -12,8 +12,16 @@ economically related research families:
 - `intraday_trend_continuation`: trend pullback.
 - `intraday_range_reversion`: range mean reversion.
 
-These labels define the comparison universe before prospective observation;
-they do not turn one baseline per strategy into enough variants for
+The comparison matrix adds two frozen sensitivity variants per baseline:
+
+- Breakout/retest: longer, more selective confirmation and shorter, more
+  responsive confirmation.
+- Trend pullback: tighter and broader fast-average touch zones.
+- Volatility contraction: stricter and broader contraction/volume filters.
+- Range reversion: deeper and more moderate displacement thresholds.
+
+These labels and parameters are fixed before prospective observation. The
+resulting family sizes of six, three, and three remain too small for reliable
 multiple-testing statistics. See `STRATEGY_EXPERIMENTS.md`.
 
 ## Breakout and retest (`breakout_retest` v1.0.0)
