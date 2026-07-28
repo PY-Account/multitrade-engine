@@ -18,6 +18,7 @@ from multitrade.market import (
     closed_bars,
 )
 from multitrade.portfolio import AccountPlan, load_account_plans
+from multitrade.robustness import TradeSequenceStressTester
 from multitrade.strategies import default_equity_strategies
 from multitrade.strategies.base import Strategy
 from multitrade.universe import (
@@ -37,6 +38,8 @@ class StrategyLabConfig:
     minimum_profitable_symbol_fraction: Decimal = Decimal("0.50")
     minimum_profit_factor: Decimal = Decimal("1.10")
     maximum_drawdown: Decimal = Decimal("0.10")
+    chronological_folds: int = 3
+    trade_sequence_paths: int = 500
 
     def __post_init__(self) -> None:
         if not 30 <= self.lookback_days <= 365:
@@ -60,6 +63,10 @@ class StrategyLabConfig:
             raise ValueError("Profit-factor threshold must be positive")
         if not ZERO < self.maximum_drawdown <= Decimal("1"):
             raise ValueError("Drawdown threshold must be in (0, 1]")
+        if not 2 <= self.chronological_folds <= 6:
+            raise ValueError("Chronological folds must be 2-6")
+        if not 100 <= self.trade_sequence_paths <= 5000:
+            raise ValueError("Trade-sequence paths must be 100-5000")
 
 
 @dataclass(frozen=True, slots=True)
@@ -72,6 +79,11 @@ class StrategySymbolResult:
     base_gates: dict[str, bool]
     base_metrics: dict[str, Any]
     stressed_metrics: dict[str, Any]
+    chronological_passed: bool
+    chronological_gates: dict[str, bool]
+    chronological_metrics: dict[str, Any]
+    chronological_folds: tuple[dict[str, Any], ...]
+    chronological_r_multiples: tuple[Decimal, ...]
     warnings: tuple[str, ...]
 
 
@@ -181,14 +193,15 @@ class StrategyLabEvaluator:
                 )
             )
             try:
-                base = StrategyValidator(
+                base_validator = StrategyValidator(
                     strategy,
                     config=BacktestConfig(
                         risk_fraction=allocation.risk_fraction,
                         capital_weight=allocation.capital_weight,
                         slippage_bps=self.config.base_slippage_bps,
                     ),
-                ).validate(bars)
+                )
+                base = base_validator.validate(bars)
                 stressed = StrategyValidator(
                     strategy,
                     config=BacktestConfig(
@@ -197,6 +210,11 @@ class StrategyLabEvaluator:
                         slippage_bps=self.config.stressed_slippage_bps,
                     ),
                 ).validate(bars)
+                chronological = base_validator.chronological_stability(
+                    bars,
+                    folds=self.config.chronological_folds,
+                    drawdown_limit=self.config.maximum_drawdown,
+                )
             except ValueError:
                 missing.append(symbol)
                 continue
@@ -206,6 +224,7 @@ class StrategyLabEvaluator:
                 symbol_warnings.append(
                     "stressed_cost_validation_failed"
                 )
+            symbol_warnings.extend(chronological.warnings)
             warnings = tuple(dict.fromkeys(symbol_warnings))
             results.append(
                 StrategySymbolResult(
@@ -221,11 +240,69 @@ class StrategyLabEvaluator:
                     stressed_metrics=_metrics_payload(
                         stressed.out_of_sample.metrics
                     ),
+                    chronological_passed=chronological.passed,
+                    chronological_gates=chronological.gates,
+                    chronological_metrics={
+                        "folds_requested": (
+                            chronological.folds_requested
+                        ),
+                        "folds_completed": (
+                            chronological.folds_completed
+                        ),
+                        "total_trade_count": (
+                            chronological.total_trade_count
+                        ),
+                        "profitable_fold_fraction": (
+                            chronological.profitable_fold_fraction
+                        ),
+                        "passed_fold_fraction": (
+                            chronological.passed_fold_fraction
+                        ),
+                        "median_fold_return": (
+                            chronological.median_fold_return
+                        ),
+                        "worst_fold_drawdown": (
+                            chronological.worst_fold_drawdown
+                        ),
+                        "pooled_profit_factor": (
+                            chronological.pooled_profit_factor
+                        ),
+                    },
+                    chronological_folds=tuple(
+                        asdict(fold) for fold in chronological.folds
+                    ),
+                    chronological_r_multiples=(
+                        chronological.trade_r_multiples
+                    ),
                     warnings=warnings,
                 )
             )
 
         aggregate = self._aggregate(results)
+        chronological_r_multiples = tuple(
+            value
+            for result in results
+            for value in result.chronological_r_multiples
+        )
+        stress = TradeSequenceStressTester().evaluate(
+            chronological_r_multiples,
+            risk_fraction=allocation.risk_fraction,
+            seed_material="|".join(
+                (
+                    account_plan.account_id,
+                    strategy.strategy_id,
+                    strategy.version,
+                    ",".join(requested_symbols),
+                    ",".join(
+                        format(value, "f")
+                        for value in chronological_r_multiples
+                    ),
+                )
+            ),
+            paths=self.config.trade_sequence_paths,
+            drawdown_limit=self.config.maximum_drawdown,
+        )
+        aggregate["trade_sequence_stress"] = asdict(stress)
         required_coverage = min(
             self.config.minimum_covered_symbols,
             len(requested_symbols),
@@ -264,6 +341,57 @@ class StrategyLabEvaluator:
                 _decimal(aggregate["passed_symbol_fraction"])
                 >= Decimal("0.50")
             ),
+            "chronological_fold_coverage": (
+                covered_count > 0
+                and int(aggregate["chronological_fold_count"])
+                == covered_count * self.config.chronological_folds
+            ),
+            "minimum_chronological_trades": (
+                int(aggregate["chronological_trade_count"])
+                >= self.config.minimum_out_of_sample_trades
+            ),
+            "profitable_chronological_folds": (
+                _decimal(
+                    aggregate[
+                        "chronological_profitable_fold_fraction"
+                    ]
+                )
+                >= Decimal("0.50")
+            ),
+            "majority_chronological_fold_validations_pass": (
+                _decimal(
+                    aggregate[
+                        "chronological_passed_fold_fraction"
+                    ]
+                )
+                >= Decimal("0.50")
+            ),
+            "positive_median_chronological_return": (
+                _decimal(
+                    aggregate["chronological_median_fold_return"]
+                )
+                > ZERO
+            ),
+            "chronological_maximum_drawdown": (
+                _decimal(
+                    aggregate["chronological_worst_fold_drawdown"]
+                )
+                <= self.config.maximum_drawdown
+            ),
+            "chronological_pooled_profit_factor": (
+                aggregate["chronological_pooled_profit_factor"]
+                is not None
+                and _decimal(
+                    aggregate[
+                        "chronological_pooled_profit_factor"
+                    ]
+                )
+                >= self.config.minimum_profit_factor
+            ),
+            **{
+                f"trade_sequence_{name}": passed
+                for name, passed in stress.gates.items()
+            },
         }
         evidence_gates = (
             gates["minimum_symbol_coverage"],
@@ -280,6 +408,8 @@ class StrategyLabEvaluator:
             warnings.append("symbols_missing_validation_history")
         if not all(gates.values()):
             warnings.append("strategy_not_ready_for_extended_paper")
+        if not stress.passed:
+            warnings.append("trade_sequence_stress_failed")
         if allocation.paper_execution_allowed:
             warnings.append(
                 "configuration_permission_does_not_override_lab_readiness"
@@ -324,6 +454,13 @@ class StrategyLabEvaluator:
                 "pooled_profit_factor": None,
                 "worst_maximum_drawdown": ZERO,
                 "average_r_multiple": ZERO,
+                "chronological_fold_count": 0,
+                "chronological_trade_count": 0,
+                "chronological_profitable_fold_fraction": ZERO,
+                "chronological_passed_fold_fraction": ZERO,
+                "chronological_median_fold_return": ZERO,
+                "chronological_worst_fold_drawdown": ZERO,
+                "chronological_pooled_profit_factor": None,
             }
         base_returns = tuple(
             _decimal(item.base_metrics["total_return"]) for item in rows
@@ -337,6 +474,29 @@ class StrategyLabEvaluator:
         )
         gross_loss = sum(
             (_decimal(item.base_metrics["gross_loss"]) for item in rows),
+            start=ZERO,
+        )
+        chronological_folds = tuple(
+            fold
+            for item in rows
+            for fold in item.chronological_folds
+        )
+        chronological_returns = tuple(
+            _decimal(fold["metrics"]["total_return"])
+            for fold in chronological_folds
+        )
+        chronological_gross_profit = sum(
+            (
+                _decimal(fold["metrics"]["gross_profit"])
+                for fold in chronological_folds
+            ),
+            start=ZERO,
+        )
+        chronological_gross_loss = sum(
+            (
+                _decimal(fold["metrics"]["gross_loss"])
+                for fold in chronological_folds
+            ),
             start=ZERO,
         )
         return {
@@ -369,6 +529,52 @@ class StrategyLabEvaluator:
             "average_r_multiple": _average(
                 _decimal(item.base_metrics["average_r_multiple"])
                 for item in rows
+            ),
+            "chronological_fold_count": len(chronological_folds),
+            "chronological_trade_count": sum(
+                int(fold["metrics"]["trade_count"])
+                for fold in chronological_folds
+            ),
+            "chronological_profitable_fold_fraction": (
+                Decimal(
+                    sum(
+                        value > ZERO
+                        for value in chronological_returns
+                    )
+                )
+                / Decimal(len(chronological_folds))
+                if chronological_folds
+                else ZERO
+            ),
+            "chronological_passed_fold_fraction": (
+                Decimal(
+                    sum(
+                        bool(fold["passed"])
+                        for fold in chronological_folds
+                    )
+                )
+                / Decimal(len(chronological_folds))
+                if chronological_folds
+                else ZERO
+            ),
+            "chronological_median_fold_return": _median(
+                chronological_returns
+            ),
+            "chronological_worst_fold_drawdown": (
+                max(
+                    _decimal(
+                        fold["metrics"]["maximum_drawdown"]
+                    )
+                    for fold in chronological_folds
+                )
+                if chronological_folds
+                else ZERO
+            ),
+            "chronological_pooled_profit_factor": (
+                chronological_gross_profit
+                / chronological_gross_loss
+                if chronological_gross_loss > ZERO
+                else None
             ),
         }
 
@@ -435,6 +641,12 @@ class ContinuousStrategyLabService:
                 base_slippage_bps=settings.strategy_lab_base_cost_bps,
                 stressed_slippage_bps=(
                     settings.strategy_lab_stressed_cost_bps
+                ),
+                chronological_folds=(
+                    settings.strategy_lab_chronological_folds
+                ),
+                trade_sequence_paths=(
+                    settings.strategy_lab_trade_sequence_paths
                 ),
             ),
         )
@@ -506,7 +718,9 @@ class ContinuousStrategyLabService:
                 "timeframe": self.account_plan.timeframe,
                 "strategies_evaluated": len(reports),
                 "symbols_requested": len(requested_symbols),
-                "symbols_with_bars": sum(bool(rows) for rows in usable.values()),
+                "symbols_with_bars": sum(
+                    bool(rows) for rows in usable.values()
+                ),
                 "execution_enabled": False,
             },
         )

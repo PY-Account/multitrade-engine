@@ -482,8 +482,32 @@
     </div>
     <div class="table-wrap">
       <table>
-        <thead><tr><th>Evaluated</th><th>Strategy</th><th>Coverage</th><th class="number">OOS trades</th><th class="number">Median return</th><th class="number">Stressed return</th><th class="number">Profit factor</th><th class="number">Worst drawdown</th><th>Gates</th><th>Readiness</th><th>Execution</th></tr></thead>
+        <thead><tr><th>Evaluated</th><th>Strategy</th><th>Coverage</th><th class="number">OOS trades</th><th class="number">Median return</th><th class="number">Stressed return</th><th class="number">Profit factor</th><th class="number">Worst drawdown</th><th>Stable folds</th><th class="number">Tail drawdown</th><th>Gates</th><th>Readiness</th><th>Execution</th></tr></thead>
         <tbody id="strategy-lab-reports"></tbody>
+      </table>
+    </div>
+  </section>
+
+  <section class="panel workspace-view" data-primary="strategy-lab" data-secondary="robustness">
+    <div class="panel-head">
+      <div><h2>Chronological stability</h2><p class="subcopy">Fixed strategy parameters are evaluated in non-overlapping later windows. Earlier bars are used only for bounded feature warmup; every fold remains research-only.</p></div>
+    </div>
+    <div class="table-wrap">
+      <table>
+        <thead><tr><th>Evaluated</th><th>Strategy</th><th>Symbol</th><th>Fold</th><th>Test period</th><th class="number">Bars</th><th class="number">Trades</th><th class="number">Return</th><th class="number">Drawdown</th><th class="number">Profit factor</th><th>Gates</th><th>Status</th></tr></thead>
+        <tbody id="chronological-folds"></tbody>
+      </table>
+    </div>
+  </section>
+
+  <section class="panel workspace-view" data-primary="strategy-lab" data-secondary="robustness">
+    <div class="panel-head">
+      <div><h2>Trade-sequence stress</h2><p class="subcopy">Deterministic bootstrap paths resample observed chronological out-of-sample R-multiples at the configured risk per trade. This tests ordering sensitivity; it is not a forecast and cannot authorize execution.</p></div>
+    </div>
+    <div class="table-wrap">
+      <table>
+        <thead><tr><th>Evaluated</th><th>Strategy</th><th class="number">Trade sample</th><th class="number">Paths</th><th class="number">Risk / trade</th><th class="number">5th percentile return</th><th class="number">Median return</th><th class="number">95th percentile drawdown</th><th class="number">P(drawdown limit)</th><th>Gates</th><th>Status</th><th>Execution</th></tr></thead>
+        <tbody id="trade-sequence-stress"></tbody>
       </table>
     </div>
   </section>
@@ -610,6 +634,7 @@
     ],
     "strategy-lab": [
       ["validation", "Model Validation"],
+      ["robustness", "Robustness"],
       ["monitoring", "Signals & Bots"],
       ["market-model", "Market Model"],
       ["evidence", "Evidence"],
@@ -1162,11 +1187,12 @@
       latest.push(report);
     }
     if (!latest.length) {
-      emptyRow(body, 11, "The continuous Strategy Lab has not completed its first cycle.");
+      emptyRow(body, 13, "The continuous Strategy Lab has not completed its first cycle.");
       return;
     }
     for (const report of latest) {
       const metrics = report.aggregate_metrics || {};
+      const stress = metrics.trade_sequence_stress || {};
       const passedGates = Object.values(report.gates || {})
         .filter(Boolean).length;
       const totalGates = Object.keys(report.gates || {}).length;
@@ -1183,6 +1209,8 @@
         [percent(metrics.median_stressed_return), Number(metrics.median_stressed_return || 0) >= 0 ? "number ok" : "number bad"],
         [profitFactor, "number"],
         [percent(metrics.worst_maximum_drawdown), "number"],
+        [`${Math.round(Number(metrics.chronological_passed_fold_fraction || 0) * Number(metrics.chronological_fold_count || 0))}/${metrics.chronological_fold_count ?? 0}`, Number(metrics.chronological_passed_fold_fraction || 0) >= 0.5 ? "ok" : "warn"],
+        [stress.ninety_fifth_percentile_drawdown == null ? "--" : percent(stress.ninety_fifth_percentile_drawdown), stress.ninety_fifth_percentile_drawdown == null ? "number warn" : Number(stress.ninety_fifth_percentile_drawdown) <= Number(stress.drawdown_limit) ? "number ok" : "number bad"],
         [`${passedGates}/${totalGates}`, passedGates === totalGates && totalGates ? "ok" : "warn"],
         [readiness, report.readiness_status === "extended_paper_observation_candidate" ? "ok" : "warn"],
         [report.execution_eligible ? "Eligible" : "Blocked", report.execution_eligible ? "bad" : "ok"],
@@ -1192,6 +1220,98 @@
         row.appendChild(cell(value, className));
       }
       body.appendChild(row);
+    }
+  }
+
+  function latestStrategyLabReports(reports) {
+    const latest = [];
+    const seen = new Set();
+    for (const report of reports) {
+      if (
+        report.account_id !== selectedAccountId
+        || seen.has(report.strategy_id)
+      ) continue;
+      seen.add(report.strategy_id);
+      latest.push(report);
+    }
+    return latest;
+  }
+
+  function renderStrategyRobustness(reports) {
+    const foldBody = document.getElementById("chronological-folds");
+    const stressBody = document.getElementById("trade-sequence-stress");
+    foldBody.replaceChildren();
+    stressBody.replaceChildren();
+    const latest = latestStrategyLabReports(reports);
+    if (!latest.length) {
+      emptyRow(foldBody, 12, "Chronological validation has not completed its first cycle.");
+      emptyRow(stressBody, 12, "Trade-sequence stress has not completed its first cycle.");
+      return;
+    }
+    let foldCount = 0;
+    for (const report of latest) {
+      for (const symbolResult of report.symbol_results || []) {
+        for (const fold of symbolResult.chronological_folds || []) {
+          foldCount += 1;
+          const metrics = fold.metrics || {};
+          const passedGates = Object.values(fold.gates || {})
+            .filter(Boolean).length;
+          const totalGates = Object.keys(fold.gates || {}).length;
+          const profitFactor = metrics.profit_factor == null
+            ? "--"
+            : Number(metrics.profit_factor).toFixed(2);
+          const values = [
+            [localTime(report.evaluated_at), ""],
+            [`${report.strategy_id} v${report.strategy_version}`, ""],
+            [symbolResult.symbol, ""],
+            [`${fold.fold_number}/${symbolResult.chronological_metrics?.folds_requested || "--"}`, ""],
+            [`${localTime(fold.test_start)} – ${localTime(fold.test_end)}`, ""],
+            [fold.bar_count ?? 0, "number"],
+            [metrics.trade_count ?? 0, "number"],
+            [percent(metrics.total_return), Number(metrics.total_return || 0) > 0 ? "number ok" : "number bad"],
+            [percent(metrics.maximum_drawdown), "number"],
+            [profitFactor, "number"],
+            [`${passedGates}/${totalGates}`, passedGates === totalGates && totalGates ? "ok" : "warn"],
+            [fold.passed ? "Passed" : "Failed", fold.passed ? "ok" : "warn"],
+          ];
+          const row = document.createElement("tr");
+          for (const [value, className] of values) {
+            row.appendChild(cell(value, className));
+          }
+          foldBody.appendChild(row);
+        }
+      }
+
+      const stress = report.aggregate_metrics?.trade_sequence_stress;
+      if (!stress) continue;
+      const passedGates = Object.values(stress.gates || {})
+        .filter(Boolean).length;
+      const totalGates = Object.keys(stress.gates || {}).length;
+      const values = [
+        [localTime(report.evaluated_at), ""],
+        [`${report.strategy_id} v${report.strategy_version}`, ""],
+        [stress.sample_trade_count ?? 0, "number"],
+        [stress.simulated_paths ?? 0, "number"],
+        [percent(stress.risk_fraction), "number"],
+        [percent(stress.fifth_percentile_return), Number(stress.fifth_percentile_return || 0) >= -Number(stress.drawdown_limit || 0) ? "number ok" : "number bad"],
+        [percent(stress.median_return), Number(stress.median_return || 0) > 0 ? "number ok" : "number bad"],
+        [percent(stress.ninety_fifth_percentile_drawdown), Number(stress.ninety_fifth_percentile_drawdown || 0) <= Number(stress.drawdown_limit || 0) ? "number ok" : "number bad"],
+        [percent(stress.drawdown_limit_probability), Number(stress.drawdown_limit_probability || 0) <= 0.1 ? "number ok" : "number bad"],
+        [`${passedGates}/${totalGates}`, passedGates === totalGates && totalGates ? "ok" : "warn"],
+        [stress.passed ? "Passed" : "Failed", stress.passed ? "ok" : "warn"],
+        [stress.execution_eligible ? "Eligible" : "Blocked", stress.execution_eligible ? "bad" : "ok"],
+      ];
+      const row = document.createElement("tr");
+      for (const [value, className] of values) {
+        row.appendChild(cell(value, className));
+      }
+      stressBody.appendChild(row);
+    }
+    if (!foldCount) {
+      emptyRow(foldBody, 12, "No chronological folds are available in the latest reports.");
+    }
+    if (!stressBody.children.length) {
+      emptyRow(stressBody, 12, "No trade-sequence stress report is available.");
     }
   }
 
@@ -1675,6 +1795,7 @@
       renderResearchBacktests(data.research_backtests || []);
       renderPortfolioRiskReports(data.portfolio_risk_reports || []);
       renderStrategyLabReports(data.strategy_lab_reports || []);
+      renderStrategyRobustness(data.strategy_lab_reports || []);
       renderAssetCandidates(data.asset_universe_reports || []);
       renderUniverseAssignments(
         data.asset_universe?.configuration,

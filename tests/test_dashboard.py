@@ -212,6 +212,11 @@ class DashboardTests(TestCase):
                 )
                 self.assertIn('id="account-select"', html)
                 self.assertIn("Continuous Strategy Lab", html)
+                self.assertIn("Chronological stability", html)
+                self.assertIn("Trade-sequence stress", html)
+                self.assertIn(
+                    'data-secondary="robustness"', html
+                )
                 self.assertIn(
                     "Evidence-gated asset recommendations", html
                 )

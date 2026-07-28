@@ -57,7 +57,10 @@ hours. It evaluates each configured model across its manual, recommended,
 combined, or account-watchlist research assignment using chronological 60/40
 splits, next-bar entries, regular US
 sessions, forced session-end exits, base costs, and adverse-cost stress. It
-stores every model report rather than selecting only a favorable trial.
+then evaluates the frozen model in several non-overlapping later windows and
+runs deterministic trade-sequence stress on the resulting out-of-sample
+R-multiples. It stores every model report rather than selecting only a
+favorable trial.
 Readiness is an analytical label and has no path to broker credentials or
 order permission.
 
@@ -127,8 +130,11 @@ future performance.
 
 The Strategy Lab adds cross-symbol coverage, pooled trade count, median
 out-of-sample return, profitable-symbol breadth, pooled profit factor, worst
-drawdown, adverse-cost return, and per-symbol validation gates. A fully
-passing result can only be labeled an extended-Paper-observation candidate.
+drawdown, adverse-cost return, per-symbol validation gates, fixed-parameter
+chronological folds, and deterministic trade-sequence tail diagnostics. A
+fully passing result can only be labeled an extended-Paper-observation
+candidate. The bootstrap does not preserve serial dependence or cross-symbol
+correlation and is not presented as a forecast.
 
 The daily evidence model has a separate simulator. A decision after day `t`
 closes can change exposure only at day `t+1`'s open; its first credited return
@@ -170,7 +176,7 @@ shared `/app/var` volume.
 
 ## Scaling boundary
 
-Release 0.7 intentionally supports one enabled Paper account and one
+Release 0.8 intentionally supports one enabled Paper account and one
 orchestrator. Multi-account/cross-broker execution requires PostgreSQL with
 account-scoped reservations, a portfolio-wide exposure service, credential
 isolation per connector, and distributed locking. Dedicated crypto and forex

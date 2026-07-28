@@ -6,6 +6,7 @@ from tempfile import TemporaryDirectory
 from unittest import TestCase
 
 from multitrade.audit import SqliteAuditReader, SqliteAuditStore
+from multitrade.backtest import BacktestConfig, StrategyValidator
 from multitrade.domain import AssetClass
 from multitrade.market import MarketBar
 from multitrade.portfolio import AccountPlan, StrategyAllocation
@@ -131,6 +132,29 @@ class FakeMarketData:
 
 
 class StrategyLabTests(TestCase):
+    def test_chronological_folds_are_non_overlapping(self) -> None:
+        report = StrategyValidator(
+            FrequentTestStrategy(),
+            config=BacktestConfig(
+                slippage_bps=Decimal("0"),
+                risk_fraction=Decimal("0.005"),
+                capital_weight=Decimal("0.20"),
+            ),
+        ).chronological_stability(
+            intraday_bars("SPY"),
+            folds=3,
+        )
+
+        self.assertEqual(report.folds_completed, 3)
+        self.assertEqual(
+            report.total_trade_count,
+            len(report.trade_r_multiples),
+        )
+        for previous, current in zip(
+            report.folds, report.folds[1:]
+        ):
+            self.assertLess(previous.test_end, current.test_start)
+
     def test_cross_symbol_and_stressed_costs_are_required(self) -> None:
         report = StrategyLabEvaluator(
             config=StrategyLabConfig(
@@ -156,6 +180,20 @@ class StrategyLabTests(TestCase):
         )
         self.assertTrue(
             report.gates["positive_after_stressed_costs"]
+        )
+        self.assertEqual(
+            report.aggregate_metrics["chronological_fold_count"],
+            6,
+        )
+        self.assertEqual(
+            report.aggregate_metrics[
+                "trade_sequence_stress"
+            ]["simulated_paths"],
+            500,
+        )
+        self.assertIn(
+            "chronological_fold_coverage",
+            report.gates,
         )
         self.assertFalse(report.execution_eligible)
         self.assertIn(
@@ -204,6 +242,14 @@ class StrategyLabTests(TestCase):
             self.assertEqual(market_data.adjustment, "raw")
             self.assertEqual(len(reports), 1)
             self.assertFalse(reports[0]["execution_eligible"])
+            self.assertEqual(
+                len(
+                    reports[0]["symbol_results"][0][
+                        "chronological_folds"
+                    ]
+                ),
+                3,
+            )
             self.assertTrue(health_path.is_file())
 
     def test_continuous_cycle_uses_strategy_specific_research_symbols(

@@ -4,6 +4,7 @@ import calendar
 from dataclasses import asdict, dataclass
 from datetime import datetime, time, timedelta, timezone
 from decimal import Decimal, ROUND_DOWN
+from statistics import median
 from typing import Iterable
 from uuid import uuid4
 
@@ -111,6 +112,37 @@ class ValidationReport:
     out_of_sample: BacktestResult
     passed: bool
     gates: dict[str, bool]
+    warnings: tuple[str, ...]
+
+
+@dataclass(frozen=True, slots=True)
+class ChronologicalFoldResult:
+    fold_number: int
+    test_start: str
+    test_end: str
+    bar_count: int
+    metrics: BacktestMetrics
+    r_multiples: tuple[Decimal, ...]
+    gates: dict[str, bool]
+    passed: bool
+
+
+@dataclass(frozen=True, slots=True)
+class ChronologicalStabilityReport:
+    strategy_id: str
+    strategy_version: str
+    folds_requested: int
+    folds_completed: int
+    folds: tuple[ChronologicalFoldResult, ...]
+    trade_r_multiples: tuple[Decimal, ...]
+    total_trade_count: int
+    profitable_fold_fraction: Decimal
+    passed_fold_fraction: Decimal
+    median_fold_return: Decimal
+    worst_fold_drawdown: Decimal
+    pooled_profit_factor: Decimal | None
+    gates: dict[str, bool]
+    passed: bool
     warnings: tuple[str, ...]
 
 
@@ -585,6 +617,179 @@ class StrategyValidator:
             passed=all(gates.values()),
             gates=gates,
             warnings=tuple(dict.fromkeys(warnings)),
+        )
+
+    def chronological_stability(
+        self,
+        bars: Iterable[MarketBar],
+        *,
+        folds: int = 3,
+        initial_fraction: Decimal = Decimal("0.50"),
+        minimum_trades_per_fold: int = 2,
+        drawdown_limit: Decimal = Decimal("0.10"),
+    ) -> ChronologicalStabilityReport:
+        """Evaluate a fixed strategy across non-overlapping later periods.
+
+        The strategy parameters are not fitted inside this method. Historical
+        bars before each test window are used only as bounded feature warmup;
+        signals and P/L begin at the fold boundary.
+        """
+        if not 2 <= folds <= 6:
+            raise ValueError("Chronological folds must be between 2 and 6")
+        if not Decimal("0.40") <= initial_fraction <= Decimal("0.70"):
+            raise ValueError(
+                "Chronological initial fraction must be 0.40-0.70"
+            )
+        if minimum_trades_per_fold < 1:
+            raise ValueError(
+                "Minimum trades per fold must be positive"
+            )
+        if not ZERO < drawdown_limit <= Decimal("0.50"):
+            raise ValueError(
+                "Chronological drawdown limit must be in (0, 0.50]"
+            )
+        ordered = tuple(sorted(bars, key=lambda bar: bar.timestamp))
+        if (
+            self.config.regular_session_only
+            and ordered
+            and not ordered[0].timeframe.endswith(("Day", "D"))
+        ):
+            ordered = tuple(
+                bar for bar in ordered if _is_regular_session_bar(bar)
+            )
+        minimum_warmup = FeatureEngine().minimum_bars + 2
+        first_test_index = int(
+            Decimal(len(ordered)) * initial_fraction
+        )
+        test_bar_count = len(ordered) - first_test_index
+        if (
+            first_test_index < minimum_warmup
+            or test_bar_count < folds * 10
+        ):
+            raise ValueError(
+                "Not enough bars for chronological stability folds"
+            )
+
+        fold_results: list[ChronologicalFoldResult] = []
+        for fold_index in range(folds):
+            test_start_index = first_test_index + (
+                test_bar_count * fold_index // folds
+            )
+            test_end_index = first_test_index + (
+                test_bar_count * (fold_index + 1) // folds
+            )
+            warmup_start = max(
+                0,
+                test_start_index - self.config.maximum_history_bars,
+            )
+            result = Backtester(
+                self.strategy, config=self.config
+            ).run(
+                ordered[warmup_start:test_end_index],
+                signal_start_at=ordered[test_start_index].timestamp,
+            )
+            metrics = result.metrics
+            fold_gates = {
+                "minimum_trade_count": (
+                    metrics.trade_count >= minimum_trades_per_fold
+                ),
+                "positive_net_profit": metrics.net_profit > ZERO,
+                "maximum_drawdown": (
+                    metrics.maximum_drawdown <= drawdown_limit
+                ),
+                "positive_expectancy": metrics.expectancy > ZERO,
+            }
+            fold_results.append(
+                ChronologicalFoldResult(
+                    fold_number=fold_index + 1,
+                    test_start=ordered[
+                        test_start_index
+                    ].timestamp.isoformat(),
+                    test_end=ordered[
+                        test_end_index - 1
+                    ].timestamp.isoformat(),
+                    bar_count=test_end_index - test_start_index,
+                    metrics=metrics,
+                    r_multiples=tuple(
+                        trade.r_multiple for trade in result.trades
+                    ),
+                    gates=fold_gates,
+                    passed=all(fold_gates.values()),
+                )
+            )
+
+        returns = tuple(
+            fold.metrics.total_return for fold in fold_results
+        )
+        gross_profit = sum(
+            (
+                fold.metrics.gross_profit
+                for fold in fold_results
+            ),
+            start=ZERO,
+        )
+        gross_loss = sum(
+            (
+                fold.metrics.gross_loss
+                for fold in fold_results
+            ),
+            start=ZERO,
+        )
+        total_trades = sum(
+            fold.metrics.trade_count for fold in fold_results
+        )
+        profitable_fraction = (
+            Decimal(sum(value > ZERO for value in returns))
+            / Decimal(len(returns))
+        )
+        passed_fraction = (
+            Decimal(sum(fold.passed for fold in fold_results))
+            / Decimal(len(fold_results))
+        )
+        median_return = Decimal(str(median(returns)))
+        worst_drawdown = max(
+            fold.metrics.maximum_drawdown
+            for fold in fold_results
+        )
+        pooled_profit_factor = (
+            gross_profit / gross_loss if gross_loss > ZERO else None
+        )
+        gates = {
+            "all_folds_completed": len(fold_results) == folds,
+            "minimum_total_trade_count": (
+                total_trades >= folds * minimum_trades_per_fold
+            ),
+            "positive_median_fold_return": median_return > ZERO,
+            "profitable_fold_majority": (
+                profitable_fraction >= Decimal("0.50")
+            ),
+            "maximum_fold_drawdown": (
+                worst_drawdown <= drawdown_limit
+            ),
+        }
+        warnings: list[str] = []
+        if not all(gates.values()):
+            warnings.append("chronological_stability_failed")
+        return ChronologicalStabilityReport(
+            strategy_id=self.strategy.strategy_id,
+            strategy_version=self.strategy.version,
+            folds_requested=folds,
+            folds_completed=len(fold_results),
+            folds=tuple(fold_results),
+            trade_r_multiples=tuple(
+                r_multiple
+                for fold in fold_results
+                for r_multiple in fold.r_multiples
+            ),
+            total_trade_count=total_trades,
+            profitable_fold_fraction=profitable_fraction,
+            passed_fold_fraction=passed_fraction,
+            median_fold_return=median_return,
+            worst_fold_drawdown=worst_drawdown,
+            pooled_profit_factor=pooled_profit_factor,
+            gates=gates,
+            passed=all(gates.values()),
+            warnings=tuple(warnings),
         )
 
 

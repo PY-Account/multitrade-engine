@@ -286,6 +286,32 @@ EVIDENCE_REGISTRY: tuple[EvidenceRecord, ...] = (
         ),
     ),
     EvidenceRecord(
+        evidence_id="deflated_sharpe_ratio_blp_2014",
+        title="The Deflated Sharpe Ratio",
+        grade=EvidenceGrade.GOVERNANCE,
+        source_url=(
+            "https://papers.ssrn.com/sol3/papers.cfm?"
+            "abstract_id=2460551"
+        ),
+        finding=(
+            "Reported risk-adjusted performance should account for "
+            "non-normal returns and the number of strategy trials."
+        ),
+        caveats=(
+            "The method requires a reliable record of related trials.",
+            "MultiTrade does not yet claim a Deflated Sharpe Ratio "
+            "implementation.",
+        ),
+        role="multiple_testing_governance",
+        independent_support=True,
+        execution_candidate=False,
+        required_internal_checks=(
+            "immutable_candidate_trial_registry",
+            "untouched_final_holdout",
+            "non_normal_return_diagnostics",
+        ),
+    ),
+    EvidenceRecord(
         evidence_id="intraday_patterns_internal",
         title="MultiTrade Intraday Pattern Candidates",
         grade=EvidenceGrade.INTERNAL_HYPOTHESIS,

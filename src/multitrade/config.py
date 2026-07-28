@@ -116,6 +116,8 @@ class Settings:
     strategy_lab_lookback_days: int
     strategy_lab_base_cost_bps: Decimal
     strategy_lab_stressed_cost_bps: Decimal
+    strategy_lab_chronological_folds: int
+    strategy_lab_trade_sequence_paths: int
     asset_universe_cycle_seconds: int
     asset_universe_health_path: Path
     asset_universe_health_max_age_seconds: int
@@ -327,6 +329,18 @@ class Settings:
             strategy_lab_base_cost_bps=strategy_lab_base_cost_bps,
             strategy_lab_stressed_cost_bps=(
                 strategy_lab_stressed_cost_bps
+            ),
+            strategy_lab_chronological_folds=_int_env(
+                "TRADING_STRATEGY_LAB_CHRONOLOGICAL_FOLDS",
+                "3",
+                2,
+                6,
+            ),
+            strategy_lab_trade_sequence_paths=_int_env(
+                "TRADING_STRATEGY_LAB_TRADE_SEQUENCE_PATHS",
+                "500",
+                100,
+                5000,
             ),
             asset_universe_cycle_seconds=(
                 asset_universe_cycle_seconds

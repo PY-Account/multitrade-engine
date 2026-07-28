@@ -79,10 +79,13 @@ risk.
 The intraday Strategy Lab is intentionally adversarial to model promotion. It
 records all configured candidates, holds out the newest 40% of each symbol's
 history, requires cross-symbol breadth, and repeats validation with adverse
-costs. This implements practical safeguards motivated by the published
-backtest-overfitting literature, but it is not a full implementation of
-combinatorially symmetric cross-validation or the probability of backtest
-overfitting.
+costs. It now also applies fixed-parameter evaluation across non-overlapping
+chronological windows and deterministic trade-sequence stress to the resulting
+out-of-sample R-multiples. This implements practical safeguards motivated by
+the published backtest-overfitting literature, but it is not a full
+implementation of combinatorially symmetric cross-validation, the probability
+of backtest overfitting, or the Deflated Sharpe Ratio. See
+`ROBUSTNESS_VALIDATION.md` for the exact gates and limitations.
 
 ## Daily-model validation rules
 

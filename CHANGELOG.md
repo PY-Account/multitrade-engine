@@ -1,5 +1,28 @@
 # Changelog
 
+## 0.8.0 - 2026-07-28
+
+- Added fixed-parameter Strategy Lab evaluation across three configurable,
+  non-overlapping chronological test windows per strategy and symbol.
+- Persisted every fold's period, trade count, return, drawdown, profit factor,
+  R-multiples, gates, and status rather than retaining only one favorable
+  aggregate result.
+- Added deterministic trade-sequence bootstrap stress over chronological
+  out-of-sample R-multiples, including adverse return, tail drawdown, and
+  drawdown-limit probability gates.
+- Added fail-closed aggregate admission gates for chronological coverage,
+  sample size, profitable-window breadth, median return, drawdown, and
+  trade-sequence stress.
+- Added a dedicated dashboard Robustness tab with fold-level and
+  trade-sequence diagnostics.
+- Added the Deflated Sharpe Ratio to the governance evidence registry while
+  explicitly documenting that the formula, PBO, and full multiple-testing
+  control require an immutable candidate-trial registry and are not yet
+  implemented.
+
+This release remains Alpaca Paper-only. Robustness results are diagnostics,
+not forecasts, profitability claims, allocation changes, or order approval.
+
 ## 0.7.1 - 2026-07-28
 
 - Added the deployed application version and short Git revision to the

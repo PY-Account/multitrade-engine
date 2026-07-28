@@ -154,8 +154,19 @@ manual/recommended research assignment:
 - Worst symbol drawdown no greater than 10%.
 - Positive median return with 25-basis-point modeled slippage.
 - At least half of the individual symbol validations passing.
+- Complete fixed-parameter coverage across three non-overlapping later
+  windows per covered symbol.
+- At least 30 combined trades from those chronological windows.
+- A positive median chronological-window return and at least half of the
+  windows profitable and individually passing.
+- A pooled chronological-window profit factor of at least 1.10.
+- Worst chronological-window drawdown no greater than 10%.
+- A trade-sequence stress sample of at least 20 observed test trades, a
+  5th-percentile loss and 95th-percentile drawdown within the 10% budget, and
+  no more than 10% of simulated paths reaching that budget.
 
 Intraday validation uses only the 09:30-16:00 New York regular session and
 forces open test positions to close before the session ends. The lab records
 every configured model, including disabled candidates. It never changes
-configuration or order permissions.
+configuration or order permissions. See `ROBUSTNESS_VALIDATION.md` for the
+bootstrap limitations and the multiple-testing methods not yet implemented.
