@@ -6,7 +6,7 @@ from dataclasses import dataclass
 from decimal import Decimal, InvalidOperation
 from pathlib import Path
 
-from multitrade.risk import RiskPolicy
+from multitrade.risk import FirmRiskPolicy, RiskPolicy
 
 
 PAPER_URL = "https://paper-api.alpaca.markets"
@@ -136,6 +136,7 @@ class Settings:
     dashboard_username: str
     dashboard_password: str
     risk_policy: RiskPolicy
+    firm_risk_policy: FirmRiskPolicy
 
     @classmethod
     def from_env(cls) -> "Settings":
@@ -486,6 +487,26 @@ class Settings:
                 ),
                 option_slippage_per_package=_decimal_env(
                     "RISK_OPTION_SLIPPAGE_PER_PACKAGE", "5"
+                ),
+            ),
+            firm_risk_policy=FirmRiskPolicy(
+                enabled=_bool_env(
+                    "RISK_FIRM_WIDE_ENABLED", True
+                ),
+                max_total_open=_decimal_env(
+                    "RISK_FIRM_MAX_TOTAL_OPEN", "0.10"
+                ),
+                max_symbol_open=_decimal_env(
+                    "RISK_FIRM_MAX_SYMBOL_OPEN", "0.03"
+                ),
+                max_strategy_open=_decimal_env(
+                    "RISK_FIRM_MAX_STRATEGY_OPEN", "0.05"
+                ),
+                equity_max_age_seconds=_int_env(
+                    "RISK_FIRM_EQUITY_MAX_AGE_SECONDS",
+                    "900",
+                    60,
+                    86400,
                 ),
             ),
         )

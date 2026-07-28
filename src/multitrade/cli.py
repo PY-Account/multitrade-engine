@@ -376,6 +376,19 @@ def _doctor() -> int:
         "enabled_accounts": enabled_accounts,
         "account_credentials": account_credentials,
         "multi_account_runtime": True,
+        "firm_risk_enabled": settings.firm_risk_policy.enabled,
+        "firm_max_total_open": format(
+            settings.firm_risk_policy.max_total_open, "f"
+        ),
+        "firm_max_symbol_open": format(
+            settings.firm_risk_policy.max_symbol_open, "f"
+        ),
+        "firm_max_strategy_open": format(
+            settings.firm_risk_policy.max_strategy_open, "f"
+        ),
+        "firm_equity_max_age_seconds": (
+            settings.firm_risk_policy.equity_max_age_seconds
+        ),
     }
     print(json.dumps(checks, indent=2, sort_keys=True))
     return (
@@ -1341,6 +1354,7 @@ def _dashboard() -> int:
                 settings.strategy_experiment_program_path
             )
         ),
+        firm_risk_policy=settings.firm_risk_policy,
     )
     server = create_dashboard_server(
         host=settings.dashboard_host,

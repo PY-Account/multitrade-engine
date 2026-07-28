@@ -1,5 +1,10 @@
 # Multi-Account Paper Operations
 
+All enabled accounts share the atomic firm-wide ceilings documented in
+[FIRM_RISK_AUTHORITY.md](FIRM_RISK_AUTHORITY.md). Account isolation prevents
+credential and state leakage; it does not permit duplicated risk to bypass the
+company-level total, underlying, or strategy limits.
+
 Release 0.13 can supervise multiple Alpaca Paper accounts in one VPS
 deployment. This is account isolation inside one application instance, not
 distributed or live trading.

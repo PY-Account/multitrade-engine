@@ -54,6 +54,40 @@ class RiskPolicy:
             raise ValueError("Slippage assumptions cannot be negative")
 
 
+@dataclass(frozen=True, slots=True)
+class FirmRiskPolicy:
+    """Consolidated limits applied atomically across managed accounts."""
+
+    enabled: bool = True
+    max_total_open: Decimal = Decimal("0.10")
+    max_symbol_open: Decimal = Decimal("0.03")
+    max_strategy_open: Decimal = Decimal("0.05")
+    equity_max_age_seconds: int = 900
+
+    def __post_init__(self) -> None:
+        fractions = (
+            self.max_total_open,
+            self.max_symbol_open,
+            self.max_strategy_open,
+        )
+        if any(value <= ZERO or value > ONE for value in fractions):
+            raise ValueError(
+                "Firm risk fractions must be in the interval (0, 1]"
+            )
+        if self.max_symbol_open > self.max_total_open:
+            raise ValueError(
+                "Firm symbol risk cannot exceed total-open risk"
+            )
+        if self.max_strategy_open > self.max_total_open:
+            raise ValueError(
+                "Firm strategy risk cannot exceed total-open risk"
+            )
+        if not 60 <= self.equity_max_age_seconds <= 86400:
+            raise ValueError(
+                "Firm equity freshness must be between 60 and 86400 seconds"
+            )
+
+
 class RiskEngine:
     def __init__(self, policy: RiskPolicy | None = None) -> None:
         self.policy = policy or RiskPolicy()
@@ -132,6 +166,20 @@ class RiskEngine:
         if intent.reduce_only:
             return ZERO
         return self._risk_per_unit(intent)
+
+    def quantity_for_risk_budget(
+        self,
+        intent: TradeIntent,
+        risk_budget: Decimal,
+        risk_per_unit: Decimal,
+    ) -> Decimal:
+        """Apply the engine's asset-specific quantity granularity."""
+        if risk_budget <= ZERO or risk_per_unit <= ZERO:
+            return ZERO
+        return self._floor_quantity(
+            risk_budget / risk_per_unit,
+            intent.asset_class,
+        )
 
     def _account_guard(
         self, intent: TradeIntent, snapshot: AccountSnapshot

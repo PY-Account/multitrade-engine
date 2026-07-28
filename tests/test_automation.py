@@ -342,6 +342,11 @@ class AutomationTests(TestCase):
             trades = SqliteAuditReader(
                 settings.db_path
             ).recent_trade_records()
+            observations = SqliteAuditReader(
+                settings.db_path
+            ).recent_option_observations(
+                account_id="alpaca-paper"
+            )
 
             self.assertEqual(result.orders_submitted, 1)
             self.assertEqual(broker.submit_calls, 1)
@@ -358,6 +363,13 @@ class AutomationTests(TestCase):
                 trades[0]["strategy_id"],
                 "breakout_retest_bull_call",
             )
+            self.assertEqual(len(observations), 1)
+            self.assertEqual(
+                observations[0]["status"],
+                "selected_for_risk_review",
+            )
+            self.assertEqual(len(observations[0]["legs"]), 2)
+            self.assertFalse(observations[0]["execution_proof"])
 
     def test_multi_account_supervisor_isolates_account_failure(
         self,

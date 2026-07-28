@@ -27,6 +27,7 @@ from multitrade.experiments import (
 from multitrade.health import check_health
 from multitrade.portfolio import AccountPlan
 from multitrade.research import evidence_catalog
+from multitrade.risk import FirmRiskPolicy
 from multitrade.universe import AssetUniverseProgram, program_payload
 
 
@@ -61,6 +62,7 @@ class DashboardData:
         strategy_experiment_program: (
             StrategyExperimentProgram | None
         ) = None,
+        firm_risk_policy: FirmRiskPolicy | None = None,
         release_version: str = __version__,
         build_commit: str | None = None,
     ) -> None:
@@ -118,6 +120,9 @@ class DashboardData:
         self.asset_universe_program = asset_universe_program
         self.strategy_experiment_program = (
             strategy_experiment_program
+        )
+        self.firm_risk_policy = (
+            firm_risk_policy or FirmRiskPolicy(enabled=False)
         )
         self.release_version = release_version
         candidate_commit = (
@@ -216,6 +221,9 @@ class DashboardData:
             option_package_evidence = (
                 self.reader.recent_option_package_evidence(100)
             )
+            firm_risk = self.reader.firm_risk_summary(
+                self.firm_risk_policy
+            )
             backtests = self.reader.recent_backtests(20)
             validations = self.reader.recent_validations(20)
             research_decisions = (
@@ -251,6 +259,10 @@ class DashboardData:
             strategy_performance = []
             option_observations = []
             option_package_evidence = []
+            firm_risk = {
+                "enabled": self.firm_risk_policy.enabled,
+                "status": "unavailable",
+            }
             backtests = []
             validations = []
             research_decisions = []
@@ -530,6 +542,7 @@ class DashboardData:
             "positions": positions,
             "open_orders": open_orders,
             "risk": risk,
+            "firm_risk": firm_risk,
             "events": events,
             "signals": signals,
             "strategy_runtime": strategy_runtime,
@@ -585,7 +598,7 @@ class DashboardData:
 
 
 class DashboardRequestHandler(BaseHTTPRequestHandler):
-    server_version = "MultiTradeDashboard/0.14.0"
+    server_version = "MultiTradeDashboard/0.15.0"
     sys_version = ""
     data_service: DashboardData
     expected_authorization: str

@@ -271,3 +271,13 @@ class DefinedRiskOptionFactoryTests(TestCase):
             intent.explanation["theta_attribution"],
             "decision_time_model_only_not_realized_profit",
         )
+        self.assertEqual(
+            len(intent.explanation["decision_option_snapshots"]), 2
+        )
+        self.assertEqual(
+            intent.explanation["decision_option_snapshots"][0]["feed"],
+            "indicative",
+        )
+        self.assertFalse(
+            intent.explanation["historical_bar_greeks_available"]
+        )

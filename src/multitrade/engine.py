@@ -5,7 +5,7 @@ from dataclasses import dataclass
 from multitrade.audit import SqliteAuditStore
 from multitrade.brokers.base import Broker, BrokerOrder
 from multitrade.domain import AccountSnapshot, RiskDecision, TradeIntent
-from multitrade.risk import RiskEngine
+from multitrade.risk import FirmRiskPolicy, RiskEngine
 
 
 @dataclass(frozen=True, slots=True)
@@ -23,6 +23,7 @@ class TradingEngine:
         audit_store: SqliteAuditStore,
         enable_order_submission: bool = False,
         enable_reduce_only_submission: bool = False,
+        firm_risk_policy: FirmRiskPolicy | None = None,
     ) -> None:
         self.broker = broker
         self.risk_engine = risk_engine
@@ -31,6 +32,7 @@ class TradingEngine:
         self.enable_reduce_only_submission = (
             enable_reduce_only_submission
         )
+        self.firm_risk_policy = firm_risk_policy
 
     def process(
         self,
@@ -40,9 +42,17 @@ class TradingEngine:
         allow_submission: bool = True,
     ) -> EngineResult:
         account_snapshot = snapshot or self.broker.get_account_snapshot()
-        decision = self.audit_store.evaluate_and_reserve(
-            self.risk_engine, intent, account_snapshot
-        )
+        if self.firm_risk_policy is None:
+            decision = self.audit_store.evaluate_and_reserve(
+                self.risk_engine, intent, account_snapshot
+            )
+        else:
+            decision = self.audit_store.evaluate_and_reserve(
+                self.risk_engine,
+                intent,
+                account_snapshot,
+                firm_policy=self.firm_risk_policy,
+            )
         if not decision.approved:
             return EngineResult(decision=decision)
 

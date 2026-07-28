@@ -13,6 +13,8 @@ contains:
 - account, strategy, underlying, structure, and decision time;
 - exact OCC contract symbols, sides, ratios, strikes, expiry, and decision
   marks;
+- per-leg bid, ask, size, spread, feed, and quote timestamp for the selected
+  contracts;
 - decision-time delta, gamma, theta, vega, and implied-volatility inputs when
   Alpaca supplied them;
 - signed opening net price, modeled maximum risk per package, feed, and
@@ -85,4 +87,3 @@ Primary references:
 - [Alpaca historical option bars](https://docs.alpaca.markets/us/reference/optionbars)
 - [Alpaca historical option data](https://docs.alpaca.markets/us/docs/historical-option-data)
 - [Alpaca options trading](https://docs.alpaca.markets/us/docs/options-trading)
-

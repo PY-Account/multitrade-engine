@@ -25,7 +25,7 @@ from multitrade.domain import (
     TradeIntent,
 )
 from multitrade.engine import EngineResult
-from multitrade.risk import RiskEngine
+from multitrade.risk import FirmRiskPolicy, RiskEngine
 from multitrade.strategies.base import SignalAction, StrategySignal
 
 
@@ -191,6 +191,7 @@ class OrderLifecycleTests(TestCase):
                     "account_id",
                     "asset_class",
                     "instruments_json",
+                    "risk_group",
                 }.issubset(risk_columns)
             )
             self.assertTrue(
@@ -556,4 +557,193 @@ class OrderLifecycleTests(TestCase):
             self.assertEqual(
                 statistics["theta_attribution"],
                 "decision_time_model_not_realized_profit",
+            )
+
+    def test_firm_symbol_limit_is_atomic_across_accounts(self) -> None:
+        with TemporaryDirectory() as directory:
+            store = SqliteAuditStore(Path(directory) / "audit.db")
+            now = datetime.now(timezone.utc)
+            snapshot = AccountSnapshot(
+                equity=Decimal("100000"),
+                start_of_day_equity=Decimal("100000"),
+                peak_equity=Decimal("100000"),
+            )
+            store.apply_account_equity_state(
+                "paper-a", snapshot, now
+            )
+            store.apply_account_equity_state(
+                "paper-b", snapshot, now
+            )
+            policy = FirmRiskPolicy()
+
+            decisions = []
+            for index, account_id in enumerate(
+                ("paper-a", "paper-b", "paper-b", "paper-a"),
+                start=1,
+            ):
+                decisions.append(
+                    store.evaluate_and_reserve(
+                        RiskEngine(),
+                        TradeIntent(
+                            account_id=account_id,
+                            intent_id=f"firm-symbol-{index}",
+                            strategy_id=f"strategy-{index}",
+                            asset_class=AssetClass.STOCK,
+                            symbol="AAPL",
+                            side=Side.BUY,
+                            requested_quantity=Decimal("10000"),
+                            order_type=OrderType.MARKET,
+                            time_in_force=TimeInForce.DAY,
+                            reference_price=Decimal("100"),
+                            stop_price=Decimal("90"),
+                        ),
+                        snapshot,
+                        firm_policy=policy,
+                    )
+                )
+
+            self.assertTrue(all(row.approved for row in decisions[:3]))
+            self.assertLess(
+                decisions[2].approved_quantity,
+                decisions[1].approved_quantity,
+            )
+            self.assertFalse(decisions[3].approved)
+            self.assertEqual(
+                decisions[3].reason,
+                "firm_symbol_risk_budget_exhausted",
+            )
+            self.assertLessEqual(
+                store.active_risk(), Decimal("6000")
+            )
+
+    def test_firm_total_limit_caps_cross_account_quantity(self) -> None:
+        with TemporaryDirectory() as directory:
+            path = Path(directory) / "audit.db"
+            store = SqliteAuditStore(path)
+            now = datetime.now(timezone.utc)
+            snapshot = AccountSnapshot(
+                equity=Decimal("100000"),
+                start_of_day_equity=Decimal("100000"),
+                peak_equity=Decimal("100000"),
+            )
+            for account_id in ("paper-a", "paper-b"):
+                store.apply_account_equity_state(
+                    account_id, snapshot, now
+                )
+            policy = FirmRiskPolicy(
+                max_total_open=Decimal("0.03"),
+                max_symbol_open=Decimal("0.03"),
+                max_strategy_open=Decimal("0.03"),
+            )
+
+            decisions = []
+            for index, (account_id, symbol) in enumerate(
+                (
+                    ("paper-a", "AAPL"),
+                    ("paper-b", "MSFT"),
+                    ("paper-a", "NVDA"),
+                    ("paper-b", "AMZN"),
+                ),
+                start=1,
+            ):
+                decisions.append(
+                    store.evaluate_and_reserve(
+                        RiskEngine(),
+                        TradeIntent(
+                            account_id=account_id,
+                            intent_id=f"firm-total-{index}",
+                            strategy_id=f"strategy-{index}",
+                            asset_class=AssetClass.STOCK,
+                            symbol=symbol,
+                            side=Side.BUY,
+                            requested_quantity=Decimal("10000"),
+                            order_type=OrderType.MARKET,
+                            time_in_force=TimeInForce.DAY,
+                            reference_price=Decimal("100"),
+                            stop_price=Decimal("90"),
+                        ),
+                        snapshot,
+                        firm_policy=policy,
+                    )
+                )
+
+            self.assertTrue(all(row.approved for row in decisions[:3]))
+            self.assertIn(
+                "firm_total", decisions[2].reason
+            )
+            self.assertFalse(decisions[3].approved)
+            self.assertEqual(
+                decisions[3].reason,
+                "firm_total_risk_budget_exhausted",
+            )
+            summary = SqliteAuditReader(path).firm_risk_summary(
+                policy
+            )
+            self.assertLessEqual(
+                Decimal(summary["active_risk"]),
+                Decimal(summary["total_capacity"]),
+            )
+
+    def test_option_wrappers_share_source_strategy_firm_limit(
+        self,
+    ) -> None:
+        with TemporaryDirectory() as directory:
+            store = SqliteAuditStore(Path(directory) / "audit.db")
+            now = datetime.now(timezone.utc)
+            snapshot = AccountSnapshot(
+                equity=Decimal("100000"),
+                start_of_day_equity=Decimal("100000"),
+                peak_equity=Decimal("100000"),
+            )
+            for account_id in ("paper-a", "paper-b"):
+                store.apply_account_equity_state(
+                    account_id, snapshot, now
+                )
+            policy = FirmRiskPolicy(
+                max_total_open=Decimal("0.10"),
+                max_symbol_open=Decimal("0.10"),
+                max_strategy_open=Decimal("0.03"),
+            )
+            decisions = []
+            for index, (account_id, symbol) in enumerate(
+                (
+                    ("paper-a", "AAPL"),
+                    ("paper-b", "MSFT"),
+                    ("paper-a", "NVDA"),
+                    ("paper-b", "AMZN"),
+                ),
+                start=1,
+            ):
+                decisions.append(
+                    store.evaluate_and_reserve(
+                        RiskEngine(),
+                        TradeIntent(
+                            account_id=account_id,
+                            intent_id=f"firm-source-{index}",
+                            strategy_id=f"wrapper-{index}",
+                            asset_class=AssetClass.STOCK,
+                            symbol=symbol,
+                            side=Side.BUY,
+                            requested_quantity=Decimal("10000"),
+                            order_type=OrderType.MARKET,
+                            time_in_force=TimeInForce.DAY,
+                            reference_price=Decimal("100"),
+                            stop_price=Decimal("90"),
+                            explanation={
+                                "source_strategy_id": "breakout_retest"
+                            },
+                        ),
+                        snapshot,
+                        firm_policy=policy,
+                    )
+                )
+
+            self.assertTrue(all(row.approved for row in decisions[:3]))
+            self.assertIn(
+                "firm_strategy", decisions[2].reason
+            )
+            self.assertFalse(decisions[3].approved)
+            self.assertEqual(
+                decisions[3].reason,
+                "firm_strategy_risk_budget_exhausted",
             )

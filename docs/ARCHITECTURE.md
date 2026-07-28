@@ -194,6 +194,17 @@ The research worker also calculates pairwise daily correlations and an
 effective-breadth estimate. This is an observation report, not a covariance
 optimizer or a hedge order generator.
 
+The Option Evidence worker freezes selected contract packages, including
+decision-time quotes and Greeks, then evaluates only those exact symbols with
+synchronized historical trade bars. Its P/L paths, MFE/MAE, underwater time,
+and policy-exit events are conservative analytical proxies rather than fills,
+historical BBO reconstruction, or theta attribution.
+
+Every opening reservation also passes an atomic single-host firm authority.
+Fresh reconciled equity supplies the denominator; all active reservations
+supply the numerator. Total, underlying, and source-strategy ceilings are
+applied across accounts before the reservation transaction commits.
+
 The dashboard is read-only. Its primary workspaces are Account, Asset Universe,
 Strategy Lab, Allocation & Risk, and Operations, with horizontal secondary
 navigation, a dedicated family-comparison view, a model-trial registry, and an
@@ -206,7 +217,7 @@ change trading configuration.
 
 ## Deployment
 
-The VPS runs seven isolated containers:
+The VPS runs eight isolated containers:
 
 - `engine`: frequent broker truth/reconciliation heartbeat.
 - `automation`: five-minute data, feature, signal, allocation, and guarded
@@ -216,6 +227,8 @@ The VPS runs seven isolated containers:
   execution path.
 - `strategy-lab`: six-hour intraday cross-symbol validation; no execution
   path.
+- `option-evidence`: hourly exact-contract option path measurement; no
+  execution path.
 - `dashboard`: authenticated query-only monitoring.
 - `caddy`: public TLS termination and reverse proxy.
 
@@ -225,14 +238,15 @@ shared `/app/var` volume.
 
 ## Scaling boundary
 
-Release 0.13 supports multiple Alpaca Paper accounts under one local
+Release 0.15 supports multiple Alpaca Paper accounts under one local
 supervisor. Credentials are isolated by environment-variable prefix, every
 multi-account connection is pinned to the expected Alpaca account UUID, and a
 failure is contained to that account while the aggregate component health
-becomes degraded. Account cycles are deliberately sequential.
+becomes degraded. Account cycles are deliberately sequential, and opening
+risk is consolidated atomically across accounts in the shared SQLite store.
 
 Horizontal or multi-host execution still requires PostgreSQL or an equivalent
-coordinated store, a portfolio-wide exposure service, a distributed lease per
-account, and cross-instance idempotency. Dedicated crypto and forex adapters
+coordinated store, a distributed firm-risk transaction, a distributed lease
+per account, and cross-instance idempotency. Dedicated crypto and forex adapters
 must normalize their different sessions, leverage, order types, and failure
 modes before being allowed through the same risk authority.

@@ -360,6 +360,25 @@
     </article>
   </section>
 
+  <section class="panel workspace-view" data-primary="allocation" data-secondary="risk">
+    <div class="panel-head">
+      <div><h2>Firm-wide risk authority</h2><p class="subcopy" id="firm-risk-copy">Waiting for consolidated account state...</p></div>
+    </div>
+    <div class="facts">
+      <div class="fact"><span class="label">Fresh firm equity</span><strong id="firm-equity">--</strong></div>
+      <div class="fact"><span class="label">Active firm risk</span><strong id="firm-active-risk">--</strong></div>
+      <div class="fact"><span class="label">Firm capacity</span><strong id="firm-capacity">--</strong></div>
+      <div class="fact"><span class="label">Firm utilization</span><strong id="firm-utilization">--</strong></div>
+    </div>
+    <div class="table-wrap">
+      <table>
+        <thead><tr><th>Dimension</th><th>Member</th><th class="number">Active risk</th><th class="number">Ceiling fraction</th><th class="number">Ceiling amount</th></tr></thead>
+        <tbody id="firm-risk-breakdown"></tbody>
+      </table>
+    </div>
+    <p class="subcopy" id="firm-equity-freshness">No equity freshness data.</p>
+  </section>
+
   <section class="panel workspace-view" data-primary="allocation" data-secondary="plan">
     <div class="panel-head">
       <div><h2>Account strategy allocation</h2><p class="subcopy">Configured capital weights, risk budgets, confidence thresholds, and Paper permissions for the selected account. This dashboard is read-only.</p></div>
@@ -1882,6 +1901,87 @@
     }
   }
 
+  function renderFirmRisk(firmRisk) {
+    const enabled = Boolean(firmRisk?.enabled);
+    const firmEquity = Number(firmRisk?.fresh_equity || 0);
+    const utilization = firmRisk?.utilization_fraction;
+    setText("firm-equity", money(firmRisk?.fresh_equity));
+    setText("firm-active-risk", money(firmRisk?.active_risk));
+    setText("firm-capacity", money(firmRisk?.total_capacity));
+    setText(
+      "firm-utilization",
+      utilization == null ? "--" : percent(utilization)
+    );
+    setText(
+      "firm-risk-copy",
+      enabled
+        ? "Atomic limits cover total risk plus repeated underlying and strategy exposure across every managed account."
+        : "Firm-wide authority is disabled; account limits still apply."
+    );
+    const accounts = firmRisk?.accounts || [];
+    const excluded = accounts.filter(
+      account => !account.included_in_capacity
+    );
+    setText(
+      "firm-equity-freshness",
+      `${accounts.length - excluded.length}/${accounts.length} account equity snapshots are fresh (maximum age ${firmRisk?.equity_max_age_seconds ?? "--"} seconds).`
+      + (excluded.length
+        ? ` Excluded from capacity: ${excluded.map(item => item.account_id).join(", ")}. Their active reservations remain counted.`
+        : "")
+    );
+
+    const body = document.getElementById("firm-risk-breakdown");
+    body.replaceChildren();
+    const dimensions = [
+      [
+        "Account",
+        firmRisk?.active_risk_by_account || {},
+        null,
+      ],
+      [
+        "Underlying",
+        firmRisk?.active_risk_by_symbol || {},
+        Number(firmRisk?.max_symbol_open_fraction || 0),
+      ],
+      [
+        "Strategy",
+        firmRisk?.active_risk_by_strategy || {},
+        Number(firmRisk?.max_strategy_open_fraction || 0),
+      ],
+    ];
+    const rows = dimensions.flatMap(([dimension, values, ceiling]) =>
+      Object.entries(values).map(([member, active]) => ({
+        dimension,
+        member,
+        active,
+        ceiling,
+      }))
+    );
+    if (!rows.length) {
+      emptyRow(body, 5, "No active firm-wide risk reservations.");
+      return;
+    }
+    for (const item of rows) {
+      const values = [
+        [item.dimension, ""],
+        [item.member, ""],
+        [money(item.active), "number"],
+        [item.ceiling == null ? "Account policy" : percent(item.ceiling), "number"],
+        [
+          item.ceiling == null
+            ? "--"
+            : money(firmEquity * item.ceiling),
+          "number",
+        ],
+      ];
+      const row = document.createElement("tr");
+      for (const [value, className] of values) {
+        row.appendChild(cell(value, className));
+      }
+      body.appendChild(row);
+    }
+  }
+
   function renderBacktests(backtests, validations) {
     const body = document.getElementById("backtests");
     body.replaceChildren();
@@ -2174,6 +2274,7 @@
       renderOptionPackageEvidence(
         data.option_package_evidence || []
       );
+      renderFirmRisk(data.firm_risk || {});
       renderBacktests(data.backtests || [], data.validations || []);
       renderEvents(data.events || []);
     } catch (error) {

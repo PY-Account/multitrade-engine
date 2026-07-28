@@ -5,10 +5,9 @@ algorithmic-trading organization. It separates market analysis, strategy
 signals, portfolio allocation, central risk approval, broker execution,
 reconciliation, audit, backtesting, and monitoring.
 
-Release 0.13 adds isolated multi-account Alpaca Paper supervision on top of
-the defined-risk option operation and account-scoped statistics introduced in
-0.12. It does not support live trading and it does not claim that any strategy
-is profitable.
+Release 0.15 adds exact-contract option evidence and atomic firm-wide risk
+limits on top of isolated multi-account Alpaca Paper supervision. It does not
+support live trading and it does not claim that any strategy is profitable.
 
 ## Safety invariants
 
@@ -111,6 +110,9 @@ The 3% and 10% figures are hard ceilings, not operating targets.
   wins/losses, realized P/L, realized R, profit factor, realized drawdown,
   option P/L, positive-theta-trade P/L, and current modeled theta exposure.
   Modeled theta is never presented as realized profit.
+- Atomic firm-wide risk limits cap aggregate, repeated-underlying, and
+  repeated-strategy risk across every managed account. Stale account equity is
+  excluded from capacity while its active reservations remain counted.
 - Authenticated HTTPS operations dashboard with hierarchical Account, Asset
   Universe, Strategy Lab, Allocation & Risk, and Operations workspaces; account
   selection; strategy runtime, signals, trade explanations, validation
@@ -118,7 +120,8 @@ The 3% and 10% figures are hard ceilings, not operating targets.
 - Dashboard authentication includes per-client failure throttling; Caddy adds
   TLS and HSTS.
 - Docker Compose services for the heartbeat, strategy worker, research worker,
-  Asset Universe, Strategy Lab, dashboard, and Caddy TLS proxy.
+  Asset Universe, Strategy Lab, Option Evidence, dashboard, and Caddy TLS
+  proxy.
 
 ## Operating modes
 

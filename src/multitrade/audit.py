@@ -5,7 +5,7 @@ import json
 import sqlite3
 from contextlib import closing
 from dataclasses import asdict, is_dataclass, replace
-from datetime import date, datetime, timezone
+from datetime import date, datetime, timedelta, timezone
 from decimal import Decimal
 from enum import Enum
 from pathlib import Path
@@ -17,7 +17,7 @@ from multitrade.domain import (
     TradeIntent,
     ZERO,
 )
-from multitrade.risk import RiskEngine
+from multitrade.risk import FirmRiskPolicy, RiskEngine
 
 if TYPE_CHECKING:
     from multitrade.brokers.base import BrokerReconciliation
@@ -168,6 +168,7 @@ class SqliteAuditStore:
                     intent_id TEXT PRIMARY KEY,
                     account_id TEXT NOT NULL,
                     strategy_id TEXT NOT NULL,
+                    risk_group TEXT NOT NULL,
                     symbol TEXT NOT NULL,
                     asset_class TEXT NOT NULL,
                     instruments_json TEXT NOT NULL,
@@ -697,6 +698,19 @@ class SqliteAuditStore:
             self._ensure_column(
                 connection,
                 "risk_reservations",
+                "risk_group",
+                "TEXT",
+            )
+            connection.execute(
+                """
+                UPDATE risk_reservations
+                SET risk_group = strategy_id
+                WHERE risk_group IS NULL OR risk_group = ''
+                """
+            )
+            self._ensure_column(
+                connection,
+                "risk_reservations",
                 "instruments_json",
                 "TEXT NOT NULL DEFAULT '[]'",
             )
@@ -778,6 +792,7 @@ class SqliteAuditStore:
         risk_engine: RiskEngine,
         intent: TradeIntent,
         snapshot: AccountSnapshot,
+        firm_policy: FirmRiskPolicy | None = None,
     ) -> RiskDecision:
         connection = self._connect()
         try:
@@ -810,6 +825,105 @@ class SqliteAuditStore:
             decision = risk_engine.evaluate(
                 intent, replace(snapshot, active_risk=active_risk)
             )
+            firm_context: dict[str, Any] | None = None
+            if (
+                decision.approved
+                and not intent.reduce_only
+                and firm_policy is not None
+                and firm_policy.enabled
+            ):
+                firm_equity, equity_accounts = self._firm_equity(
+                    connection,
+                    current_account_id=intent.account_id,
+                    current_equity=snapshot.equity,
+                    maximum_age_seconds=(
+                        firm_policy.equity_max_age_seconds
+                    ),
+                )
+                firm_active = self._active_risk(connection)
+                symbol_active = self._dimension_active_risk(
+                    connection, "symbol", intent.symbol
+                )
+                strategy_active = self._dimension_active_risk(
+                    connection,
+                    "risk_group",
+                    str(
+                        intent.explanation.get(
+                            "source_strategy_id",
+                            intent.strategy_id,
+                        )
+                    ),
+                )
+                total_ceiling = (
+                    firm_equity * firm_policy.max_total_open
+                )
+                symbol_ceiling = (
+                    firm_equity * firm_policy.max_symbol_open
+                )
+                strategy_ceiling = (
+                    firm_equity * firm_policy.max_strategy_open
+                )
+                remaining_by_limit = {
+                    "firm_total": max(
+                        ZERO, total_ceiling - firm_active
+                    ),
+                    "firm_symbol": max(
+                        ZERO, symbol_ceiling - symbol_active
+                    ),
+                    "firm_strategy": max(
+                        ZERO, strategy_ceiling - strategy_active
+                    ),
+                }
+                binding_limit, firm_budget = min(
+                    remaining_by_limit.items(),
+                    key=lambda item: item[1],
+                )
+                firm_quantity = risk_engine.quantity_for_risk_budget(
+                    intent,
+                    firm_budget,
+                    decision.risk_per_unit,
+                )
+                approved_quantity = min(
+                    decision.approved_quantity, firm_quantity
+                )
+                if approved_quantity <= ZERO:
+                    decision = RiskDecision(
+                        approved=False,
+                        intent_id=intent.intent_id,
+                        reason=f"{binding_limit}_risk_budget_exhausted",
+                        projected_active_risk=active_risk,
+                    )
+                elif approved_quantity < decision.approved_quantity:
+                    reserved_risk = (
+                        approved_quantity * decision.risk_per_unit
+                    )
+                    decision = replace(
+                        decision,
+                        reason=f"approved_{binding_limit}_capped",
+                        approved_quantity=approved_quantity,
+                        reserved_risk=reserved_risk,
+                        projected_active_risk=(
+                            active_risk + reserved_risk
+                        ),
+                    )
+                firm_context = {
+                    "enabled": True,
+                    "equity": firm_equity,
+                    "equity_accounts": equity_accounts,
+                    "active_risk": firm_active,
+                    "symbol_active_risk": symbol_active,
+                    "strategy_active_risk": strategy_active,
+                    "total_ceiling": total_ceiling,
+                    "symbol_ceiling": symbol_ceiling,
+                    "strategy_ceiling": strategy_ceiling,
+                    "remaining_by_limit": remaining_by_limit,
+                    "binding_limit": binding_limit,
+                    "projected_firm_active_risk": (
+                        firm_active + decision.reserved_risk
+                        if decision.approved
+                        else firm_active
+                    ),
+                }
             event_type = (
                 "risk_approved" if decision.approved else "risk_rejected"
             )
@@ -817,7 +931,11 @@ class SqliteAuditStore:
                 connection,
                 event_type,
                 intent.intent_id,
-                {"intent": asdict(intent), "decision": asdict(decision)},
+                {
+                    "intent": asdict(intent),
+                    "decision": asdict(decision),
+                    "firm_risk": firm_context,
+                },
             )
             if decision.approved and not intent.reduce_only:
                 now = datetime.now(timezone.utc).isoformat()
@@ -825,15 +943,21 @@ class SqliteAuditStore:
                     """
                     INSERT INTO risk_reservations (
                         intent_id, account_id, strategy_id, symbol,
-                        asset_class, instruments_json, risk_amount,
+                        risk_group, asset_class, instruments_json, risk_amount,
                         quantity, state, created_at, updated_at
-                    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, 'reserved', ?, ?)
+                    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, 'reserved', ?, ?)
                     """,
                     (
                         intent.intent_id,
                         intent.account_id,
                         intent.strategy_id,
                         intent.symbol,
+                        str(
+                            intent.explanation.get(
+                                "source_strategy_id",
+                                intent.strategy_id,
+                            )
+                        ),
                         intent.asset_class.value,
                         _json(
                             [
@@ -2848,6 +2972,59 @@ class SqliteAuditStore:
         )
 
     @staticmethod
+    def _dimension_active_risk(
+        connection: sqlite3.Connection,
+        column: str,
+        value: str,
+    ) -> Decimal:
+        if column not in {"symbol", "risk_group"}:
+            raise ValueError("Unsupported risk-reservation dimension")
+        placeholders = ",".join(
+            "?" for _ in ACTIVE_RESERVATION_STATES
+        )
+        rows = connection.execute(
+            f"""
+            SELECT risk_amount FROM risk_reservations
+            WHERE state IN ({placeholders}) AND {column} = ?
+            """,
+            (*ACTIVE_RESERVATION_STATES, value),
+        ).fetchall()
+        return sum(
+            (Decimal(row["risk_amount"]) for row in rows),
+            start=ZERO,
+        )
+
+    @staticmethod
+    def _firm_equity(
+        connection: sqlite3.Connection,
+        *,
+        current_account_id: str,
+        current_equity: Decimal,
+        maximum_age_seconds: int,
+    ) -> tuple[Decimal, tuple[str, ...]]:
+        cutoff = (
+            datetime.now(timezone.utc)
+            - timedelta(seconds=maximum_age_seconds)
+        ).isoformat()
+        rows = connection.execute(
+            """
+            SELECT account_id, latest_equity
+            FROM account_equity_state
+            WHERE account_id != ? AND observed_at >= ?
+            """,
+            (current_account_id, cutoff),
+        ).fetchall()
+        account_ids = (
+            current_account_id,
+            *(row["account_id"] for row in rows),
+        )
+        equity = current_equity + sum(
+            (Decimal(row["latest_equity"]) for row in rows),
+            start=ZERO,
+        )
+        return equity, tuple(account_ids)
+
+    @staticmethod
     def _insert_event(
         connection: sqlite3.Connection,
         event_type: str,
@@ -2892,6 +3069,99 @@ class SqliteAuditReader:
             return SqliteAuditStore._active_risk(
                 connection, account_id
             )
+
+    def firm_risk_summary(
+        self, policy: FirmRiskPolicy
+    ) -> dict[str, Any]:
+        cutoff = (
+            datetime.now(timezone.utc)
+            - timedelta(seconds=policy.equity_max_age_seconds)
+        )
+        placeholders = ",".join(
+            "?" for _ in ACTIVE_RESERVATION_STATES
+        )
+        with closing(self._connect()) as connection:
+            equity_rows = connection.execute(
+                """
+                SELECT account_id, latest_equity, observed_at
+                FROM account_equity_state
+                ORDER BY account_id
+                """
+            ).fetchall()
+            reservation_rows = connection.execute(
+                f"""
+                SELECT account_id, symbol, risk_group, risk_amount
+                FROM risk_reservations
+                WHERE state IN ({placeholders})
+                """,
+                ACTIVE_RESERVATION_STATES,
+            ).fetchall()
+        account_equity: list[dict[str, Any]] = []
+        fresh_equity = ZERO
+        for row in equity_rows:
+            observed_at = datetime.fromisoformat(row["observed_at"])
+            if observed_at.tzinfo is None:
+                observed_at = observed_at.replace(tzinfo=timezone.utc)
+            is_fresh = observed_at.astimezone(timezone.utc) >= cutoff
+            equity = Decimal(row["latest_equity"])
+            if is_fresh:
+                fresh_equity += equity
+            account_equity.append(
+                {
+                    "account_id": row["account_id"],
+                    "latest_equity": format(equity, "f"),
+                    "observed_at": row["observed_at"],
+                    "included_in_capacity": is_fresh,
+                }
+            )
+        active_total = sum(
+            (
+                Decimal(row["risk_amount"])
+                for row in reservation_rows
+            ),
+            start=ZERO,
+        )
+
+        def grouped(column: str) -> dict[str, str]:
+            totals: dict[str, Decimal] = {}
+            for row in reservation_rows:
+                key = row[column]
+                totals[key] = totals.get(key, ZERO) + Decimal(
+                    row["risk_amount"]
+                )
+            return {
+                key: format(value, "f")
+                for key, value in sorted(totals.items())
+            }
+
+        total_capacity = fresh_equity * policy.max_total_open
+        return {
+            "enabled": policy.enabled,
+            "fresh_equity": format(fresh_equity, "f"),
+            "active_risk": format(active_total, "f"),
+            "total_capacity": format(total_capacity, "f"),
+            "utilization_fraction": (
+                format(active_total / total_capacity, ".6f")
+                if total_capacity > ZERO
+                else None
+            ),
+            "max_total_open_fraction": format(
+                policy.max_total_open, "f"
+            ),
+            "max_symbol_open_fraction": format(
+                policy.max_symbol_open, "f"
+            ),
+            "max_strategy_open_fraction": format(
+                policy.max_strategy_open, "f"
+            ),
+            "equity_max_age_seconds": (
+                policy.equity_max_age_seconds
+            ),
+            "accounts": account_equity,
+            "active_risk_by_account": grouped("account_id"),
+            "active_risk_by_symbol": grouped("symbol"),
+            "active_risk_by_strategy": grouped("risk_group"),
+        }
 
     def recent_events(self, limit: int = 100) -> list[dict[str, Any]]:
         safe_limit = max(1, min(limit, 200))

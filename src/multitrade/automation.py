@@ -120,6 +120,7 @@ class PaperAutomationService:
             enable_reduce_only_submission=(
                 settings.enable_paper_orders
             ),
+            firm_risk_policy=settings.firm_risk_policy,
         )
 
     @classmethod

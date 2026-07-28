@@ -56,6 +56,20 @@ class EnvironmentFileTests(TestCase):
             with self.assertRaisesRegex(ValueError, "at least 16"):
                 settings.require_dashboard_credentials()
 
+    def test_firm_dimension_limit_cannot_exceed_total(self) -> None:
+        with patch.dict(
+            os.environ,
+            {
+                "RISK_FIRM_MAX_TOTAL_OPEN": "0.05",
+                "RISK_FIRM_MAX_SYMBOL_OPEN": "0.06",
+            },
+            clear=True,
+        ):
+            with self.assertRaisesRegex(
+                ValueError, "cannot exceed total-open"
+            ):
+                Settings.from_env()
+
     def test_custom_alpaca_credentials_are_resolved_by_prefix(
         self,
     ) -> None:

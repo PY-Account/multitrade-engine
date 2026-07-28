@@ -1333,6 +1333,9 @@ class DefinedRiskOptionSelector:
                 raise ValueError(
                     "Selected package fails minimum modeled theta"
                 )
+        selected_snapshots = {
+            contract.symbol: contract for contract in contracts
+        }
         return replace(
             intent,
             explanation={
@@ -1360,6 +1363,51 @@ class DefinedRiskOptionSelector:
                     self.policy.maximum_quote_age_seconds
                 ),
                 "decision_underlying_price": underlying_price,
+                "decision_option_snapshots": [
+                    {
+                        "symbol": leg.symbol,
+                        "bid": selected_snapshots[leg.symbol].bid,
+                        "ask": selected_snapshots[leg.symbol].ask,
+                        "bid_size": (
+                            selected_snapshots[leg.symbol].bid_size
+                        ),
+                        "ask_size": (
+                            selected_snapshots[leg.symbol].ask_size
+                        ),
+                        "relative_spread": (
+                            selected_snapshots[
+                                leg.symbol
+                            ].relative_spread
+                        ),
+                        "implied_volatility": (
+                            selected_snapshots[
+                                leg.symbol
+                            ].implied_volatility
+                        ),
+                        "delta": (
+                            selected_snapshots[leg.symbol].delta
+                        ),
+                        "gamma": (
+                            selected_snapshots[leg.symbol].gamma
+                        ),
+                        "theta": (
+                            selected_snapshots[leg.symbol].theta
+                        ),
+                        "vega": (
+                            selected_snapshots[leg.symbol].vega
+                        ),
+                        "quote_timestamp": (
+                            selected_snapshots[
+                                leg.symbol
+                            ].quote_timestamp
+                        ),
+                        "feed": (
+                            selected_snapshots[leg.symbol].feed
+                        ),
+                    }
+                    for leg in intent.option_legs
+                ],
+                "historical_bar_greeks_available": False,
             },
         )
 
