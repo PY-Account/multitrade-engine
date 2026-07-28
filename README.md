@@ -5,9 +5,11 @@ algorithmic-trading organization. It separates market analysis, strategy
 signals, portfolio allocation, central risk approval, broker execution,
 reconciliation, audit, backtesting, and monitoring.
 
-Release 0.15 adds exact-contract option evidence and atomic firm-wide risk
-limits on top of isolated multi-account Alpaca Paper supervision. It does not
-support live trading and it does not claim that any strategy is profitable.
+Release 0.16 adds audited, revision-protected Paper strategy controls and
+bilingual operational explanations on top of exact-contract option evidence,
+atomic firm-wide risk, and isolated multi-account Alpaca Paper supervision. It
+does not support live trading and it does not claim that any strategy is
+profitable.
 
 ## Safety invariants
 
@@ -75,7 +77,7 @@ The 3% and 10% figures are hard ceilings, not operating targets.
 - An append-only model-trial registry that fingerprints strategy code and
   parameters, laboratory configuration, and exact market inputs; registered
   trials are hash-chained per account/strategy and independently verified by
-  the read-only dashboard.
+  the authenticated operations dashboard.
 - Frozen strategy-experiment manifests that preregister each intraday
   hypothesis, mechanism, exact parameters, related candidate family,
   prospective observation boundary, minimum evidence period, and explicit
@@ -114,9 +116,10 @@ The 3% and 10% figures are hard ceilings, not operating targets.
   repeated-strategy risk across every managed account. Stale account equity is
   excluded from capacity while its active reservations remain counted.
 - Authenticated HTTPS operations dashboard with hierarchical Account, Asset
-  Universe, Strategy Lab, Allocation & Risk, and Operations workspaces; account
-  selection; strategy runtime, signals, trade explanations, validation
-  results, and browser-local display preferences.
+  Universe, Strategy Lab, Allocation & Risk, Operations, and Management
+  workspaces; account selection; strategy runtime, signals, trade
+  explanations, validation results, browser-local display preferences,
+  bilingual terminology, and audited Paper-only strategy controls.
 - Dashboard authentication includes per-client failure throttling; Caddy adds
   TLS and HSTS.
 - Docker Compose services for the heartbeat, strategy worker, research worker,
@@ -138,6 +141,15 @@ Each strategy also has this default in `config/paper_portfolio.json`:
 ```json
 "paper_execution_allowed": false
 ```
+
+The authenticated **Management → Strategy Controls** page can override a
+strategy's enabled state, exact execution symbols, and per-strategy Paper
+permission without editing files. Every update is CSRF-protected,
+revision-checked, and written atomically to SQLite with an audit event. The
+automation and Strategy Lab workers reload the effective settings on their
+next cycle. These controls cannot select a live endpoint, cannot change the
+server-wide gates, and cannot bypass account or risk checks. See
+`docs/STRATEGY_CONTROLS.md`.
 
 Behavior:
 

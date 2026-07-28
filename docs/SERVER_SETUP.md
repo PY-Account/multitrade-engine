@@ -6,7 +6,8 @@ It keeps the initial system Paper-only and exposes no application port.
 ## What the first deployment runs
 
 - One Alpaca Paper heartbeat service.
-- One authenticated, read-only monitoring service.
+- One authenticated monitoring service with a narrowly scoped, audited
+  Paper-only strategy configuration control plane.
 - One persistent Docker volume for the temporary SQLite audit database.
 - Separate health checks for the engine and monitoring service.
 - Rotating local container logs.

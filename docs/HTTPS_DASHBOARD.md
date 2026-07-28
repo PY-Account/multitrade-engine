@@ -30,7 +30,9 @@ volume.
 
 Do not expose the dashboard container's port 8080 directly. Browser access must
 use the configured HTTPS hostname and the dashboard credentials. The first
-public release remains read-only and Paper-only.
+public release remains read-only for broker actions and Paper-only. Its
+Management workspace can write only audited strategy configuration overrides;
+it has no broker-order client and cannot enable live trading.
 
 To stop public access without stopping the engine:
 

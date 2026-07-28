@@ -9,7 +9,11 @@ from multitrade.brokers.alpaca import AlpacaPaperBroker
 from multitrade.domain import AccountSnapshot, AssetClass
 from multitrade.features import FeatureEngine
 from multitrade.market import MarketBar
-from multitrade.portfolio import SignalAllocator, load_account_plans
+from multitrade.portfolio import (
+    SignalAllocator,
+    apply_strategy_configuration_overrides,
+    load_account_plans,
+)
 from multitrade.strategies.base import StrategyContext
 from multitrade.strategies.equity import BreakoutRetestStrategy
 
@@ -41,6 +45,38 @@ def market_bar(
 
 
 class StrategyTests(TestCase):
+    def test_runtime_strategy_override_is_paper_only_and_expands_watchlist(
+        self,
+    ) -> None:
+        plans = load_account_plans(
+            Path(__file__).parents[1]
+            / "config"
+            / "paper_portfolio.json"
+        )
+
+        effective = apply_strategy_configuration_overrides(
+            plans,
+            [
+                {
+                    "account_id": "alpaca-paper",
+                    "strategy_id": "range_mean_reversion",
+                    "enabled": True,
+                    "paper_execution_allowed": True,
+                    "symbols": ["NVDA", "AMD"],
+                }
+            ],
+        )
+
+        allocation = effective[0].allocations["range_mean_reversion"]
+        self.assertTrue(allocation.enabled)
+        self.assertTrue(allocation.paper_execution_allowed)
+        self.assertEqual(allocation.symbols, ("NVDA", "AMD"))
+        self.assertIn("NVDA", effective[0].watchlist)
+        self.assertEqual(
+            plans[0].allocations["range_mean_reversion"].symbols,
+            ("SPY", "QQQ", "AAPL", "MSFT"),
+        )
+
     def test_breakout_retest_signal_is_deterministic_and_explainable(
         self,
     ) -> None:

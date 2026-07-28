@@ -1,5 +1,29 @@
 # Changelog
 
+## 0.16.0 - 2026-07-28
+
+- Added an authenticated Management workspace for enabling/disabling known
+  strategies, assigning exact execution symbols, and granting or revoking
+  per-strategy Alpaca Paper-order permission.
+- Added CSRF protection, strict JSON and symbol validation, optimistic
+  revisions, and an atomic `strategy_configuration_changed` audit event for
+  every configuration update.
+- Made the automation worker load effective strategy overrides before each
+  cycle and made Strategy Lab include newly assigned execution symbols in its
+  next research cycle without a container restart.
+- Kept the control boundary Paper-only: the dashboard cannot select a live
+  endpoint, change server-wide submission gates or risk budgets, or bypass any
+  broker, lifecycle, data-quality, or risk check.
+- Replaced the opaque Strategy Lab `Attention` indicator with a specific
+  health explanation for missing, invalid, stale, failed, or successful
+  worker reports.
+- Added a bilingual English/Hebrew glossary and terminology tooltips,
+  including explicit definitions for experiment registration, prospective
+  trials, out-of-sample evidence, option path metrics, and risk terms.
+
+This release is still Alpaca Paper-only. The global automation and Paper-order
+gates remain server-managed independent controls.
+
 ## 0.13.0 - 2026-07-28
 
 - Replaced the single-account runtime restriction with an isolated

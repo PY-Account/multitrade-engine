@@ -30,6 +30,7 @@ from multitrade.options import (
 from multitrade.portfolio import (
     AccountPlan,
     SignalAllocator,
+    apply_strategy_configuration_overrides,
     load_account_plans,
 )
 from multitrade.risk import RiskEngine
@@ -95,6 +96,7 @@ class PaperAutomationService:
         self.broker = broker
         self.market_data = market_data
         self.store = store
+        self.base_account_plan = account_plan
         self.account_plan = account_plan
         self.option_data = option_data
         self.feature_engine = FeatureEngine()
@@ -177,6 +179,7 @@ class PaperAutomationService:
     def run_cycle(
         self, *, now: datetime | None = None
     ) -> AutomationCycleResult:
+        self._refresh_account_plan()
         checked_at = (now or datetime.now(timezone.utc)).astimezone(
             timezone.utc
         )
@@ -499,6 +502,14 @@ class PaperAutomationService:
             asdict(result),
         )
         return result
+
+    def _refresh_account_plan(self) -> None:
+        overrides = self.store.strategy_configuration_overrides(
+            self.base_account_plan.account_id
+        )
+        self.account_plan = apply_strategy_configuration_overrides(
+            (self.base_account_plan,), overrides
+        )[0]
 
     def _validate_broker_identity(
         self, reconciliation: BrokerReconciliation

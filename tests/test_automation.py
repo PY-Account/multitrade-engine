@@ -268,6 +268,16 @@ class AutomationTests(TestCase):
 
             first = service.run_cycle(now=now)
             second = service.run_cycle(now=now)
+            store.set_strategy_configuration_override(
+                account_id="alpaca-paper",
+                strategy_id="breakout_retest",
+                enabled=False,
+                paper_execution_allowed=False,
+                symbols=("AAPL",),
+                expected_revision=0,
+                updated_by="test-operator",
+            )
+            third = service.run_cycle(now=now)
             signals = SqliteAuditReader(
                 settings.db_path
             ).recent_signals()
@@ -275,6 +285,12 @@ class AutomationTests(TestCase):
             self.assertEqual(first.signals_new, 1)
             self.assertEqual(first.signals_observed, 1)
             self.assertEqual(second.signals_new, 0)
+            self.assertEqual(third.strategies_evaluated, 0)
+            self.assertFalse(
+                service.account_plan.allocations[
+                    "breakout_retest"
+                ].enabled
+            )
             self.assertEqual(len(signals), 1)
             self.assertEqual(signals[0]["status"], "observed")
             self.assertEqual(broker.submit_calls, 0)

@@ -3,6 +3,7 @@
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width,initial-scale=1">
+  <meta name="csrf-token" content="{{CSRF_TOKEN}}">
   <title>MultiTrade Operations</title>
   <script nonce="{{NONCE}}">
     try {
@@ -150,7 +151,7 @@
       padding-bottom: 7px;
     }
     .workspace-view[hidden] { display: none !important; }
-    button, select {
+    button, select, input {
       border: 1px solid var(--line);
       border-radius: 9px;
       background: var(--panel);
@@ -158,7 +159,10 @@
       padding: 8px 11px;
       font: inherit;
     }
+    input[type="text"] { width: min(520px, 100%); }
+    input[type="checkbox"] { width: 18px; height: 18px; accent-color: var(--accent); }
     button { cursor: pointer; }
+    button:disabled { cursor: not-allowed; opacity: .55; }
     button:hover { border-color: var(--accent); }
     button.primary { color: white; background: var(--accent); border-color: var(--accent); }
     button:focus-visible, select:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
@@ -202,6 +206,30 @@
     details summary { color: var(--accent); cursor: pointer; margin-bottom: 6px; }
     .empty { color: var(--muted); text-align: center; padding: 24px; }
     .badge { display: inline-block; border: 1px solid var(--line); border-radius: 999px; padding: 4px 7px; font-size: .68rem; }
+    .term-help { text-decoration: underline dotted var(--muted); text-underline-offset: 3px; cursor: help; }
+    .status-detail { margin-top: 7px; color: var(--muted); font-size: .72rem; line-height: 1.35; }
+    .configuration-table input[type="text"] { min-width: 260px; }
+    .configuration-table td { vertical-align: middle; }
+    .configuration-message {
+      min-height: 22px;
+      margin: 10px 0 0;
+      font-size: .82rem;
+      color: var(--muted);
+    }
+    .configuration-message.ok { color: var(--ok); }
+    .configuration-message.bad { color: var(--bad); }
+    .safety-callout {
+      padding: 14px;
+      border: 1px solid var(--warn);
+      border-radius: 11px;
+      background: color-mix(in srgb, var(--warn) 8%, transparent);
+      line-height: 1.5;
+      font-size: .83rem;
+    }
+    .glossary-grid { display: grid; grid-template-columns: repeat(2, 1fr); gap: 10px; }
+    .glossary-item { padding: 13px; border: 1px solid var(--line); border-radius: 10px; background: var(--panel-2); }
+    .glossary-item strong { display: block; }
+    .glossary-item .hebrew { color: var(--accent); margin: 4px 0; direction: rtl; text-align: left; }
     .chart-wrap { min-height: 260px; border: 1px solid var(--line); border-radius: 12px; background: var(--panel-2); padding: 8px; }
     #price-chart { display: block; width: 100%; height: 260px; }
     dialog {
@@ -234,6 +262,7 @@
       .header-tools { align-items: start; }
       .two-column { grid-template-columns: 1fr; }
       .preference-grid { grid-template-columns: 1fr; }
+      .glossary-grid { grid-template-columns: 1fr; }
       .workspace-nav { align-items: stretch; flex-direction: column; }
       .account-switcher { padding-bottom: 10px; }
     }
@@ -250,7 +279,7 @@
     <div>
       <div class="eyebrow">PAPER ENVIRONMENT</div>
       <h1>MultiTrade Operations</h1>
-      <p class="muted">Read-only broker reconciliation, risk, and audit monitoring.</p>
+      <p class="muted">Broker monitoring, research, risk, and audited Paper strategy controls.</p>
     </div>
     <div class="header-tools">
       <div class="header-actions">
@@ -268,6 +297,7 @@
       <button type="button" data-primary-tab="strategy-lab" aria-selected="false">Strategy Lab</button>
       <button type="button" data-primary-tab="allocation" aria-selected="false">Allocation &amp; Risk</button>
       <button type="button" data-primary-tab="operations" aria-selected="false">Operations</button>
+      <button type="button" data-primary-tab="management" aria-selected="false">Management</button>
     </div>
     <label class="account-switcher">Account
       <select id="account-select" aria-label="Selected account">
@@ -281,7 +311,7 @@
     <article class="card"><div class="label">Engine</div><div class="value" id="engine">--</div></article>
     <article class="card"><div class="label">Strategy service</div><div class="value" id="automation">--</div></article>
     <article class="card"><div class="label">Research service</div><div class="value" id="research">--</div></article>
-    <article class="card"><div class="label">Strategy Lab</div><div class="value" id="strategy-lab">--</div></article>
+    <article class="card"><div class="label">Strategy Lab</div><div class="value" id="strategy-lab">--</div><div class="status-detail" id="strategy-lab-detail">Waiting for health data.</div></article>
     <article class="card"><div class="label">Option Evidence</div><div class="value" id="option-evidence">--</div></article>
     <article class="card"><div class="label">Asset Universe</div><div class="value" id="asset-universe">--</div></article>
     <article class="card"><div class="label">US market</div><div class="value" id="market">--</div></article>
@@ -381,7 +411,7 @@
 
   <section class="panel workspace-view" data-primary="allocation" data-secondary="plan">
     <div class="panel-head">
-      <div><h2>Account strategy allocation</h2><p class="subcopy">Configured capital weights, risk budgets, confidence thresholds, and Paper permissions for the selected account. This dashboard is read-only.</p></div>
+      <div><h2>Account strategy allocation</h2><p class="subcopy">Effective capital weights, risk budgets, confidence thresholds, Paper permissions, and execution symbols for the selected account.</p></div>
     </div>
     <div class="table-wrap">
       <table>
@@ -628,9 +658,44 @@
     </div>
   </section>
 
+  <section class="panel workspace-view" data-primary="management" data-secondary="strategies">
+    <div class="panel-head">
+      <div>
+        <h2>Paper strategy controls</h2>
+        <p class="subcopy">Enable a strategy, set its exact execution symbols, and grant or revoke that strategy's Paper-order permission. Changes are revision-protected, audited, and loaded by the engine on its next cycle.</p>
+      </div>
+    </div>
+    <div class="safety-callout">
+      This control plane can never enable live trading. A Paper order is possible only when the strategy is enabled, its Paper permission is granted, the server-wide automation and Paper-submission gates are enabled, the market and account are eligible, and every risk check passes.
+    </div>
+    <div class="facts facts-spaced">
+      <div class="fact"><span class="label">Server automation gate</span><strong id="management-automation-gate">--</strong></div>
+      <div class="fact"><span class="label">Server Paper transport</span><strong id="management-paper-gate">--</strong></div>
+      <div class="fact"><span class="label">Emergency stop</span><strong id="management-emergency-stop">--</strong></div>
+      <div class="fact"><span class="label">Effective Paper execution</span><strong id="management-effective-execution">--</strong></div>
+    </div>
+    <p class="configuration-message" id="configuration-message" role="status" aria-live="polite"></p>
+    <div class="table-wrap">
+      <table class="configuration-table">
+        <thead><tr><th>Strategy</th><th>Class</th><th>Enabled</th><th>Paper permission</th><th>Execution symbols</th><th>Revision</th><th>Last change</th><th>Action</th></tr></thead>
+        <tbody id="strategy-controls"></tbody>
+      </table>
+    </div>
+  </section>
+
+  <section class="panel workspace-view" data-primary="management" data-secondary="glossary">
+    <div class="panel-head">
+      <div>
+        <h2>Trading and research glossary</h2>
+        <p class="subcopy">English terminology, Hebrew translation, and its specific meaning inside MultiTrade. The same explanations appear as tooltips on matching headings.</p>
+      </div>
+    </div>
+    <div class="glossary-grid" id="glossary-grid"></div>
+  </section>
+
   <footer>
     <span id="time-zone-note">All timestamps follow your browser location and use a 24-hour clock.</span>
-    <span>Read-only Paper environment</span>
+    <span>Paper-only control plane &middot; live trading unavailable</span>
   </footer>
 
   <dialog id="preferences-dialog">
@@ -701,6 +766,31 @@
   let activePrimary = "account";
   let activeSecondary = "overview";
   let selectedAccountId = "alpaca-paper";
+  let latestOverview = null;
+  const csrfToken = document.querySelector('meta[name="csrf-token"]').content;
+  const TERMINOLOGY = [
+    ["Strategy Lab", "מעבדת אסטרטגיות", "A research service that evaluates fixed strategy rules on later, out-of-sample data. It never authorizes orders by itself."],
+    ["Family Comparison", "השוואת משפחת אסטרטגיות", "A preregistered baseline and limited parameter variants tested under the same evidence rules to detect fragile parameter choices."],
+    ["Awaiting registration", "ממתין לרישום", "The configured candidate has no immutable model-trial record yet. The first completed Strategy Lab evaluation creates that record."],
+    ["Awaiting prospective trial", "ממתין לניסוי קדימה", "The candidate is preregistered, but its scheduled forward evaluation has not completed yet."],
+    ["Not evaluated", "טרם נבדק", "No completed evidence report exists for this candidate in the current database."],
+    ["OOS", "מחוץ למדגם", "Out-of-sample: data later than the training or warm-up segment, used to reduce hindsight bias."],
+    ["Prospective evidence", "ראיות קדימה", "Results accumulated only after the model and hypothesis were frozen, rather than reconstructed after seeing outcomes."],
+    ["Holdout", "מדגם סופי שמור", "A final untouched dataset reserved for a one-time confirmation after development decisions are complete."],
+    ["Profit factor", "מקדם רווח", "Gross winning amount divided by gross losing amount. A small sample can make this statistic unreliable."],
+    ["Drawdown", "ירידה מהשיא", "The decline from a prior equity peak to a later trough."],
+    ["MFE", "תנועה חיובית מרבית", "Maximum Favorable Excursion: the best unrealized movement observed during a position or option evidence path."],
+    ["MAE", "תנועה שלילית מרבית", "Maximum Adverse Excursion: the worst unrealized movement observed during a position or option evidence path."],
+    ["Theta", "תטא / שחיקת זמן", "Modeled option value change for one day of time passing, with other inputs held constant; it is not guaranteed income."],
+    ["DTE", "ימים לפקיעה", "Days to expiration of an option contract."],
+    ["Paper permission", "הרשאת מסחר דמו", "A per-strategy permission to submit only to the Paper broker. Server gates and every risk rule must also permit the order."],
+    ["Execution symbols", "טיקרים לביצוע", "The explicit underlying symbols assigned to this strategy. A blank list means the account watchlist."],
+    ["Gross notional", "חשיפה נומינלית ברוטו", "The total absolute market value of positions before offsetting longs against shorts."],
+    ["Reserved risk", "סיכון שמור", "Loss capacity currently reserved for approved, submitted, or open managed trades."],
+    ["Buying power", "כוח קנייה", "Broker-reported capacity to open positions; it is not the MultiTrade risk budget."],
+    ["Paper equity", "שווי חשבון דמו", "Broker-reported Paper account equity, used as an input to risk ceilings."],
+    ["Risk authority", "סמכות הסיכון", "The centralized pre-trade gate that enforces per-trade, aggregate, symbol, strategy, and firm-wide limits."],
+  ];
   const SECONDARY_NAVIGATION = {
     account: [
       ["overview", "Overview"],
@@ -730,6 +820,10 @@
     ],
     operations: [
       ["audit", "Audit Log"],
+    ],
+    management: [
+      ["strategies", "Strategy Controls"],
+      ["glossary", "Glossary / מילון מונחים"],
     ],
   };
 
@@ -959,6 +1053,198 @@
     node.colSpan = columns;
     row.appendChild(node);
     body.appendChild(row);
+  }
+
+  function healthExplanation(component, label) {
+    const details = component?.details || {};
+    if (component?.healthy) {
+      const age = Number(details.age_seconds);
+      return Number.isFinite(age)
+        ? `${label} completed successfully ${Math.round(age)} seconds ago.`
+        : `${label} is reporting a successful heartbeat.`;
+    }
+    if (details.status === "not_configured") {
+      return `${label} health monitoring is not configured in this deployment.`;
+    }
+    if (details.status === "missing") {
+      return `${label} has not written its first health report. The worker may still be running its first cycle or may not be started.`;
+    }
+    if (details.status === "invalid" || details.status === "invalid_timestamp") {
+      return `${label} wrote an invalid health report; inspect its container log.`;
+    }
+    if (details.reason === "heartbeat_is_stale") {
+      const hours = Number(details.age_seconds || 0) / 3600;
+      return `${label}'s last report is stale (${hours.toFixed(1)} hours old).`;
+    }
+    if (details.reason === "timestamp_is_in_the_future") {
+      return `${label}'s health timestamp is in the future; verify server time synchronization.`;
+    }
+    if (details.reason === "latest_heartbeat_failed") {
+      const failures = details.details?.failures;
+      return Array.isArray(failures) && failures.length
+        ? `${label}'s latest cycle failed for ${failures.length} account(s).`
+        : `${label}'s latest cycle reported a failure; inspect Operations → Audit Log and the worker log.`;
+    }
+    return `${label} is not healthy. Inspect the detailed health reason and worker log.`;
+  }
+
+  function renderGlossary() {
+    const container = document.getElementById("glossary-grid");
+    container.replaceChildren();
+    for (const [english, hebrew, definition] of TERMINOLOGY) {
+      const item = document.createElement("article");
+      item.className = "glossary-item";
+      const term = document.createElement("strong");
+      term.textContent = english;
+      const translation = document.createElement("div");
+      translation.className = "hebrew";
+      translation.lang = "he";
+      translation.textContent = hebrew;
+      const copy = document.createElement("div");
+      copy.className = "subcopy";
+      copy.textContent = definition;
+      item.append(term, translation, copy);
+      container.appendChild(item);
+    }
+  }
+
+  function applyTerminologyTooltips() {
+    const candidates = document.querySelectorAll("h2, th, .label");
+    for (const node of candidates) {
+      const text = node.textContent.trim().toLowerCase();
+      const match = TERMINOLOGY.find(
+        ([english]) => text.includes(english.toLowerCase())
+      );
+      if (!match) continue;
+      node.classList.add("term-help");
+      node.title = `${match[0]} — ${match[1]}\n${match[2]}`;
+      node.tabIndex = 0;
+    }
+  }
+
+  function setConfigurationMessage(message, state = "") {
+    const node = document.getElementById("configuration-message");
+    node.textContent = message;
+    node.className = `configuration-message ${state}`;
+  }
+
+  function renderStrategyControls(data) {
+    const body = document.getElementById("strategy-controls");
+    if (document.activeElement?.closest?.("#strategy-controls")) return;
+    body.replaceChildren();
+    const account = (data.configured_accounts || []).find(
+      item => item.account_id === selectedAccountId
+    );
+    const overrides = new Map(
+      (data.strategy_configuration?.overrides || [])
+        .filter(item => item.account_id === selectedAccountId)
+        .map(item => [item.strategy_id, item])
+    );
+    const allocations = account?.allocations || [];
+    if (!allocations.length) {
+      emptyRow(body, 8, "No strategy configuration is available for this account.");
+      return;
+    }
+    for (const allocation of allocations) {
+      const override = overrides.get(allocation.strategy_id);
+      const row = document.createElement("tr");
+      row.appendChild(cell(allocation.strategy_id));
+      row.appendChild(cell(allocation.asset_class || "stock"));
+
+      const enabledCell = document.createElement("td");
+      const enabled = document.createElement("input");
+      enabled.type = "checkbox";
+      enabled.checked = Boolean(allocation.enabled);
+      enabled.setAttribute("aria-label", `Enable ${allocation.strategy_id}`);
+      enabledCell.appendChild(enabled);
+      row.appendChild(enabledCell);
+
+      const permissionCell = document.createElement("td");
+      const permission = document.createElement("input");
+      permission.type = "checkbox";
+      permission.checked = Boolean(allocation.paper_execution_allowed);
+      permission.disabled = !enabled.checked;
+      permission.setAttribute("aria-label", `Allow Paper orders for ${allocation.strategy_id}`);
+      permissionCell.appendChild(permission);
+      row.appendChild(permissionCell);
+
+      const symbolsCell = document.createElement("td");
+      const symbols = document.createElement("input");
+      symbols.type = "text";
+      symbols.value = (allocation.symbols || []).join(", ");
+      symbols.placeholder = "AAPL, MSFT, SPY (blank = account watchlist)";
+      symbols.autocomplete = "off";
+      symbols.setAttribute("aria-label", `Execution symbols for ${allocation.strategy_id}`);
+      symbolsCell.appendChild(symbols);
+      row.appendChild(symbolsCell);
+      row.appendChild(cell(String(override?.revision || 0), "number"));
+      row.appendChild(cell(
+        override?.updated_at
+          ? `${localTime(override.updated_at)} · ${override.updated_by}`
+          : "Static server baseline"
+      ));
+
+      const actionCell = document.createElement("td");
+      const save = document.createElement("button");
+      save.type = "button";
+      save.textContent = "Save";
+      save.addEventListener("click", async () => {
+        const normalizedSymbols = symbols.value
+          .split(/[\s,;]+/)
+          .map(value => value.trim().toUpperCase())
+          .filter(Boolean);
+        const grantsPaper = enabled.checked && permission.checked;
+        if (
+          grantsPaper
+          && !window.confirm(
+            `Grant ${allocation.strategy_id} permission to submit guarded PAPER orders for the configured symbols?\n\nThis does not enable live trading and does not bypass server or risk gates.`
+          )
+        ) return;
+        save.disabled = true;
+        setConfigurationMessage(`Saving ${allocation.strategy_id}...`);
+        try {
+          const response = await fetch("/api/config/strategy", {
+            method: "POST",
+            cache: "no-store",
+            headers: {
+              "Content-Type": "application/json",
+              "X-CSRF-Token": csrfToken,
+            },
+            body: JSON.stringify({
+              account_id: selectedAccountId,
+              strategy_id: allocation.strategy_id,
+              enabled: enabled.checked,
+              paper_execution_allowed: grantsPaper,
+              symbols: normalizedSymbols,
+              expected_revision: Number(override?.revision || 0),
+              confirmation: "APPLY PAPER CONFIG",
+            }),
+          });
+          const result = await response.json();
+          if (!response.ok) throw new Error(result.error || `HTTP ${response.status}`);
+          setConfigurationMessage(
+            `${allocation.strategy_id} saved. Revision ${result.configuration.revision} will apply on the next engine and Strategy Lab cycles.`,
+            "ok"
+          );
+          save.blur();
+          await refresh();
+        } catch (error) {
+          setConfigurationMessage(
+            `Could not save ${allocation.strategy_id}: ${error.message}. Refresh and try again if the revision changed.`,
+            "bad"
+          );
+        } finally {
+          save.disabled = false;
+        }
+      });
+      enabled.addEventListener("change", () => {
+        permission.disabled = !enabled.checked;
+        if (!enabled.checked) permission.checked = false;
+      });
+      actionCell.appendChild(save);
+      row.appendChild(actionCell);
+      body.appendChild(row);
+    }
   }
 
   function renderControls(account) {
@@ -1496,6 +1782,20 @@
       for (const [value, className] of values) {
         row.appendChild(cell(value, className));
       }
+      const integrityCell = row.children[12];
+      integrityCell.classList.add("term-help");
+      integrityCell.title = [
+        manifestState === "Awaiting registration"
+          ? "Awaiting registration — ממתין לרישום: no immutable trial exists yet; the first completed scheduled evaluation creates it."
+          : `Manifest integrity: ${manifestState}.`,
+        status === "Awaiting prospective trial"
+          ? "Awaiting prospective trial — ממתין לניסוי קדימה: the preregistered candidate has not completed its first scheduled forward evaluation."
+          : `Prospective evidence: ${status}.`,
+        readiness === "not evaluated"
+          ? "Not evaluated — טרם נבדק: no completed evidence report exists for this candidate."
+          : `Latest readiness: ${readiness}.`,
+      ].join("\n");
+      integrityCell.tabIndex = 0;
       body.appendChild(row);
     }
   }
@@ -2155,6 +2455,7 @@
       const response = await fetch("/api/overview?limit=40", {cache:"no-store"});
       if (!response.ok) throw new Error(`HTTP ${response.status}`);
       const data = await response.json();
+      latestOverview = data;
       renderAccountSelector(data.configured_accounts || []);
       const accountView = data.account_views?.[selectedAccountId] || {};
       const account = accountView.account ?? data.account;
@@ -2190,6 +2491,13 @@
         "strategy-lab",
         data.strategy_lab.healthy ? "Healthy" : "Attention",
         data.strategy_lab.healthy ? "ok" : "bad"
+      );
+      setText(
+        "strategy-lab-detail",
+        healthExplanation(data.strategy_lab, "Strategy Lab")
+      );
+      document.getElementById("strategy-lab").title = (
+        healthExplanation(data.strategy_lab, "Strategy Lab")
       );
       setStatus(
         "option-evidence",
@@ -2230,6 +2538,24 @@
 
       const utilization = Number(accountRisk.utilization_percent || 0);
       const mode = data.operating_mode || {};
+      setText(
+        "management-automation-gate",
+        mode.automation_enabled ? "Enabled" : "Disabled (server setting)"
+      );
+      setText(
+        "management-paper-gate",
+        mode.paper_order_submission_enabled
+          ? "Enabled"
+          : "Disabled (server setting)"
+      );
+      setText(
+        "management-emergency-stop",
+        mode.emergency_stop ? "ACTIVE" : "Inactive"
+      );
+      setText(
+        "management-effective-execution",
+        mode.paper_execution_enabled ? "Enabled for Paper" : "Blocked"
+      );
       const executionCopy = mode.paper_execution_enabled
         ? "Guarded Alpaca Paper execution is enabled."
         : mode.emergency_stop
@@ -2266,6 +2592,7 @@
         data.configured_accounts || [],
         data.strategy_lab_reports || []
       );
+      renderStrategyControls(data);
       renderEvidenceCatalog(data.evidence_catalog || []);
       renderSignals(data.signals || []);
       renderTradeRecords(data.trade_records || []);
@@ -2287,6 +2614,8 @@
 
   initializePreferences();
   initializeNavigation();
+  renderGlossary();
+  applyTerminologyTooltips();
   refresh();
   setInterval(refresh, 15000);
 </script>

@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import json
 import re
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from decimal import Decimal, ROUND_DOWN
 from pathlib import Path
 from typing import Any
@@ -122,6 +122,68 @@ class AccountPlan:
             raise ValueError(
                 "Enabled strategy capital weights cannot exceed 1.0"
             )
+
+
+def apply_strategy_configuration_overrides(
+    plans: tuple[AccountPlan, ...],
+    overrides: list[dict[str, Any]] | tuple[dict[str, Any], ...],
+) -> tuple[AccountPlan, ...]:
+    """Apply audited Paper-only runtime controls to immutable base plans."""
+
+    rows = {
+        (str(row["account_id"]), str(row["strategy_id"])): row
+        for row in overrides
+    }
+    known = {
+        (plan.account_id, strategy_id)
+        for plan in plans
+        for strategy_id in plan.allocations
+    }
+    unknown = set(rows) - known
+    if unknown:
+        account_id, strategy_id = sorted(unknown)[0]
+        raise ValueError(
+            "Unknown strategy configuration override: "
+            f"{account_id}/{strategy_id}"
+        )
+
+    effective: list[AccountPlan] = []
+    for plan in plans:
+        allocations: dict[str, StrategyAllocation] = {}
+        added_symbols: list[str] = []
+        for strategy_id, allocation in plan.allocations.items():
+            row = rows.get((plan.account_id, strategy_id))
+            if row is None:
+                allocations[strategy_id] = allocation
+                continue
+            symbols = tuple(
+                dict.fromkeys(
+                    str(symbol).strip().upper()
+                    for symbol in row.get("symbols", [])
+                    if str(symbol).strip()
+                )
+            )
+            updated = replace(
+                allocation,
+                enabled=bool(row["enabled"]),
+                paper_execution_allowed=bool(
+                    row["paper_execution_allowed"]
+                ),
+                symbols=symbols,
+            )
+            allocations[strategy_id] = updated
+            added_symbols.extend(symbols)
+        watchlist = tuple(
+            dict.fromkeys((*plan.watchlist, *added_symbols))
+        )
+        effective.append(
+            replace(
+                plan,
+                watchlist=watchlist,
+                allocations=allocations,
+            )
+        )
+    return tuple(effective)
 
 
 def _decimal(value: Any, field: str) -> Decimal:

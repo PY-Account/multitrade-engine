@@ -660,6 +660,19 @@ class SqliteAuditStore:
 
                 CREATE INDEX IF NOT EXISTS idx_asset_universe_recent
                 ON asset_universe_reports(evaluated_at DESC, policy_id);
+
+                CREATE TABLE IF NOT EXISTS
+                    strategy_configuration_overrides (
+                        account_id TEXT NOT NULL,
+                        strategy_id TEXT NOT NULL,
+                        enabled INTEGER NOT NULL,
+                        paper_execution_allowed INTEGER NOT NULL,
+                        symbols_json TEXT NOT NULL,
+                        revision INTEGER NOT NULL,
+                        updated_by TEXT NOT NULL,
+                        updated_at TEXT NOT NULL,
+                        PRIMARY KEY (account_id, strategy_id)
+                    );
                 """
             )
             self._ensure_column(
@@ -1753,6 +1766,141 @@ class SqliteAuditStore:
             raise
         finally:
             self._close_if_needed(connection)
+
+    def strategy_configuration_overrides(
+        self, account_id: str | None = None
+    ) -> list[dict[str, Any]]:
+        connection = self._connect()
+        try:
+            if account_id is None:
+                rows = connection.execute(
+                    """
+                    SELECT account_id, strategy_id, enabled,
+                           paper_execution_allowed, symbols_json,
+                           revision, updated_by, updated_at
+                    FROM strategy_configuration_overrides
+                    ORDER BY account_id, strategy_id
+                    """
+                ).fetchall()
+            else:
+                rows = connection.execute(
+                    """
+                    SELECT account_id, strategy_id, enabled,
+                           paper_execution_allowed, symbols_json,
+                           revision, updated_by, updated_at
+                    FROM strategy_configuration_overrides
+                    WHERE account_id = ?
+                    ORDER BY strategy_id
+                    """,
+                    (account_id,),
+                ).fetchall()
+            return [
+                self._strategy_configuration_row(row) for row in rows
+            ]
+        finally:
+            self._close_if_needed(connection)
+
+    def set_strategy_configuration_override(
+        self,
+        *,
+        account_id: str,
+        strategy_id: str,
+        enabled: bool,
+        paper_execution_allowed: bool,
+        symbols: tuple[str, ...],
+        expected_revision: int,
+        updated_by: str,
+    ) -> dict[str, Any]:
+        connection = self._connect()
+        try:
+            connection.execute("BEGIN IMMEDIATE")
+            existing = connection.execute(
+                """
+                SELECT revision
+                FROM strategy_configuration_overrides
+                WHERE account_id = ? AND strategy_id = ?
+                """,
+                (account_id, strategy_id),
+            ).fetchone()
+            current_revision = (
+                int(existing["revision"]) if existing is not None else 0
+            )
+            if current_revision != expected_revision:
+                raise ValueError("configuration_revision_conflict")
+            revision = current_revision + 1
+            updated_at = datetime.now(timezone.utc).isoformat()
+            connection.execute(
+                """
+                INSERT INTO strategy_configuration_overrides (
+                    account_id, strategy_id, enabled,
+                    paper_execution_allowed, symbols_json,
+                    revision, updated_by, updated_at
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+                ON CONFLICT(account_id, strategy_id) DO UPDATE SET
+                    enabled = excluded.enabled,
+                    paper_execution_allowed =
+                        excluded.paper_execution_allowed,
+                    symbols_json = excluded.symbols_json,
+                    revision = excluded.revision,
+                    updated_by = excluded.updated_by,
+                    updated_at = excluded.updated_at
+                """,
+                (
+                    account_id,
+                    strategy_id,
+                    int(enabled),
+                    int(paper_execution_allowed),
+                    _json(symbols),
+                    revision,
+                    updated_by,
+                    updated_at,
+                ),
+            )
+            payload = {
+                "account_id": account_id,
+                "strategy_id": strategy_id,
+                "enabled": enabled,
+                "paper_execution_allowed": paper_execution_allowed,
+                "symbols": list(symbols),
+                "previous_revision": current_revision,
+                "revision": revision,
+                "updated_by": updated_by,
+                "scope": "paper_only",
+            }
+            self._insert_event(
+                connection,
+                "strategy_configuration_changed",
+                f"{account_id}:{strategy_id}:{revision}",
+                payload,
+            )
+            connection.execute("COMMIT")
+            return {
+                **payload,
+                "updated_at": updated_at,
+            }
+        except Exception:
+            if connection.in_transaction:
+                connection.execute("ROLLBACK")
+            raise
+        finally:
+            self._close_if_needed(connection)
+
+    @staticmethod
+    def _strategy_configuration_row(
+        row: sqlite3.Row,
+    ) -> dict[str, Any]:
+        return {
+            "account_id": row["account_id"],
+            "strategy_id": row["strategy_id"],
+            "enabled": bool(row["enabled"]),
+            "paper_execution_allowed": bool(
+                row["paper_execution_allowed"]
+            ),
+            "symbols": json.loads(row["symbols_json"]),
+            "revision": int(row["revision"]),
+            "updated_by": row["updated_by"],
+            "updated_at": row["updated_at"],
+        }
 
     def record_broker_state(
         self,
@@ -3180,6 +3328,37 @@ class SqliteAuditReader:
                 "correlation_id": row["correlation_id"],
                 "payload": json.loads(row["payload_json"]),
             }
+            for row in rows
+        ]
+
+    def strategy_configuration_overrides(
+        self, account_id: str | None = None
+    ) -> list[dict[str, Any]]:
+        with closing(self._connect()) as connection:
+            if account_id is None:
+                rows = connection.execute(
+                    """
+                    SELECT account_id, strategy_id, enabled,
+                           paper_execution_allowed, symbols_json,
+                           revision, updated_by, updated_at
+                    FROM strategy_configuration_overrides
+                    ORDER BY account_id, strategy_id
+                    """
+                ).fetchall()
+            else:
+                rows = connection.execute(
+                    """
+                    SELECT account_id, strategy_id, enabled,
+                           paper_execution_allowed, symbols_json,
+                           revision, updated_by, updated_at
+                    FROM strategy_configuration_overrides
+                    WHERE account_id = ?
+                    ORDER BY strategy_id
+                    """,
+                    (account_id,),
+                ).fetchall()
+        return [
+            SqliteAuditStore._strategy_configuration_row(row)
             for row in rows
         ]
 

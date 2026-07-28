@@ -69,7 +69,8 @@ atomically. The trial separately fingerprints the strategy implementation and
 parameters, validation/allocation configuration, and exact normalized market
 bars. Append-only triggers protect registered rows and their associated
 reports, while a per-account/per-strategy hash chain makes broken lineage
-visible to the read-only dashboard. This ledger is locally tamper-evident, not
+visible through read-only dashboard reporting views. This ledger is locally
+tamper-evident, not
 an externally signed or write-once audit service.
 
 Before a configured intraday strategy enters the lab, the worker binds it to
@@ -205,15 +206,16 @@ Fresh reconciled equity supplies the denominator; all active reservations
 supply the numerator. Total, underlying, and source-strategy ceilings are
 applied across accounts before the reservation transaction commits.
 
-The dashboard is read-only. Its primary workspaces are Account, Asset Universe,
-Strategy Lab, Allocation & Risk, and Operations, with horizontal secondary
-navigation, a dedicated family-comparison view, a model-trial registry, and an
-account selector that changes the broker state, positions, orders, risk
-capacity, allocations, runtime evidence, and strategy statistics together.
-It uses
-authenticated HTTPS, strict security headers, safe DOM text rendering,
-SQLite query-only connections, and browser-local preferences. It cannot
-change trading configuration.
+The dashboard is read-only for broker state and trading actions. Its primary
+workspaces are Account, Asset Universe, Strategy Lab, Allocation & Risk,
+Operations, and Management. Management contains a narrowly scoped Paper-only
+configuration control plane: it may change a known strategy's enabled state,
+execution symbols, and per-strategy Paper permission. The API requires the
+existing HTTPS authentication plus a page-bound CSRF token, validates symbols
+and immutable account/strategy identities, uses optimistic revisions, and
+commits the override and audit event in one SQLite transaction. It cannot
+select a live broker endpoint, alter server-wide execution gates, change risk
+budgets, or bypass the risk engine.
 
 ## Deployment
 
@@ -229,7 +231,8 @@ The VPS runs eight isolated containers:
   path.
 - `option-evidence`: hourly exact-contract option path measurement; no
   execution path.
-- `dashboard`: authenticated query-only monitoring.
+- `dashboard`: authenticated monitoring plus audited Paper-only strategy
+  configuration; no broker-order client.
 - `caddy`: public TLS termination and reverse proxy.
 
 All application containers drop Linux capabilities, enable
@@ -238,7 +241,7 @@ shared `/app/var` volume.
 
 ## Scaling boundary
 
-Release 0.15 supports multiple Alpaca Paper accounts under one local
+Release 0.16 supports multiple Alpaca Paper accounts under one local
 supervisor. Credentials are isolated by environment-variable prefix, every
 multi-account connection is pinned to the expected Alpaca account UUID, and a
 failure is contained to that account while the aggregate component health

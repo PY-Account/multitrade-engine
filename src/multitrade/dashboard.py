@@ -19,13 +19,16 @@ from urllib.parse import parse_qs, urlparse
 from urllib.request import urlopen
 
 from multitrade import __version__
-from multitrade.audit import SqliteAuditReader
+from multitrade.audit import SqliteAuditReader, SqliteAuditStore
 from multitrade.experiments import (
     StrategyExperimentProgram,
     experiment_program_payload,
 )
 from multitrade.health import check_health
-from multitrade.portfolio import AccountPlan
+from multitrade.portfolio import (
+    AccountPlan,
+    apply_strategy_configuration_overrides,
+)
 from multitrade.research import evidence_catalog
 from multitrade.risk import FirmRiskPolicy
 from multitrade.universe import AssetUniverseProgram, program_payload
@@ -67,6 +70,7 @@ class DashboardData:
         build_commit: str | None = None,
     ) -> None:
         self.reader = SqliteAuditReader(db_path)
+        self.configuration_store = SqliteAuditStore(db_path)
         self.health_path = Path(health_path)
         self.health_max_age_seconds = health_max_age_seconds
         self.max_total_open = max_total_open
@@ -136,6 +140,97 @@ class DashboardData:
             else "unknown"
         )
 
+    def effective_account_plans(self) -> tuple[AccountPlan, ...]:
+        return apply_strategy_configuration_overrides(
+            self.account_plans,
+            self.configuration_store.strategy_configuration_overrides(),
+        )
+
+    def update_strategy_configuration(
+        self,
+        payload: dict[str, Any],
+        *,
+        updated_by: str,
+    ) -> dict[str, Any]:
+        account_id = str(payload.get("account_id", "")).strip()
+        strategy_id = str(payload.get("strategy_id", "")).strip()
+        enabled = payload.get("enabled")
+        paper_allowed = payload.get("paper_execution_allowed")
+        expected_revision = payload.get("expected_revision")
+        if (
+            not account_id
+            or not strategy_id
+            or type(enabled) is not bool
+            or type(paper_allowed) is not bool
+            or type(expected_revision) is not int
+            or expected_revision < 0
+        ):
+            raise ValueError("invalid_configuration_request")
+        if payload.get("confirmation") != "APPLY PAPER CONFIG":
+            raise ValueError("paper_confirmation_required")
+        if paper_allowed and not enabled:
+            raise ValueError("disabled_strategy_cannot_trade")
+        raw_symbols = payload.get("symbols")
+        if not isinstance(raw_symbols, list):
+            raise ValueError("symbols_must_be_a_list")
+        if len(raw_symbols) > 100:
+            raise ValueError("too_many_symbols")
+        symbols = tuple(
+            dict.fromkeys(
+                str(symbol).strip().upper() for symbol in raw_symbols
+            )
+        )
+        if any(
+            not re.fullmatch(r"[A-Z][A-Z0-9.-]{0,19}", symbol)
+            for symbol in symbols
+        ):
+            raise ValueError("invalid_symbol")
+
+        account = next(
+            (
+                plan
+                for plan in self.account_plans
+                if plan.account_id == account_id
+            ),
+            None,
+        )
+        if account is None or account.environment != "paper":
+            raise ValueError("unknown_paper_account")
+        if strategy_id not in account.allocations:
+            raise ValueError("unknown_strategy")
+
+        current = self.configuration_store.strategy_configuration_overrides()
+        proposed = [
+            row
+            for row in current
+            if (
+                row["account_id"],
+                row["strategy_id"],
+            )
+            != (account_id, strategy_id)
+        ]
+        proposed.append(
+            {
+                "account_id": account_id,
+                "strategy_id": strategy_id,
+                "enabled": enabled,
+                "paper_execution_allowed": paper_allowed,
+                "symbols": list(symbols),
+            }
+        )
+        apply_strategy_configuration_overrides(
+            self.account_plans, proposed
+        )
+        return self.configuration_store.set_strategy_configuration_override(
+            account_id=account_id,
+            strategy_id=strategy_id,
+            enabled=enabled,
+            paper_execution_allowed=paper_allowed,
+            symbols=symbols,
+            expected_revision=expected_revision,
+            updated_by=updated_by,
+        )
+
     @staticmethod
     def _decimal(value: Any) -> Decimal:
         try:
@@ -144,6 +239,10 @@ class DashboardData:
             return Decimal("0")
 
     def overview(self, event_limit: int = 40) -> dict[str, Any]:
+        effective_account_plans = self.effective_account_plans()
+        configuration_overrides = (
+            self.configuration_store.strategy_configuration_overrides()
+        )
         healthy, health = check_health(
             self.health_path, self.health_max_age_seconds
         )
@@ -188,7 +287,7 @@ class DashboardData:
             universe_healthy = False
             universe_health = {"status": "not_configured"}
         account_ids = [
-            plan.account_id for plan in self.account_plans
+            plan.account_id for plan in effective_account_plans
         ] or ["alpaca-paper"]
         primary_account_id = account_ids[0]
         try:
@@ -391,7 +490,7 @@ class DashboardData:
                     for allocation in plan.allocations.values()
                 ],
             }
-            for plan in self.account_plans
+            for plan in effective_account_plans
         ]
 
         account_views: dict[str, dict[str, Any]] = {}
@@ -538,6 +637,12 @@ class DashboardData:
             "account": account,
             "account_views": account_views,
             "configured_accounts": configured_accounts,
+            "strategy_configuration": {
+                "scope": "paper_only",
+                "live_trading_available": False,
+                "changes_apply_on_next_cycle": True,
+                "overrides": configuration_overrides,
+            },
             "market": market,
             "positions": positions,
             "open_orders": open_orders,
@@ -598,13 +703,17 @@ class DashboardData:
 
 
 class DashboardRequestHandler(BaseHTTPRequestHandler):
-    server_version = "MultiTradeDashboard/0.15.0"
+    server_version = "MultiTradeDashboard/0.16.0"
     sys_version = ""
     data_service: DashboardData
     expected_authorization: str
     auth_lock = threading.Lock()
     auth_failures: dict[str, list[float]] = {}
     auth_blocked_until: dict[str, float] = {}
+    csrf_lock = threading.Lock()
+    csrf_tokens: dict[str, tuple[str, float]] = {}
+    config_lock = threading.Lock()
+    configured_username: str
 
     def do_GET(self) -> None:
         parsed = urlparse(self.path)
@@ -623,9 +732,13 @@ class DashboardRequestHandler(BaseHTTPRequestHandler):
             return
         if parsed.path == "/":
             nonce = secrets.token_urlsafe(18)
-            payload = _DASHBOARD_HTML.replace(
-                "{{NONCE}}", nonce
-            ).encode("utf-8")
+            csrf_token = secrets.token_urlsafe(32)
+            self._register_csrf_token(csrf_token)
+            payload = (
+                _DASHBOARD_HTML.replace("{{NONCE}}", nonce)
+                .replace("{{CSRF_TOKEN}}", csrf_token)
+                .encode("utf-8")
+            )
             self.send_response(200)
             self._security_headers(nonce)
             self.send_header("Content-Type", "text/html; charset=utf-8")
@@ -661,6 +774,58 @@ class DashboardRequestHandler(BaseHTTPRequestHandler):
             return
         self._send_json(404, {"error": "not_found"})
 
+    def do_POST(self) -> None:
+        parsed = urlparse(self.path)
+        if not self._authorized():
+            self._send_json(401, {"error": "authentication_required"})
+            return
+        if parsed.path != "/api/config/strategy":
+            self._send_json(404, {"error": "not_found"})
+            return
+        if not self.headers.get("Content-Type", "").lower().startswith(
+            "application/json"
+        ):
+            self._send_json(415, {"error": "json_required"})
+            return
+        try:
+            length = int(self.headers.get("Content-Length", "0"))
+        except ValueError:
+            self._send_json(400, {"error": "invalid_content_length"})
+            return
+        if length < 2 or length > 32768:
+            self._send_json(413, {"error": "request_size_invalid"})
+            return
+        body = self.rfile.read(length)
+        if not self._valid_csrf_token(
+            self.headers.get("X-CSRF-Token", "")
+        ):
+            self._send_json(403, {"error": "invalid_csrf_token"})
+            return
+        try:
+            payload = json.loads(body)
+            if not isinstance(payload, dict):
+                raise ValueError("json_object_required")
+            with self.config_lock:
+                result = self.data_service.update_strategy_configuration(
+                    payload,
+                    updated_by=self.configured_username,
+                )
+        except (json.JSONDecodeError, UnicodeDecodeError):
+            self._send_json(400, {"error": "invalid_json"})
+            return
+        except ValueError as exc:
+            status = (
+                409
+                if str(exc) == "configuration_revision_conflict"
+                else 400
+            )
+            self._send_json(status, {"error": str(exc)})
+            return
+        except sqlite3.Error:
+            self._send_json(503, {"error": "configuration_store_unavailable"})
+            return
+        self._send_json(200, {"status": "updated", "configuration": result})
+
     def _authorized(self) -> bool:
         client = self.client_address[0]
         now = time.monotonic()
@@ -690,6 +855,33 @@ class DashboardRequestHandler(BaseHTTPRequestHandler):
                 self.auth_failures.pop(client, None)
         return False
 
+    def _register_csrf_token(self, token: str) -> None:
+        client = self.client_address[0]
+        expires_at = time.monotonic() + 3600
+        now = time.monotonic()
+        handler = type(self)
+        with handler.csrf_lock:
+            handler.csrf_tokens = {
+                value: details
+                for value, details in handler.csrf_tokens.items()
+                if details[1] > now
+            }
+            handler.csrf_tokens[token] = (client, expires_at)
+
+    def _valid_csrf_token(self, token: str) -> bool:
+        if not token:
+            return False
+        client = self.client_address[0]
+        now = time.monotonic()
+        handler = type(self)
+        with handler.csrf_lock:
+            details = handler.csrf_tokens.get(token)
+            return bool(
+                details
+                and details[0] == client
+                and details[1] > now
+            )
+
     def _security_headers(self, nonce: str | None = None) -> None:
         script_source = f"'nonce-{nonce}'" if nonce else "'none'"
         style_source = f"'nonce-{nonce}'" if nonce else "'none'"
@@ -697,6 +889,10 @@ class DashboardRequestHandler(BaseHTTPRequestHandler):
         self.send_header("X-Content-Type-Options", "nosniff")
         self.send_header("X-Frame-Options", "DENY")
         self.send_header("Referrer-Policy", "no-referrer")
+        self.send_header(
+            "Permissions-Policy",
+            "camera=(), microphone=(), geolocation=(), payment=()",
+        )
         self.send_header(
             "Content-Security-Policy",
             "default-src 'none'; "
@@ -739,6 +935,10 @@ def create_dashboard_server(
     ConfiguredHandler.auth_lock = threading.Lock()
     ConfiguredHandler.auth_failures = {}
     ConfiguredHandler.auth_blocked_until = {}
+    ConfiguredHandler.csrf_lock = threading.Lock()
+    ConfiguredHandler.csrf_tokens = {}
+    ConfiguredHandler.config_lock = threading.Lock()
+    ConfiguredHandler.configured_username = username
     return ThreadingHTTPServer((host, port), ConfiguredHandler)
 
 

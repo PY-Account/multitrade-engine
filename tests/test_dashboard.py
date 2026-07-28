@@ -1,5 +1,6 @@
 import base64
 import json
+import re
 import threading
 from datetime import datetime, timezone
 from decimal import Decimal
@@ -16,7 +17,7 @@ from multitrade.experiments import (
     load_strategy_experiment_program,
 )
 from multitrade.health import write_health
-from multitrade.portfolio import AccountPlan
+from multitrade.portfolio import AccountPlan, StrategyAllocation
 from multitrade.universe import load_asset_universe_program
 
 
@@ -313,6 +314,11 @@ class DashboardTests(TestCase):
                 self.assertIn('value="dark"', html)
                 self.assertIn('hourCycle: "h23"', html)
                 self.assertIn('Asia/Jerusalem', html)
+                self.assertIn('data-primary-tab="management"', html)
+                self.assertIn('id="strategy-controls"', html)
+                self.assertIn("Trading and research glossary", html)
+                self.assertIn("Awaiting registration", html)
+                self.assertNotIn("{{CSRF_TOKEN}}", html)
                 self.assertIn('data-primary-tab="account"', html)
                 self.assertIn(
                     'data-primary-tab="strategy-lab"', html
@@ -353,6 +359,122 @@ class DashboardTests(TestCase):
                 self.assertIn('Universe correlation and concentration', html)
                 self.assertNotIn("{{NONCE}}", html)
                 self.assertIn("script-src 'nonce-", policy)
+            finally:
+                server.shutdown()
+                server.server_close()
+                thread.join(timeout=3)
+
+    def test_authenticated_csrf_protected_paper_configuration_update(
+        self,
+    ) -> None:
+        with TemporaryDirectory() as directory:
+            service, _, _ = self._fixture(directory)
+            service.account_plans = (
+                AccountPlan(
+                    account_id="alpaca-paper",
+                    broker="alpaca",
+                    environment="paper",
+                    enabled=True,
+                    asset_classes=(AssetClass.STOCK,),
+                    watchlist=("AAPL",),
+                    timeframe="5Min",
+                    maximum_positions=4,
+                    maximum_daily_orders=6,
+                    symbol_cooldown_minutes=60,
+                    allocations={
+                        "breakout_retest": StrategyAllocation(
+                            strategy_id="breakout_retest",
+                            enabled=False,
+                            capital_weight=Decimal("0.20"),
+                            risk_fraction=Decimal("0.005"),
+                            minimum_confidence=Decimal("0.60"),
+                        )
+                    },
+                ),
+            )
+            server = create_dashboard_server(
+                "127.0.0.1",
+                0,
+                service,
+                username="operator",
+                password="a-long-test-password",
+            )
+            thread = threading.Thread(
+                target=server.serve_forever, daemon=True
+            )
+            thread.start()
+            port = server.server_address[1]
+            token = base64.b64encode(
+                b"operator:a-long-test-password"
+            ).decode("ascii")
+            authorization = f"Basic {token}"
+            try:
+                root = Request(
+                    f"http://127.0.0.1:{port}/",
+                    headers={"Authorization": authorization},
+                )
+                with urlopen(root, timeout=3) as response:
+                    html = response.read().decode("utf-8")
+                csrf = re.search(
+                    r'name="csrf-token" content="([^"]+)"', html
+                ).group(1)
+                payload = json.dumps(
+                    {
+                        "account_id": "alpaca-paper",
+                        "strategy_id": "breakout_retest",
+                        "enabled": True,
+                        "paper_execution_allowed": True,
+                        "symbols": ["NVDA", "AMD"],
+                        "expected_revision": 0,
+                        "confirmation": "APPLY PAPER CONFIG",
+                    }
+                ).encode("utf-8")
+
+                missing_csrf = Request(
+                    f"http://127.0.0.1:{port}/api/config/strategy",
+                    data=payload,
+                    method="POST",
+                    headers={
+                        "Authorization": authorization,
+                        "Content-Type": "application/json",
+                    },
+                )
+                with self.assertRaises(HTTPError) as error:
+                    urlopen(missing_csrf, timeout=3)
+                self.assertEqual(error.exception.code, 403)
+                error.exception.close()
+
+                update = Request(
+                    f"http://127.0.0.1:{port}/api/config/strategy",
+                    data=payload,
+                    method="POST",
+                    headers={
+                        "Authorization": authorization,
+                        "Content-Type": "application/json",
+                        "X-CSRF-Token": csrf,
+                    },
+                )
+                with urlopen(update, timeout=3) as response:
+                    result = json.loads(response.read())
+                self.assertEqual(result["configuration"]["revision"], 1)
+
+                overview = service.overview()
+                allocation = overview["configured_accounts"][0][
+                    "allocations"
+                ][0]
+                self.assertTrue(allocation["enabled"])
+                self.assertTrue(
+                    allocation["paper_execution_allowed"]
+                )
+                self.assertEqual(allocation["symbols"], ["NVDA", "AMD"])
+                self.assertIn(
+                    "NVDA",
+                    overview["configured_accounts"][0]["watchlist"],
+                )
+                self.assertEqual(
+                    overview["events"][0]["event_type"],
+                    "strategy_configuration_changed",
+                )
             finally:
                 server.shutdown()
                 server.server_close()

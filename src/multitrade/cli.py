@@ -1585,7 +1585,11 @@ def build_parser() -> argparse.ArgumentParser:
     option_scan_parser.add_argument("--minimum-dte", type=int, default=21)
     option_scan_parser.add_argument("--maximum-dte", type=int, default=60)
     subparsers.add_parser(
-        "dashboard", help="Run the authenticated read-only dashboard"
+        "dashboard",
+        help=(
+            "Run the authenticated operations dashboard with audited "
+            "Paper-only strategy controls"
+        ),
     )
     subparsers.add_parser(
         "dashboard-healthcheck",

@@ -25,6 +25,7 @@ from multitrade.market import (
 from multitrade.portfolio import (
     AccountPlan,
     StrategyAllocation,
+    apply_strategy_configuration_overrides,
     load_account_plans,
 )
 from multitrade.robustness import TradeSequenceStressTester
@@ -665,6 +666,7 @@ class ContinuousStrategyLabService:
             Callable[[dict[str, object]], Strategy] | None
         ) = None,
     ) -> None:
+        self.base_account_plan = account_plan
         self.account_plan = account_plan
         self.strategies = strategies
         self.market_data = market_data
@@ -679,14 +681,7 @@ class ContinuousStrategyLabService:
         )
         self.comparison_strategies: dict[str, Strategy] = {}
         self.strategy_allocations: dict[str, StrategyAllocation] = {}
-        for allocation in account_plan.allocations.values():
-            source_id = allocation.source_strategy_id
-            existing = self.strategy_allocations.get(source_id)
-            if (
-                existing is None
-                or allocation.strategy_id == source_id
-            ):
-                self.strategy_allocations[source_id] = allocation
+        self._configure_strategy_allocations()
         unknown = set(self.strategy_allocations) - set(strategies)
         if unknown:
             raise ValueError(
@@ -794,9 +789,30 @@ class ContinuousStrategyLabService:
             ),
         )
 
+    def _configure_strategy_allocations(self) -> None:
+        self.strategy_allocations = {}
+        for allocation in self.account_plan.allocations.values():
+            source_id = allocation.source_strategy_id
+            existing = self.strategy_allocations.get(source_id)
+            if (
+                existing is None
+                or allocation.strategy_id == source_id
+            ):
+                self.strategy_allocations[source_id] = allocation
+
+    def _refresh_account_plan(self) -> None:
+        overrides = self.store.strategy_configuration_overrides(
+            self.base_account_plan.account_id
+        )
+        self.account_plan = apply_strategy_configuration_overrides(
+            (self.base_account_plan,), overrides
+        )[0]
+        self._configure_strategy_allocations()
+
     def run_cycle(
         self, *, now: datetime | None = None
     ) -> StrategyLabCycleResult:
+        self._refresh_account_plan()
         evaluated_at = now or datetime.now(timezone.utc)
         start = evaluated_at - timedelta(days=self.config.lookback_days)
         recommendations = (
@@ -809,8 +825,19 @@ class ContinuousStrategyLabService:
             )
             else {}
         )
-        symbols_by_strategy = {
-            strategy_id: (
+        symbols_by_strategy: dict[str, tuple[str, ...]] = {}
+        for strategy_id, allocation in self.strategy_allocations.items():
+            execution_symbols = tuple(
+                dict.fromkeys(
+                    symbol
+                    for configured in (
+                        self.account_plan.allocations.values()
+                    )
+                    if configured.source_strategy_id == strategy_id
+                    for symbol in configured.symbols
+                )
+            )
+            research_symbols = (
                 self.universe_program.assigned_symbols(
                     strategy_id,
                     account_watchlist=self.account_plan.watchlist,
@@ -819,8 +846,15 @@ class ContinuousStrategyLabService:
                 if self.universe_program is not None
                 else self.account_plan.watchlist
             )
-            for strategy_id in self.strategy_allocations
-        }
+            symbols_by_strategy[strategy_id] = tuple(
+                dict.fromkeys(
+                    (
+                        *research_symbols,
+                        *allocation.symbols,
+                        *execution_symbols,
+                    )
+                )
+            )
         requested_symbols = tuple(
             dict.fromkeys(
                 symbol
