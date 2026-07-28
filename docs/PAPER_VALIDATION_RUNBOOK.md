@@ -127,7 +127,7 @@ at Alpaca. Do not disable the heartbeat or dashboard while exposure exists.
 
 ## Promotion rule
 
-No live-trading promotion is part of release 0.4. A separate live program
+No live-trading promotion is part of release 0.5. A separate live program
 requires independent code review, PostgreSQL, recovery drills, alerting,
 credential rotation, reconciliation tests, legal/tax review, and explicit
 authorization.

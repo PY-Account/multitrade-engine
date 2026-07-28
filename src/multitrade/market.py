@@ -37,10 +37,19 @@ class MarketBar:
     trade_count: int
     vwap: Decimal | None
     feed: str
+    adjustment: str = "raw"
 
     def __post_init__(self) -> None:
         if not self.symbol or not self.feed:
             raise ValueError("Market bar symbol and feed are required")
+        if self.adjustment not in {
+            "raw",
+            "split",
+            "dividend",
+            "spin-off",
+            "all",
+        }:
+            raise ValueError("Unsupported market-bar adjustment")
         if self.timestamp.tzinfo is None:
             raise ValueError("Market bar timestamp must be timezone-aware")
         if min(self.open, self.high, self.low, self.close) <= ZERO:
@@ -129,6 +138,7 @@ class AlpacaMarketDataClient:
         end: datetime,
         *,
         max_pages: int = 20,
+        adjustment: str = "raw",
     ) -> dict[str, tuple[MarketBar, ...]]:
         timeframe_seconds(timeframe)
         normalized_symbols = tuple(
@@ -142,6 +152,14 @@ class AlpacaMarketDataClient:
             raise ValueError("At least one stock symbol is required")
         if len(normalized_symbols) > 200:
             raise ValueError("At most 200 symbols may be requested")
+        if adjustment not in {
+            "raw",
+            "split",
+            "dividend",
+            "spin-off",
+            "all",
+        }:
+            raise ValueError("Unsupported stock-bar adjustment")
         if start.tzinfo is None or end.tzinfo is None:
             raise ValueError("Market-data boundaries must be timezone-aware")
         if start >= end:
@@ -161,6 +179,7 @@ class AlpacaMarketDataClient:
                 "feed": self.feed,
                 "limit": "10000",
                 "sort": "asc",
+                "adjustment": adjustment,
             }
             if page_token:
                 query["page_token"] = page_token
@@ -174,7 +193,9 @@ class AlpacaMarketDataClient:
                 if symbol not in grouped or not isinstance(rows, list):
                     continue
                 grouped[symbol].extend(
-                    self._parse_stock_bar(symbol, timeframe, row)
+                    self._parse_stock_bar(
+                        symbol, timeframe, row, adjustment
+                    )
                     for row in rows
                 )
             page_token = payload.get("next_page_token")
@@ -203,6 +224,7 @@ class AlpacaMarketDataClient:
         symbol: str,
         timeframe: str,
         row: dict[str, Any],
+        adjustment: str,
     ) -> MarketBar:
         if not isinstance(row, dict):
             raise MarketDataError("Alpaca stock bar was not an object")
@@ -232,6 +254,7 @@ class AlpacaMarketDataClient:
                 else None
             ),
             feed=self.feed,
+            adjustment=adjustment,
         )
 
     def _request(

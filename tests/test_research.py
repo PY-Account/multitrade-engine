@@ -60,11 +60,21 @@ class FakeDailyMarketData:
         self.rows = rows
         self.request_ids = ["research-request"]
 
-    def fetch_stock_bars(self, symbols, timeframe, start, end):
+    def fetch_stock_bars(
+        self, symbols, timeframe, start, end, *, adjustment="raw"
+    ):
         del start, end
         if timeframe != "1Day":
             raise AssertionError("Research must use closed daily bars")
-        return {symbol: self.rows.get(symbol, ()) for symbol in symbols}
+        if adjustment != "all":
+            raise AssertionError("Research bars must be fully adjusted")
+        return {
+            symbol: tuple(
+                replace(bar, adjustment=adjustment)
+                for bar in self.rows.get(symbol, ())
+            )
+            for symbol in symbols
+        }
 
 
 class ResearchModelTests(TestCase):
@@ -232,6 +242,15 @@ class ResearchModelTests(TestCase):
             decisions = SqliteAuditReader(
                 settings.db_path
             ).recent_research_decisions()
+            research_backtests = SqliteAuditReader(
+                settings.db_path
+            ).recent_research_backtests()
+            portfolio_risk = SqliteAuditReader(
+                settings.db_path
+            ).recent_portfolio_risk_reports()
+            stored_daily_bars = SqliteAuditReader(
+                settings.db_path
+            ).market_bars("SPY", "1Day")
             spy = next(
                 item
                 for item in decisions
@@ -249,4 +268,21 @@ class ResearchModelTests(TestCase):
             )
             self.assertTrue(
                 all(not item["execution_eligible"] for item in decisions)
+            )
+            self.assertEqual(result.validation_reports_recorded, 4)
+            self.assertEqual(len(research_backtests), 4)
+            self.assertTrue(
+                all(
+                    not item["execution_eligible"]
+                    for item in research_backtests
+                )
+            )
+            self.assertEqual(len(portfolio_risk), 1)
+            self.assertFalse(portfolio_risk[0]["execution_eligible"])
+            self.assertTrue(stored_daily_bars)
+            self.assertTrue(
+                all(
+                    item["adjustment"] == "all"
+                    for item in stored_daily_bars
+                )
             )

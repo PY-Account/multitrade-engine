@@ -5,7 +5,7 @@ algorithmic-trading organization. It separates market analysis, strategy
 signals, portfolio allocation, central risk approval, broker execution,
 reconciliation, audit, backtesting, and monitoring.
 
-Release 0.4 is designed for controlled Alpaca Paper observation and dry-run
+Release 0.5 is designed for controlled Alpaca Paper observation and dry-run
 testing. It does not support live trading and it does not claim that any
 strategy is profitable.
 
@@ -41,6 +41,11 @@ The 3% and 10% figures are hard ceilings, not operating targets.
 - Separate observation-only research service: closed daily bars, medium-term
   momentum/trend, market and relative trend, liquidity, realized-volatility
   scaling without leverage, and panic/rebound guards.
+- Next-open research-model simulation with fully adjusted daily bars,
+  exposure-change costs, SPY comparison, excess return, drawdown, Sharpe,
+  Sortino, information ratio, turnover, and immutable promotion gates.
+- Universe correlation monitoring with high-correlation clusters and effective
+  breadth, so several symbols are not mistaken for several independent risks.
 - Versioned evidence registry with positive findings, contradictory caveats,
   data limitations, execution candidacy, and internal validation requirements.
 - Research-only public AI compute/power price proxy. It is explicitly not a
@@ -63,8 +68,8 @@ The 3% and 10% figures are hard ceilings, not operating targets.
   preferences.
 - Dashboard authentication includes per-client failure throttling; Caddy adds
   TLS and HSTS.
-- Docker Compose services for the heartbeat, strategy worker, dashboard, and
-  Caddy TLS proxy.
+- Docker Compose services for the heartbeat, strategy worker, research worker,
+  dashboard, and Caddy TLS proxy.
 
 ## Operating modes
 
@@ -117,6 +122,7 @@ python -m multitrade run --once
 python -m multitrade automate --once
 python -m multitrade research --once
 python -m multitrade evidence-catalog
+python -m multitrade research-backtest --symbol QQQ --cost-bps 10
 ```
 
 Backtest one strategy:
@@ -156,7 +162,8 @@ The updater:
 2. Fetches and fast-forwards private `main`.
 3. Preserves the existing `.env` and HTTPS profile.
 4. Builds the image and runs `multitrade doctor`.
-5. Recreates the heartbeat, automation, dashboard, and proxy services.
+5. Recreates the heartbeat, automation, research, dashboard, and proxy
+   services.
 
 After updating:
 

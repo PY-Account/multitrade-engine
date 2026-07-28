@@ -71,6 +71,20 @@ It cannot place Paper orders. A later release may use a validated version as
 one input to portfolio allocation, but only after tests demonstrate that the
 combined system improves results after costs without hiding tail risk.
 
+The validation simulator:
+
+- uses fully corporate-action-adjusted daily bars;
+- executes a decision only at the following session's open;
+- measures the subsequent open-to-open return;
+- charges costs on every exposure change;
+- clamps exposure to `[0, 1]`;
+- compares with a fully invested SPY benchmark; and
+- requires at least 252 scored observations before its sample-size gate can
+  pass.
+
+It reports a research-only or extended-Paper-observation-candidate status.
+Neither status can edit strategy configuration or order permissions.
+
 ## Public AI infrastructure thesis proxy (`public_thesis_proxy` v1.0.0)
 
 This is MultiTrade's independent research proxy for public themes discussed in

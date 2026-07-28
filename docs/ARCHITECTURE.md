@@ -26,6 +26,10 @@ normalized to `Decimal`, persisted idempotently, and excluded until their
 timeframe has closed. Reproducible backtests consume the same normalized bar
 contract as the strategy worker.
 
+Intraday execution research keeps raw prices. Long-horizon research explicitly
+requests Alpaca's full corporate-action adjustment for splits, dividends, and
+spin-offs and records the adjustment provenance with every stored bar.
+
 An independent hourly `research` service loads at least 253 closed daily bars
 per instrument. It stores weighted trend, relative-strength, liquidity,
 drawdown, volatility, and crisis-state observations. It has no broker object
@@ -99,6 +103,17 @@ Walk-forward validation uses chronological 60/40 samples and stores each gate.
 Passing a historical gate is evidence for further Paper testing, not proof of
 future performance.
 
+The daily evidence model has a separate simulator. A decision after day `t`
+closes can change exposure only at day `t+1`'s open; its first credited return
+ends at the following open. Exposure changes pay configured one-way costs.
+Results are compared with a fully invested SPY benchmark and include excess
+return, drawdown, risk-adjusted ratios, turnover, and cost estimates. Even a
+fully passing report is only an extended-Paper-observation candidate.
+
+The research worker also calculates pairwise daily correlations and an
+effective-breadth estimate. This is an observation report, not a covariance
+optimizer or a hedge order generator.
+
 The dashboard is read-only. It uses authenticated HTTPS, strict security
 headers, safe DOM text rendering, SQLite query-only connections, and
 browser-local preferences. It cannot change trading configuration.
@@ -120,7 +135,7 @@ shared `/app/var` volume.
 
 ## Scaling boundary
 
-Release 0.4 intentionally supports one enabled Paper account and one
+Release 0.5 intentionally supports one enabled Paper account and one
 orchestrator. Multi-account/cross-broker execution requires PostgreSQL with
 account-scoped reservations, a portfolio-wide exposure service, credential
 isolation per connector, and distributed locking. Dedicated crypto and forex

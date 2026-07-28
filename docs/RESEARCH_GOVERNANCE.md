@@ -75,3 +75,23 @@ promote new claims. New research must be reviewed, cited, implemented,
 backtested, and released through the same code-review process. This boundary
 prevents a web article or data-mined result from silently changing account
 risk.
+
+## Daily-model validation rules
+
+The daily research simulator requests `adjustment=all` from Alpaca so splits,
+cash dividends, and spin-offs do not masquerade as investment returns. It
+stores this provenance separately from raw intraday execution bars.
+
+A decision formed after one daily bar closes is applied only at the following
+session's open. The model earns no same-close return. Every exposure change
+pays the configured one-way cost, exposure is capped at 100%, and SPY is
+tracked as a fully invested benchmark.
+
+The scorecard requires at least 252 scored observations, positive after-cost
+and excess returns, bounded drawdown, drawdown no worse than the benchmark, a
+minimum Sharpe ratio, and bounded annual turnover. These thresholds are
+screening rules—not p-values, not a guarantee, and not execution approval.
+
+Pairwise correlation and effective breadth are reported for the monitored
+universe. This exposes clusters but does not claim that historical correlation
+is stable or automatically create hedges.

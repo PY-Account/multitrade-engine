@@ -23,6 +23,10 @@ if TYPE_CHECKING:
     from multitrade.engine import EngineResult
     from multitrade.market import MarketBar
     from multitrade.research import MarketModelDecision
+    from multitrade.research_validation import (
+        PortfolioRiskReport,
+        ResearchBacktestReport,
+    )
     from multitrade.strategies.base import StrategySignal
 
 
@@ -131,6 +135,7 @@ class SqliteAuditStore:
                     symbol TEXT NOT NULL,
                     timeframe TEXT NOT NULL,
                     feed TEXT NOT NULL,
+                    adjustment TEXT NOT NULL DEFAULT 'raw',
                     bar_timestamp TEXT NOT NULL,
                     open_price TEXT NOT NULL,
                     high_price TEXT NOT NULL,
@@ -303,7 +308,55 @@ class SqliteAuditStore:
 
                 CREATE INDEX IF NOT EXISTS idx_research_decisions_symbol
                 ON research_decisions(model_id, symbol, evaluated_at DESC);
+
+                CREATE TABLE IF NOT EXISTS research_backtest_reports (
+                    report_id TEXT PRIMARY KEY,
+                    model_id TEXT NOT NULL,
+                    model_version TEXT NOT NULL,
+                    symbol TEXT NOT NULL,
+                    benchmark TEXT NOT NULL,
+                    timeframe TEXT NOT NULL,
+                    started_at TEXT NOT NULL,
+                    completed_at TEXT NOT NULL,
+                    config_json TEXT NOT NULL,
+                    metrics_json TEXT NOT NULL,
+                    gates_json TEXT NOT NULL,
+                    warnings_json TEXT NOT NULL,
+                    promotion_status TEXT NOT NULL,
+                    execution_eligible INTEGER NOT NULL,
+                    points_json TEXT NOT NULL
+                );
+
+                CREATE INDEX IF NOT EXISTS idx_research_backtest_recent
+                ON research_backtest_reports(completed_at DESC);
+
+                CREATE TABLE IF NOT EXISTS portfolio_risk_reports (
+                    report_id TEXT PRIMARY KEY,
+                    account_id TEXT NOT NULL,
+                    evaluated_at TEXT NOT NULL,
+                    lookback_days INTEGER NOT NULL,
+                    state TEXT NOT NULL,
+                    symbols_requested_json TEXT NOT NULL,
+                    symbols_included_json TEXT NOT NULL,
+                    missing_symbols_json TEXT NOT NULL,
+                    average_positive_correlation TEXT NOT NULL,
+                    maximum_positive_correlation TEXT NOT NULL,
+                    effective_breadth TEXT NOT NULL,
+                    high_correlation_pairs_json TEXT NOT NULL,
+                    all_pairs_json TEXT NOT NULL,
+                    reason_codes_json TEXT NOT NULL,
+                    execution_eligible INTEGER NOT NULL
+                );
+
+                CREATE INDEX IF NOT EXISTS idx_portfolio_risk_recent
+                ON portfolio_risk_reports(evaluated_at DESC);
                 """
+            )
+            self._ensure_column(
+                connection,
+                "market_bars",
+                "adjustment",
+                "TEXT NOT NULL DEFAULT 'raw'",
             )
             self._ensure_column(
                 connection, "trade_records", "entry_price", "TEXT"
@@ -975,10 +1028,11 @@ class SqliteAuditStore:
             connection.executemany(
                 """
                 INSERT INTO market_bars (
-                    asset_class, symbol, timeframe, feed, bar_timestamp,
+                    asset_class, symbol, timeframe, feed, adjustment,
+                    bar_timestamp,
                     open_price, high_price, low_price, close_price,
                     volume, trade_count, vwap, ingested_at
-                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                 ON CONFLICT (
                     asset_class, symbol, timeframe, feed, bar_timestamp
                 ) DO UPDATE SET
@@ -989,6 +1043,7 @@ class SqliteAuditStore:
                     volume = excluded.volume,
                     trade_count = excluded.trade_count,
                     vwap = excluded.vwap,
+                    adjustment = excluded.adjustment,
                     ingested_at = excluded.ingested_at
                 """,
                 [
@@ -997,6 +1052,7 @@ class SqliteAuditStore:
                         bar.symbol,
                         bar.timeframe,
                         bar.feed,
+                        bar.adjustment,
                         bar.timestamp.isoformat(),
                         format(bar.open, "f"),
                         format(bar.high, "f"),
@@ -1414,6 +1470,121 @@ class SqliteAuditStore:
         finally:
             self._close_if_needed(connection)
 
+    def record_research_backtest(
+        self, report: "ResearchBacktestReport"
+    ) -> None:
+        sample_step = max(1, len(report.points) // 120)
+        sampled_points = list(report.points[::sample_step])
+        if (
+            report.points
+            and sampled_points[-1] is not report.points[-1]
+        ):
+            sampled_points.append(report.points[-1])
+        connection = self._connect()
+        try:
+            connection.execute(
+                """
+                INSERT INTO research_backtest_reports (
+                    report_id, model_id, model_version, symbol, benchmark,
+                    timeframe, started_at, completed_at, config_json,
+                    metrics_json, gates_json, warnings_json,
+                    promotion_status, execution_eligible, points_json
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                ON CONFLICT(report_id) DO UPDATE SET
+                    completed_at = excluded.completed_at,
+                    config_json = excluded.config_json,
+                    metrics_json = excluded.metrics_json,
+                    gates_json = excluded.gates_json,
+                    warnings_json = excluded.warnings_json,
+                    promotion_status = excluded.promotion_status,
+                    execution_eligible = excluded.execution_eligible,
+                    points_json = excluded.points_json
+                """,
+                (
+                    report.report_id,
+                    report.model_id,
+                    report.model_version,
+                    report.symbol,
+                    report.benchmark,
+                    report.timeframe,
+                    report.started_at,
+                    report.completed_at,
+                    _json(asdict(report.config)),
+                    _json(asdict(report.metrics)),
+                    _json(report.gates),
+                    _json(report.warnings),
+                    report.promotion_status,
+                    int(report.execution_eligible),
+                    _json(
+                        [asdict(point) for point in sampled_points]
+                    ),
+                ),
+            )
+        finally:
+            self._close_if_needed(connection)
+
+    def record_portfolio_risk_report(
+        self, report: "PortfolioRiskReport"
+    ) -> None:
+        connection = self._connect()
+        try:
+            connection.execute(
+                """
+                INSERT INTO portfolio_risk_reports (
+                    report_id, account_id, evaluated_at, lookback_days,
+                    state, symbols_requested_json, symbols_included_json,
+                    missing_symbols_json, average_positive_correlation,
+                    maximum_positive_correlation, effective_breadth,
+                    high_correlation_pairs_json, all_pairs_json,
+                    reason_codes_json, execution_eligible
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                ON CONFLICT(report_id) DO UPDATE SET
+                    evaluated_at = excluded.evaluated_at,
+                    state = excluded.state,
+                    symbols_requested_json =
+                        excluded.symbols_requested_json,
+                    symbols_included_json =
+                        excluded.symbols_included_json,
+                    missing_symbols_json = excluded.missing_symbols_json,
+                    average_positive_correlation =
+                        excluded.average_positive_correlation,
+                    maximum_positive_correlation =
+                        excluded.maximum_positive_correlation,
+                    effective_breadth = excluded.effective_breadth,
+                    high_correlation_pairs_json =
+                        excluded.high_correlation_pairs_json,
+                    all_pairs_json = excluded.all_pairs_json,
+                    reason_codes_json = excluded.reason_codes_json,
+                    execution_eligible = excluded.execution_eligible
+                """,
+                (
+                    report.report_id,
+                    report.account_id,
+                    report.evaluated_at,
+                    report.lookback_days,
+                    report.state,
+                    _json(report.symbols_requested),
+                    _json(report.symbols_included),
+                    _json(report.missing_symbols),
+                    format(report.average_positive_correlation, "f"),
+                    format(report.maximum_positive_correlation, "f"),
+                    format(report.effective_breadth, "f"),
+                    _json(
+                        [
+                            asdict(pair)
+                            for pair in report.high_correlation_pairs
+                        ]
+                    ),
+                    _json(
+                        [asdict(pair) for pair in report.all_pairs]
+                    ),
+                    _json(report.reason_codes),
+                    int(report.execution_eligible),
+                ),
+            )
+        finally:
+            self._close_if_needed(connection)
+
     def active_risk(self) -> Decimal:
         connection = self._connect()
         try:
@@ -1809,6 +1980,103 @@ class SqliteAuditReader:
             for row in rows
         ]
 
+    def recent_research_backtests(
+        self, limit: int = 50
+    ) -> list[dict[str, Any]]:
+        safe_limit = max(1, min(limit, 100))
+        with closing(self._connect()) as connection:
+            rows = connection.execute(
+                """
+                SELECT report_id, model_id, model_version, symbol,
+                       benchmark, timeframe, started_at, completed_at,
+                       config_json, metrics_json, gates_json,
+                       warnings_json, promotion_status,
+                       execution_eligible
+                FROM research_backtest_reports
+                ORDER BY completed_at DESC, symbol
+                LIMIT ?
+                """,
+                (safe_limit,),
+            ).fetchall()
+        return [
+            {
+                "report_id": row["report_id"],
+                "model_id": row["model_id"],
+                "model_version": row["model_version"],
+                "symbol": row["symbol"],
+                "benchmark": row["benchmark"],
+                "timeframe": row["timeframe"],
+                "started_at": row["started_at"],
+                "completed_at": row["completed_at"],
+                "config": json.loads(row["config_json"]),
+                "metrics": json.loads(row["metrics_json"]),
+                "gates": json.loads(row["gates_json"]),
+                "warnings": json.loads(row["warnings_json"]),
+                "promotion_status": row["promotion_status"],
+                "execution_eligible": bool(
+                    row["execution_eligible"]
+                ),
+            }
+            for row in rows
+        ]
+
+    def recent_portfolio_risk_reports(
+        self, limit: int = 20
+    ) -> list[dict[str, Any]]:
+        safe_limit = max(1, min(limit, 100))
+        with closing(self._connect()) as connection:
+            rows = connection.execute(
+                """
+                SELECT report_id, account_id, evaluated_at,
+                       lookback_days, state, symbols_requested_json,
+                       symbols_included_json, missing_symbols_json,
+                       average_positive_correlation,
+                       maximum_positive_correlation,
+                       effective_breadth,
+                       high_correlation_pairs_json, all_pairs_json,
+                       reason_codes_json, execution_eligible
+                FROM portfolio_risk_reports
+                ORDER BY evaluated_at DESC LIMIT ?
+                """,
+                (safe_limit,),
+            ).fetchall()
+        return [
+            {
+                "report_id": row["report_id"],
+                "account_id": row["account_id"],
+                "evaluated_at": row["evaluated_at"],
+                "lookback_days": row["lookback_days"],
+                "state": row["state"],
+                "symbols_requested": json.loads(
+                    row["symbols_requested_json"]
+                ),
+                "symbols_included": json.loads(
+                    row["symbols_included_json"]
+                ),
+                "missing_symbols": json.loads(
+                    row["missing_symbols_json"]
+                ),
+                "average_positive_correlation": row[
+                    "average_positive_correlation"
+                ],
+                "maximum_positive_correlation": row[
+                    "maximum_positive_correlation"
+                ],
+                "effective_breadth": row["effective_breadth"],
+                "high_correlation_pairs": json.loads(
+                    row["high_correlation_pairs_json"]
+                ),
+                "all_pairs": json.loads(row["all_pairs_json"]),
+                "reason_codes": json.loads(
+                    row["reason_codes_json"]
+                ),
+                "execution_eligible": bool(
+                    row["execution_eligible"]
+                ),
+            }
+            for row in rows
+        ]
+
     def market_bars(
         self,
         symbol: str,
@@ -1820,7 +2088,7 @@ class SqliteAuditReader:
         with closing(self._connect()) as connection:
             rows = connection.execute(
                 """
-                SELECT symbol, timeframe, feed, bar_timestamp,
+                SELECT symbol, timeframe, feed, adjustment, bar_timestamp,
                        open_price, high_price, low_price, close_price,
                        volume, trade_count, vwap
                 FROM market_bars
@@ -1834,6 +2102,7 @@ class SqliteAuditReader:
                 "symbol": row["symbol"],
                 "timeframe": row["timeframe"],
                 "feed": row["feed"],
+                "adjustment": row["adjustment"],
                 "timestamp": row["bar_timestamp"],
                 "open": row["open_price"],
                 "high": row["high_price"],

@@ -240,7 +240,7 @@ class Settings:
                 )
             ),
             research_lookback_days=_int_env(
-                "TRADING_RESEARCH_LOOKBACK_DAYS", "550", 400, 1500
+                "TRADING_RESEARCH_LOOKBACK_DAYS", "1500", 400, 1500
             ),
             dashboard_host=os.getenv(
                 "DASHBOARD_HOST", "127.0.0.1"

@@ -18,6 +18,10 @@ from multitrade.market import (
     closed_bars,
 )
 from multitrade.portfolio import AccountPlan, load_account_plans
+from multitrade.research_validation import (
+    PortfolioCorrelationAnalyzer,
+    ResearchModelBacktester,
+)
 
 
 class EvidenceGrade(StrEnum):
@@ -653,6 +657,9 @@ class ResearchCycleResult:
     watch: int
     risk_off: int
     insufficient_data: int
+    validation_reports_recorded: int
+    promotion_candidates: int
+    portfolio_risk_state: str
     execution_enabled: bool
     request_ids: tuple[str, ...]
 
@@ -720,6 +727,7 @@ class ContinuousResearchService:
                 days=self.settings.research_lookback_days
             ),
             checked_at,
+            adjustment="all",
         )
         usable = {
             symbol: closed_bars(rows, now=checked_at)
@@ -743,6 +751,28 @@ class ContinuousResearchService:
         for decision in decisions:
             self.store.record_research_decision(decision)
         self._record_theme_observations(decisions, checked_at)
+        portfolio_risk = PortfolioCorrelationAnalyzer().analyze(
+            account_id=self.account_plan.account_id,
+            bars_by_symbol={
+                symbol: usable.get(symbol, ()) for symbol in universe
+            },
+            evaluated_at=checked_at,
+        )
+        self.store.record_portfolio_risk_report(portfolio_risk)
+        validation_reports = []
+        for symbol in universe:
+            try:
+                report = ResearchModelBacktester(self.model).run(
+                    symbol_bars=usable.get(symbol, ()),
+                    benchmark_bars=usable.get(
+                        self.program.benchmark, ()
+                    ),
+                    account_id=self.account_plan.account_id,
+                )
+            except ValueError:
+                continue
+            self.store.record_research_backtest(report)
+            validation_reports.append(report)
         counts = {
             state: sum(
                 1 for decision in decisions if decision.state is state
@@ -760,6 +790,14 @@ class ContinuousResearchService:
             insufficient_data=counts[
                 ResearchState.INSUFFICIENT_DATA
             ],
+            validation_reports_recorded=len(validation_reports),
+            promotion_candidates=sum(
+                1
+                for report in validation_reports
+                if report.promotion_status
+                == "extended_paper_observation_candidate"
+            ),
+            portfolio_risk_state=portfolio_risk.state,
             execution_enabled=False,
             request_ids=tuple(self.market_data.request_ids),
         )

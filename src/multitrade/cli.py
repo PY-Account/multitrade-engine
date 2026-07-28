@@ -38,8 +38,13 @@ from multitrade.options import (
 from multitrade.portfolio import load_account_plans
 from multitrade.research import (
     ContinuousResearchService,
+    EvidenceWeightedMarketModel,
     evidence_catalog,
     load_research_program,
+)
+from multitrade.research_validation import (
+    ResearchBacktestConfig,
+    ResearchModelBacktester,
 )
 from multitrade.risk import RiskEngine
 from multitrade.strategies import default_equity_strategies
@@ -181,6 +186,8 @@ def _doctor() -> int:
         "research_configuration_valid": research_configuration_valid,
         "research_configuration_error": research_configuration_error,
         "research_universe": research_universe,
+        "research_lookback_days": settings.research_lookback_days,
+        "research_bar_adjustment": "all",
         "research_execution_enabled": False,
         "enabled_accounts": enabled_accounts,
     }
@@ -507,6 +514,77 @@ def _evidence_catalog() -> int:
     return 0
 
 
+def _research_backtest(
+    symbol: str,
+    start_value: str | None,
+    end_value: str | None,
+    cost_bps_value: str,
+) -> int:
+    settings = Settings.from_env()
+    settings.require_alpaca_credentials()
+    program = load_research_program(settings.research_program_path)
+    normalized_symbol = symbol.strip().upper()
+    if not normalized_symbol:
+        raise ValueError("Research backtest symbol is required")
+    try:
+        cost_bps = Decimal(cost_bps_value)
+    except Exception as exc:
+        raise ValueError("Research cost bps must be a decimal") from exc
+    end = _parse_boundary(end_value, datetime.now(timezone.utc))
+    start = _parse_boundary(
+        start_value, end - timedelta(days=1500)
+    )
+    symbols = tuple(
+        dict.fromkeys((normalized_symbol, program.benchmark))
+    )
+    client = AlpacaMarketDataClient(
+        settings.alpaca_key_id,
+        settings.alpaca_secret_key,
+        feed=settings.market_data_feed,
+    )
+    fetched = client.fetch_stock_bars(
+        symbols, "1Day", start, end, adjustment="all"
+    )
+    usable = {
+        item: closed_bars(fetched.get(item, ()), now=end)
+        for item in symbols
+    }
+    report = ResearchModelBacktester(
+        EvidenceWeightedMarketModel(),
+        config=ResearchBacktestConfig(one_way_cost_bps=cost_bps),
+    ).run(
+        symbol_bars=usable.get(normalized_symbol, ()),
+        benchmark_bars=usable.get(program.benchmark, ()),
+    )
+    store = SqliteAuditStore(settings.db_path)
+    store.record_market_bars(
+        bar for rows in usable.values() for bar in rows
+    )
+    store.record_research_backtest(report)
+    print(
+        json.dumps(
+            {
+                "report_id": report.report_id,
+                "model_id": report.model_id,
+                "model_version": report.model_version,
+                "symbol": report.symbol,
+                "benchmark": report.benchmark,
+                "metrics": asdict(report.metrics),
+                "gates": report.gates,
+                "warnings": report.warnings,
+                "promotion_status": report.promotion_status,
+                "execution_eligible": report.execution_eligible,
+                "feed": settings.market_data_feed,
+                "request_ids": client.request_ids,
+            },
+            default=_json_default,
+            indent=2,
+            sort_keys=True,
+        )
+    )
+    return 0
+
+
 def _parse_boundary(value: str | None, fallback: datetime) -> datetime:
     if value is None:
         return fallback
@@ -801,6 +879,19 @@ def build_parser() -> argparse.ArgumentParser:
         "evidence-catalog",
         help="Print strategy evidence, caveats, and admission status",
     )
+    research_backtest_parser = subparsers.add_parser(
+        "research-backtest",
+        help=(
+            "Backtest the daily evidence model with next-open execution "
+            "and benchmark comparison"
+        ),
+    )
+    research_backtest_parser.add_argument("--symbol", required=True)
+    research_backtest_parser.add_argument("--start")
+    research_backtest_parser.add_argument("--end")
+    research_backtest_parser.add_argument(
+        "--cost-bps", default="10"
+    )
     backtest_parser = subparsers.add_parser(
         "backtest",
         help="Backtest or walk-forward validate a strategy",
@@ -859,6 +950,13 @@ def main(argv: list[str] | None = None) -> int:
             return _research_healthcheck()
         if args.command == "evidence-catalog":
             return _evidence_catalog()
+        if args.command == "research-backtest":
+            return _research_backtest(
+                args.symbol,
+                args.start,
+                args.end,
+                args.cost_bps,
+            )
         if args.command == "backtest":
             return _backtest(
                 args.strategy,

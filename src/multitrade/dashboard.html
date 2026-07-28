@@ -264,6 +264,30 @@
 
   <section class="panel">
     <div class="panel-head">
+      <div><h2>Research model validation</h2><p class="subcopy">Next-open simulation after decision time, including exposure-change costs and a fully invested benchmark. Passing gates permits only extended Paper observation.</p></div>
+    </div>
+    <div class="table-wrap">
+      <table>
+        <thead><tr><th>Completed</th><th>Symbol</th><th>Benchmark</th><th class="number">Observations</th><th class="number">Net return</th><th class="number">Benchmark</th><th class="number">Excess</th><th class="number">Drawdown</th><th class="number">Sharpe</th><th class="number">Annual turnover</th><th class="number">Estimated costs</th><th>Status</th><th>Execution</th></tr></thead>
+        <tbody id="research-backtests"></tbody>
+      </table>
+    </div>
+  </section>
+
+  <section class="panel">
+    <div class="panel-head">
+      <div><h2>Universe correlation and concentration</h2><p class="subcopy">Equal-importance observation of recent daily-return relationships. This diagnoses apparent diversification that may collapse into one correlated bet.</p></div>
+    </div>
+    <div class="table-wrap">
+      <table>
+        <thead><tr><th>Evaluated</th><th>State</th><th>Included symbols</th><th class="number">Maximum correlation</th><th class="number">Average positive correlation</th><th class="number">Effective breadth</th><th>High-correlation pairs</th><th>Reasons</th><th>Execution</th></tr></thead>
+        <tbody id="portfolio-risk-reports"></tbody>
+      </table>
+    </div>
+  </section>
+
+  <section class="panel">
+    <div class="panel-head">
       <div><h2>Research evidence registry</h2><p class="subcopy">Published support, contradictory caveats, and internal admission status. External evidence never authorizes deployment by itself.</p></div>
     </div>
     <div class="table-wrap">
@@ -724,6 +748,64 @@
     }
   }
 
+  function renderResearchBacktests(reports) {
+    const body = document.getElementById("research-backtests");
+    body.replaceChildren();
+    if (!reports.length) {
+      emptyRow(body, 13, "No daily model validation report has been stored.");
+      return;
+    }
+    for (const report of reports) {
+      const metrics = report.metrics || {};
+      const values = [
+        [localTime(report.completed_at), ""],
+        [report.symbol, ""],
+        [report.benchmark, ""],
+        [metrics.observation_count ?? "--", "number"],
+        [percent(metrics.total_return), "number"],
+        [percent(metrics.benchmark_total_return), "number"],
+        [percent(metrics.excess_total_return), Number(metrics.excess_total_return || 0) >= 0 ? "number ok" : "number bad"],
+        [percent(metrics.maximum_drawdown), "number"],
+        [metrics.sharpe_ratio == null ? "--" : Number(metrics.sharpe_ratio).toFixed(2), "number"],
+        [metrics.annual_turnover == null ? "--" : Number(metrics.annual_turnover).toFixed(2), "number"],
+        [money(metrics.estimated_cost_amount), "number"],
+        [report.promotion_status.replaceAll("_", " "), report.promotion_status === "research_only" ? "warn" : "ok"],
+        [report.execution_eligible ? "Eligible" : "Blocked", report.execution_eligible ? "bad" : "ok"],
+      ];
+      const row = document.createElement("tr");
+      for (const [value, className] of values) row.appendChild(cell(value, className));
+      body.appendChild(row);
+    }
+  }
+
+  function renderPortfolioRiskReports(reports) {
+    const body = document.getElementById("portfolio-risk-reports");
+    body.replaceChildren();
+    if (!reports.length) {
+      emptyRow(body, 9, "No portfolio correlation report has been stored.");
+      return;
+    }
+    for (const report of reports.slice(0, 5)) {
+      const highPairs = (report.high_correlation_pairs || [])
+        .map(pair => `${pair.left_symbol}/${pair.right_symbol} ${Number(pair.correlation).toFixed(2)}`)
+        .join(", ") || "None";
+      const values = [
+        [localTime(report.evaluated_at), ""],
+        [report.state, report.state === "diversified" ? "ok" : report.state === "concentrated" ? "bad" : "warn"],
+        [(report.symbols_included || []).join(", ") || "--", ""],
+        [Number(report.maximum_positive_correlation || 0).toFixed(2), "number"],
+        [Number(report.average_positive_correlation || 0).toFixed(2), "number"],
+        [Number(report.effective_breadth || 0).toFixed(2), "number"],
+        [highPairs, ""],
+        [(report.reason_codes || []).join(", ").replaceAll("_", " "), ""],
+        [report.execution_eligible ? "Eligible" : "Observation only", report.execution_eligible ? "bad" : "ok"],
+      ];
+      const row = document.createElement("tr");
+      for (const [value, className] of values) row.appendChild(cell(value, className));
+      body.appendChild(row);
+    }
+  }
+
   function renderSignals(signals) {
     const body = document.getElementById("signals");
     body.replaceChildren();
@@ -1042,6 +1124,8 @@
       renderOrders(data.open_orders || []);
       renderStrategyRuntime(data.strategy_runtime || []);
       renderResearchDecisions(data.research_decisions || []);
+      renderResearchBacktests(data.research_backtests || []);
+      renderPortfolioRiskReports(data.portfolio_risk_reports || []);
       renderEvidenceCatalog(data.evidence_catalog || []);
       renderSignals(data.signals || []);
       renderTradeRecords(data.trade_records || []);

@@ -1,8 +1,13 @@
+import sqlite3
+from contextlib import closing
 from datetime import datetime, timedelta, timezone
 from decimal import Decimal
+from pathlib import Path
+from tempfile import TemporaryDirectory
 from unittest import TestCase
 from unittest.mock import Mock
 
+from multitrade.audit import SqliteAuditReader, SqliteAuditStore
 from multitrade.domain import AssetClass
 from multitrade.features import FeatureEngine, MarketRegime
 from multitrade.market import (
@@ -99,6 +104,99 @@ class MarketDataTests(TestCase):
 
         self.assertEqual(result["AAPL"][0].close, Decimal("101"))
         self.assertEqual(result["AAPL"][0].feed, "iex")
+        self.assertEqual(result["AAPL"][0].adjustment, "raw")
+
+    def test_research_adjustment_is_sent_and_recorded(self) -> None:
+        client = AlpacaMarketDataClient(
+            "paper-key", "paper-secret", feed="iex"
+        )
+        calls = []
+
+        def request(path, query):
+            calls.append((path, query))
+            return {
+                "bars": {
+                    "SPY": [
+                        {
+                            "t": "2026-01-02T05:00:00Z",
+                            "o": 100,
+                            "h": 101,
+                            "l": 99,
+                            "c": 100,
+                            "v": 5000,
+                            "n": 200,
+                            "vw": 100,
+                        }
+                    ]
+                },
+                "next_page_token": None,
+            }
+
+        client._request = request
+        start = datetime(2026, 1, 2, tzinfo=timezone.utc)
+        result = client.fetch_stock_bars(
+            ["SPY"],
+            "1Day",
+            start,
+            start + timedelta(days=2),
+            adjustment="all",
+        )
+
+        self.assertEqual(calls[0][1]["adjustment"], "all")
+        self.assertEqual(result["SPY"][0].adjustment, "all")
+
+    def test_existing_database_adds_adjustment_provenance(self) -> None:
+        with TemporaryDirectory() as directory:
+            path = Path(directory) / "legacy.db"
+            with closing(sqlite3.connect(path)) as connection:
+                connection.execute(
+                    """
+                    CREATE TABLE market_bars (
+                        asset_class TEXT NOT NULL,
+                        symbol TEXT NOT NULL,
+                        timeframe TEXT NOT NULL,
+                        feed TEXT NOT NULL,
+                        bar_timestamp TEXT NOT NULL,
+                        open_price TEXT NOT NULL,
+                        high_price TEXT NOT NULL,
+                        low_price TEXT NOT NULL,
+                        close_price TEXT NOT NULL,
+                        volume TEXT NOT NULL,
+                        trade_count INTEGER NOT NULL,
+                        vwap TEXT,
+                        ingested_at TEXT NOT NULL,
+                        PRIMARY KEY (
+                            asset_class, symbol, timeframe, feed,
+                            bar_timestamp
+                        )
+                    )
+                    """
+                )
+                connection.commit()
+            store = SqliteAuditStore(path)
+            adjusted = MarketBar(
+                symbol="SPY",
+                asset_class=AssetClass.STOCK,
+                timeframe="1Day",
+                timestamp=datetime(
+                    2026, 1, 2, 5, tzinfo=timezone.utc
+                ),
+                open=Decimal("100"),
+                high=Decimal("101"),
+                low=Decimal("99"),
+                close=Decimal("100"),
+                volume=Decimal("1000"),
+                trade_count=100,
+                vwap=Decimal("100"),
+                feed="iex",
+                adjustment="all",
+            )
+            store.record_market_bars((adjusted,))
+            rows = SqliteAuditReader(path).market_bars(
+                "SPY", "1Day"
+            )
+
+            self.assertEqual(rows[0]["adjustment"], "all")
 
 
 class FeatureTests(TestCase):

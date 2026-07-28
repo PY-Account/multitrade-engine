@@ -1,5 +1,28 @@
 # Changelog
 
+## 0.5.0 - 2026-07-28
+
+- Added next-open research-model backtesting so a daily decision cannot earn
+  the closing price that created it.
+- Added a fully invested SPY benchmark, after-cost and excess returns,
+  annualized return/volatility, Sharpe, Sortino, information ratio, drawdown,
+  exposure, turnover, and estimated-cost reporting.
+- Added validation gates and a promotion scorecard that can recommend extended
+  Paper observation but can never enable execution.
+- Added rolling pairwise correlation, high-correlation clusters, and effective
+  breadth to identify a universe that behaves like one concentrated bet.
+- Added fully adjusted daily research bars for splits, dividends, and
+  spin-offs while retaining raw intraday execution bars.
+- Persisted validation and portfolio-risk reports and exposed both in the
+  authenticated dashboard.
+- Added a manual `research-backtest` command and automatic hourly validation
+  for the configured research and account universe.
+- Expanded the research default history to 1,500 calendar days and require at
+  least 252 scored observations for a validation gate.
+
+This release remains observation/Paper-only. Validation status never changes
+order permissions.
+
 ## 0.4.0 - 2026-07-28
 
 - Added a versioned evidence registry that records source, finding, caveats,

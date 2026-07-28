@@ -110,6 +110,12 @@ class DashboardData:
             research_decisions = (
                 self.reader.recent_research_decisions(event_limit)
             )
+            research_backtests = (
+                self.reader.recent_research_backtests(30)
+            )
+            portfolio_risk_reports = (
+                self.reader.recent_portfolio_risk_reports(10)
+            )
             storage: dict[str, Any] = {"status": "ok"}
         except (FileNotFoundError, OSError, sqlite3.Error):
             state = None
@@ -122,6 +128,8 @@ class DashboardData:
             backtests = []
             validations = []
             research_decisions = []
+            research_backtests = []
+            portfolio_risk_reports = []
             storage = {"status": "unavailable"}
 
         account: dict[str, Any] | None = None
@@ -223,6 +231,8 @@ class DashboardData:
             "backtests": backtests,
             "validations": validations,
             "research_decisions": research_decisions,
+            "research_backtests": research_backtests,
+            "portfolio_risk_reports": portfolio_risk_reports,
             "evidence_catalog": evidence_catalog(),
         }
 
@@ -251,7 +261,7 @@ class DashboardData:
 
 
 class DashboardRequestHandler(BaseHTTPRequestHandler):
-    server_version = "MultiTradeDashboard/0.4"
+    server_version = "MultiTradeDashboard/0.5"
     sys_version = ""
     data_service: DashboardData
     expected_authorization: str
