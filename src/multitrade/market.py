@@ -3,7 +3,7 @@ from __future__ import annotations
 import json
 import re
 from dataclasses import dataclass
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 from decimal import Decimal
 from typing import Any, Iterable
 from urllib.error import HTTPError, URLError
@@ -15,6 +15,7 @@ from multitrade.domain import AssetClass, ZERO
 
 MARKET_DATA_URL = "https://data.alpaca.markets"
 _STOCK_BAR_SYMBOL_BATCH_SIZE = 25
+_STOCK_BAR_TIME_WINDOW_DAYS = 30
 _STOCK_BAR_TOTAL_PAGE_LIMIT = 240
 _TIMEFRAME = re.compile(
     r"^(?P<count>[1-9][0-9]*)(?P<unit>Min|T|Hour|H|Day|D)$"
@@ -214,67 +215,83 @@ class AlpacaMarketDataClient:
                     batch_start + _STOCK_BAR_SYMBOL_BATCH_SIZE
                 )
             ]
-            page_token: str | None = None
-            seen_page_tokens: set[str] = set()
-            for _ in range(max_pages):
-                total_pages += 1
-                if total_pages > _STOCK_BAR_TOTAL_PAGE_LIMIT:
+            window_start = start
+            while window_start < end:
+                window_end = min(
+                    window_start
+                    + timedelta(
+                        days=_STOCK_BAR_TIME_WINDOW_DAYS
+                    ),
+                    end,
+                )
+                page_token: str | None = None
+                seen_page_tokens: set[str] = set()
+                for _ in range(max_pages):
+                    total_pages += 1
+                    if total_pages > _STOCK_BAR_TOTAL_PAGE_LIMIT:
+                        raise MarketDataError(
+                            "Alpaca stock-bars pagination exceeded "
+                            f"the {_STOCK_BAR_TOTAL_PAGE_LIMIT}-page "
+                            "total safety limit"
+                        )
+                    query = {
+                        "symbols": ",".join(symbol_batch),
+                        "timeframe": timeframe,
+                        "start": window_start.astimezone(
+                            timezone.utc
+                        ).isoformat(),
+                        "end": window_end.astimezone(
+                            timezone.utc
+                        ).isoformat(),
+                        "feed": self.feed,
+                        "limit": "10000",
+                        "sort": "asc",
+                        "adjustment": adjustment,
+                    }
+                    if page_token:
+                        query["page_token"] = page_token
+                    payload = self._request(
+                        "/v2/stocks/bars", query
+                    )
+                    bars_payload = payload.get("bars")
+                    if not isinstance(bars_payload, dict):
+                        raise MarketDataError(
+                            "Alpaca stock-bars response did not "
+                            "contain a bars object"
+                        )
+                    for symbol, rows in bars_payload.items():
+                        if (
+                            symbol not in grouped
+                            or not isinstance(rows, list)
+                        ):
+                            continue
+                        grouped[symbol].extend(
+                            self._parse_stock_bar(
+                                symbol,
+                                timeframe,
+                                row,
+                                adjustment,
+                            )
+                            for row in rows
+                        )
+                    next_page_token = payload.get(
+                        "next_page_token"
+                    )
+                    if not next_page_token:
+                        break
+                    page_token = str(next_page_token)
+                    if page_token in seen_page_tokens:
+                        raise MarketDataError(
+                            "Alpaca stock-bars pagination repeated "
+                            "a page token"
+                        )
+                    seen_page_tokens.add(page_token)
+                else:
                     raise MarketDataError(
                         "Alpaca stock-bars pagination exceeded the "
-                        f"{_STOCK_BAR_TOTAL_PAGE_LIMIT}-page total "
-                        "safety limit"
+                        f"{max_pages}-page per-window safety limit"
                     )
-                query = {
-                    "symbols": ",".join(symbol_batch),
-                    "timeframe": timeframe,
-                    "start": start.astimezone(
-                        timezone.utc
-                    ).isoformat(),
-                    "end": end.astimezone(timezone.utc).isoformat(),
-                    "feed": self.feed,
-                    "limit": "10000",
-                    "sort": "asc",
-                    "adjustment": adjustment,
-                }
-                if page_token:
-                    query["page_token"] = page_token
-                payload = self._request("/v2/stocks/bars", query)
-                bars_payload = payload.get("bars")
-                if not isinstance(bars_payload, dict):
-                    raise MarketDataError(
-                        "Alpaca stock-bars response did not contain "
-                        "a bars object"
-                    )
-                for symbol, rows in bars_payload.items():
-                    if (
-                        symbol not in grouped
-                        or not isinstance(rows, list)
-                    ):
-                        continue
-                    grouped[symbol].extend(
-                        self._parse_stock_bar(
-                            symbol,
-                            timeframe,
-                            row,
-                            adjustment,
-                        )
-                        for row in rows
-                    )
-                next_page_token = payload.get("next_page_token")
-                if not next_page_token:
-                    break
-                page_token = str(next_page_token)
-                if page_token in seen_page_tokens:
-                    raise MarketDataError(
-                        "Alpaca stock-bars pagination repeated a "
-                        "page token"
-                    )
-                seen_page_tokens.add(page_token)
-            else:
-                raise MarketDataError(
-                    "Alpaca stock-bars pagination exceeded the "
-                    f"{max_pages}-page per-batch safety limit"
-                )
+                window_start = window_end
 
         return {
             symbol: tuple(

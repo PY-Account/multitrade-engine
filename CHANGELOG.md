@@ -1,5 +1,18 @@
 # Changelog
 
+## 0.17.3 - 2026-07-28
+
+- Partitioned stock-bar retrieval by both symbol group and 30-day time window,
+  so long Strategy Lab lookbacks cannot exhaust one pagination chain even
+  when a 25-symbol batch contains more than 600,000 bars.
+- Reset and validate Alpaca page tokens independently for every symbol/time
+  partition, then merge and timestamp-deduplicate the normalized results.
+- Added regression coverage for a 50-symbol, 120-day retrieval requiring 64
+  pages across eight independently bounded partitions.
+
+The operation-wide page ceiling remains enforced. This patch does not change
+candidate definitions, validation gates, risk controls, or execution access.
+
 ## 0.17.2 - 2026-07-28
 
 - Split large Alpaca stock-bar requests into independent batches of at most

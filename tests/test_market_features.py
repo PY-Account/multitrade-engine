@@ -153,7 +153,7 @@ class MarketDataTests(TestCase):
             ["AAPL"],
             "5Min",
             start,
-            start + timedelta(days=120),
+            start + timedelta(days=30),
         )
 
         self.assertEqual(len(calls), 21)
@@ -192,19 +192,23 @@ class MarketDataTests(TestCase):
         client = AlpacaMarketDataClient(
             "paper-key", "paper-secret", feed="iex"
         )
-        pages_by_batch = {}
+        pages_by_partition = {}
         calls = []
 
         def request(path, query):
             calls.append((path, query))
-            batch = query["symbols"]
-            page = pages_by_batch.get(batch, 0) + 1
-            pages_by_batch[batch] = page
+            partition = (
+                query["symbols"],
+                query["start"],
+                query["end"],
+            )
+            page = pages_by_partition.get(partition, 0) + 1
+            pages_by_partition[partition] = page
             return {
                 "bars": {},
                 "next_page_token": (
-                    f"{batch[:4]}-page-{page + 1}"
-                    if page < 31
+                    f"partition-page-{page + 1}"
+                    if page < 8
                     else None
                 ),
             }
@@ -219,12 +223,27 @@ class MarketDataTests(TestCase):
             start + timedelta(days=120),
         )
 
-        self.assertEqual(len(pages_by_batch), 2)
-        self.assertEqual(sorted(pages_by_batch.values()), [31, 31])
-        self.assertEqual(len(calls), 62)
+        self.assertEqual(len(pages_by_partition), 8)
         self.assertEqual(
-            [len(batch.split(",")) for batch in pages_by_batch],
-            [25, 25],
+            set(pages_by_partition.values()), {8}
+        )
+        self.assertEqual(len(calls), 64)
+        self.assertEqual(
+            {
+                len(partition[0].split(","))
+                for partition in pages_by_partition
+            },
+            {25},
+        )
+        self.assertEqual(
+            {
+                (
+                    datetime.fromisoformat(partition[2])
+                    - datetime.fromisoformat(partition[1])
+                ).days
+                for partition in pages_by_partition
+            },
+            {30},
         )
         self.assertEqual(set(result), set(symbols))
 
