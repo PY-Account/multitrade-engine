@@ -268,6 +268,9 @@ documented in
 Multi-account credentials, identity pinning, configuration, and failure
 semantics are documented in
 [`docs/MULTI_ACCOUNT_OPERATIONS.md`](docs/MULTI_ACCOUNT_OPERATIONS.md).
+Planned accelerated validation and the read-only HTTPS Analyst API/Connector
+are recorded in
+[`docs/DEVELOPMENT_ROADMAP.md`](docs/DEVELOPMENT_ROADMAP.md).
 
 ## Current boundary
 
