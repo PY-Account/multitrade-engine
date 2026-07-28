@@ -1,3 +1,4 @@
+from dataclasses import replace
 from datetime import date
 from decimal import Decimal
 from unittest import TestCase
@@ -217,7 +218,40 @@ class AlpacaPayloadTests(TestCase):
         self.assertEqual(payload["qty"], "2")
         self.assertEqual(payload["limit_price"], "1.25")
         self.assertEqual(len(payload["legs"]), 2)
+        self.assertEqual(
+            payload["legs"][0]["position_intent"],
+            "buy_to_open",
+        )
         self.assertNotIn("symbol", payload)
+
+        closing = replace(
+            intent,
+            reduce_only=True,
+            parent_intent_id="opening-intent",
+            intent_id="closing-intent",
+            option_legs=tuple(
+                replace(
+                    leg,
+                    side=(
+                        Side.SELL
+                        if leg.side is Side.BUY
+                        else Side.BUY
+                    ),
+                )
+                for leg in intent.option_legs
+            ),
+        )
+        close_payload = AlpacaPaperBroker.build_order_payload(
+            closing, Decimal("2")
+        )
+        self.assertEqual(
+            close_payload["legs"][0]["position_intent"],
+            "sell_to_close",
+        )
+        self.assertEqual(
+            close_payload["legs"][1]["position_intent"],
+            "buy_to_close",
+        )
 
     def test_single_leg_option_uses_simple_order(self) -> None:
         expiration = date(2027, 1, 15)

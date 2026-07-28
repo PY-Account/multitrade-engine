@@ -58,16 +58,22 @@ class TradingEngine:
                     "reason": disabled_reason,
                 },
             )
-            self.audit_store.release(intent.intent_id, disabled_reason)
+            if not intent.reduce_only:
+                self.audit_store.release(intent.intent_id, disabled_reason)
             return EngineResult(decision=decision, dry_run=True)
 
         try:
             order = self.broker.submit_order(
                 intent, decision.approved_quantity
             )
-            self.audit_store.mark_submitted(
-                intent.intent_id, order.broker_order_id
-            )
+            if intent.reduce_only:
+                self.audit_store.record_exit_submitted(
+                    intent, order.broker_order_id
+                )
+            else:
+                self.audit_store.mark_submitted(
+                    intent.intent_id, order.broker_order_id
+                )
             return EngineResult(decision=decision, order=order)
         except Exception as exc:
             try:
@@ -77,7 +83,8 @@ class TradingEngine:
                     {"error_type": type(exc).__name__, "message": str(exc)},
                 )
             finally:
-                self.audit_store.release(
-                    intent.intent_id, "broker_submission_failed"
-                )
+                if not intent.reduce_only:
+                    self.audit_store.release(
+                        intent.intent_id, "broker_submission_failed"
+                    )
             raise

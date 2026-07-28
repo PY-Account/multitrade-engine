@@ -101,6 +101,19 @@ class StrategyTests(TestCase):
         )
         plan = load_account_plans(config_path)[0]
         allocation = plan.allocations["breakout_retest"]
+        option_allocation = plan.allocations[
+            "trend_pullback_bull_put_theta"
+        ]
+        self.assertEqual(
+            option_allocation.source_strategy_id,
+            "trend_pullback",
+        )
+        self.assertEqual(
+            option_allocation.option_policy.required_trading_level, 3
+        )
+        self.assertFalse(
+            option_allocation.paper_execution_allowed
+        )
         bars = [
             market_bar(
                 index,

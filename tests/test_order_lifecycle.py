@@ -1,5 +1,6 @@
-from datetime import datetime, timezone
+from datetime import date, datetime, timedelta, timezone
 from decimal import Decimal
+import sqlite3
 from tempfile import TemporaryDirectory
 from pathlib import Path
 from unittest import TestCase
@@ -11,16 +12,21 @@ from multitrade.brokers.base import (
     BrokerOpenOrder,
     BrokerPosition,
     BrokerReconciliation,
+    BrokerOrder,
 )
 from multitrade.domain import (
     AccountSnapshot,
     AssetClass,
+    OptionLeg,
+    OptionRight,
     OrderType,
     Side,
     TimeInForce,
     TradeIntent,
 )
+from multitrade.engine import EngineResult
 from multitrade.risk import RiskEngine
+from multitrade.strategies.base import SignalAction, StrategySignal
 
 
 def account() -> BrokerAccount:
@@ -109,6 +115,95 @@ def reconciliation(
 
 
 class OrderLifecycleTests(TestCase):
+    def test_existing_database_adds_account_and_option_ledger_columns(
+        self,
+    ) -> None:
+        with TemporaryDirectory() as directory:
+            db_path = Path(directory) / "legacy.db"
+            with sqlite3.connect(db_path) as connection:
+                connection.executescript(
+                    """
+                    CREATE TABLE risk_reservations (
+                        intent_id TEXT PRIMARY KEY,
+                        strategy_id TEXT NOT NULL,
+                        symbol TEXT NOT NULL,
+                        risk_amount TEXT NOT NULL,
+                        quantity TEXT NOT NULL,
+                        state TEXT NOT NULL,
+                        broker_order_id TEXT,
+                        created_at TEXT NOT NULL,
+                        updated_at TEXT NOT NULL
+                    );
+                    CREATE TABLE trade_records (
+                        signal_id TEXT PRIMARY KEY,
+                        intent_id TEXT NOT NULL UNIQUE,
+                        account_id TEXT NOT NULL,
+                        strategy_id TEXT NOT NULL,
+                        symbol TEXT NOT NULL,
+                        side TEXT NOT NULL,
+                        state TEXT NOT NULL,
+                        requested_quantity TEXT NOT NULL,
+                        approved_quantity TEXT NOT NULL,
+                        reserved_risk TEXT NOT NULL,
+                        reference_price TEXT,
+                        stop_price TEXT,
+                        target_price TEXT,
+                        broker_order_id TEXT,
+                        entry_price TEXT,
+                        exit_price TEXT,
+                        realized_pnl TEXT,
+                        exit_reason TEXT,
+                        closed_at TEXT,
+                        explanation_json TEXT NOT NULL,
+                        created_at TEXT NOT NULL,
+                        updated_at TEXT NOT NULL
+                    );
+                    """
+                )
+            connection.close()
+
+            SqliteAuditStore(db_path).close()
+
+            with sqlite3.connect(db_path) as connection:
+                risk_columns = {
+                    row[1]
+                    for row in connection.execute(
+                        "PRAGMA table_info(risk_reservations)"
+                    )
+                }
+                trade_columns = {
+                    row[1]
+                    for row in connection.execute(
+                        "PRAGMA table_info(trade_records)"
+                    )
+                }
+                exit_table = connection.execute(
+                    """
+                    SELECT name FROM sqlite_master
+                    WHERE type = 'table'
+                      AND name = 'trade_exit_orders'
+                    """
+                ).fetchone()
+            connection.close()
+
+            self.assertTrue(
+                {
+                    "account_id",
+                    "asset_class",
+                    "instruments_json",
+                }.issubset(risk_columns)
+            )
+            self.assertTrue(
+                {
+                    "asset_class",
+                    "structure",
+                    "option_legs_json",
+                    "opening_net_price",
+                    "modeled_theta_per_day",
+                }.issubset(trade_columns)
+            )
+            self.assertIsNotNone(exit_table)
+
     def test_peak_equity_is_persisted_for_drawdown_guard(self) -> None:
         with TemporaryDirectory() as directory:
             store = SqliteAuditStore(Path(directory) / "audit.db")
@@ -229,3 +324,236 @@ class OrderLifecycleTests(TestCase):
             )
 
             self.assertEqual(store.active_risk(), Decimal("0"))
+
+    def test_risk_reservations_are_scoped_per_account(self) -> None:
+        with TemporaryDirectory() as directory:
+            store = SqliteAuditStore(Path(directory) / "audit.db")
+            snapshot = AccountSnapshot(
+                equity=Decimal("10000"),
+                start_of_day_equity=Decimal("10000"),
+                peak_equity=Decimal("10000"),
+            )
+            for account_id, intent_id in (
+                ("paper-a", "intent-a"),
+                ("paper-b", "intent-b"),
+            ):
+                decision = store.evaluate_and_reserve(
+                    RiskEngine(),
+                    TradeIntent(
+                        account_id=account_id,
+                        intent_id=intent_id,
+                        strategy_id="breakout_retest",
+                        asset_class=AssetClass.STOCK,
+                        symbol="AAPL",
+                        side=Side.BUY,
+                        requested_quantity=Decimal("1"),
+                        order_type=OrderType.MARKET,
+                        time_in_force=TimeInForce.DAY,
+                        reference_price=Decimal("100"),
+                        stop_price=Decimal("95"),
+                    ),
+                    snapshot,
+                )
+                self.assertTrue(decision.approved)
+
+            self.assertEqual(
+                store.active_risk(),
+                store.active_risk("paper-a")
+                + store.active_risk("paper-b"),
+            )
+            self.assertGreater(
+                store.active_risk("paper-a"), Decimal("0")
+            )
+
+    def test_option_exit_fill_records_realized_package_pnl(
+        self,
+    ) -> None:
+        with TemporaryDirectory() as directory:
+            db_path = Path(directory) / "audit.db"
+            store = SqliteAuditStore(db_path)
+            reader = SqliteAuditReader(db_path)
+            expiration = date(2026, 9, 18)
+            opening_legs = (
+                OptionLeg(
+                    symbol="AAPL260918P00150000",
+                    underlying="AAPL",
+                    expiration=expiration,
+                    right=OptionRight.PUT,
+                    strike=Decimal("150"),
+                    side=Side.SELL,
+                    ratio=1,
+                    mark_price=Decimal("1.20"),
+                    theta=Decimal("-0.08"),
+                ),
+                OptionLeg(
+                    symbol="AAPL260918P00145000",
+                    underlying="AAPL",
+                    expiration=expiration,
+                    right=OptionRight.PUT,
+                    strike=Decimal("145"),
+                    side=Side.BUY,
+                    ratio=1,
+                    mark_price=Decimal("0.40"),
+                    theta=Decimal("-0.02"),
+                ),
+            )
+            intent = TradeIntent(
+                account_id="alpaca-paper",
+                intent_id="option-entry-1",
+                signal_id="option-entry-1",
+                strategy_id="trend_pullback_bull_put_theta",
+                asset_class=AssetClass.OPTION,
+                symbol="AAPL",
+                side=Side.SELL,
+                requested_quantity=Decimal("1"),
+                order_type=OrderType.LIMIT,
+                time_in_force=TimeInForce.DAY,
+                limit_price=Decimal("-0.80"),
+                option_legs=opening_legs,
+                explanation={
+                    "structure": "bull_put_credit_spread",
+                    "opening_net_price": Decimal("-0.80"),
+                    "modeled_theta_per_day_per_package": Decimal("6"),
+                    "expiration": expiration.isoformat(),
+                },
+            )
+            decision = store.evaluate_and_reserve(
+                RiskEngine(),
+                intent,
+                AccountSnapshot(
+                    equity=Decimal("100000"),
+                    start_of_day_equity=Decimal("100000"),
+                    peak_equity=Decimal("100000"),
+                ),
+            )
+            self.assertTrue(decision.approved)
+            store.mark_submitted(
+                intent.intent_id, "option-entry-order"
+            )
+            now = datetime(
+                2026, 7, 28, 14, 0, tzinfo=timezone.utc
+            )
+            signal = StrategySignal(
+                signal_id="option-entry-1",
+                account_id="alpaca-paper",
+                strategy_id=intent.strategy_id,
+                strategy_version="1.0.0+option",
+                symbol="AAPL",
+                action=SignalAction.ENTER_LONG,
+                bar_timestamp=now - timedelta(minutes=5),
+                created_at=now,
+                expires_at=now + timedelta(minutes=10),
+                confidence=Decimal("0.70"),
+                reference_price=Decimal("155"),
+                stop_price=Decimal("150"),
+                target_price=Decimal("165"),
+                reason_codes=("test",),
+                evidence={},
+            )
+            store.record_trade_result(
+                signal,
+                intent,
+                EngineResult(
+                    decision=decision,
+                    order=BrokerOrder(
+                        broker_order_id="option-entry-order",
+                        status="accepted",
+                        raw={},
+                    ),
+                ),
+            )
+
+            closing_legs = tuple(
+                OptionLeg(
+                    symbol=leg.symbol,
+                    underlying=leg.underlying,
+                    expiration=leg.expiration,
+                    right=leg.right,
+                    strike=leg.strike,
+                    side=(
+                        Side.BUY
+                        if leg.side is Side.SELL
+                        else Side.SELL
+                    ),
+                    ratio=leg.ratio,
+                    mark_price=Decimal("0.30"),
+                )
+                for leg in opening_legs
+            )
+            exit_intent = TradeIntent(
+                account_id="alpaca-paper",
+                parent_intent_id=intent.intent_id,
+                intent_id="option-exit-1",
+                strategy_id=intent.strategy_id,
+                asset_class=AssetClass.OPTION,
+                symbol="AAPL",
+                side=Side.BUY,
+                requested_quantity=Decimal("1"),
+                order_type=OrderType.LIMIT,
+                time_in_force=TimeInForce.DAY,
+                limit_price=Decimal("0.30"),
+                option_legs=closing_legs,
+                reduce_only=True,
+            )
+            store.record_exit_submitted(
+                exit_intent, "option-exit-order"
+            )
+            exit_order = BrokerOpenOrder(
+                broker_order_id="option-exit-order",
+                client_order_id="option-exit-1",
+                symbol="MULTI-LEG",
+                asset_class=AssetClass.OPTION,
+                side="",
+                order_type="limit",
+                order_class="mleg",
+                status="filled",
+                quantity=Decimal("1"),
+                filled_quantity=Decimal("1"),
+                limit_price=Decimal("0.30"),
+                stop_price=None,
+                submitted_at=now.isoformat(),
+                legs_count=2,
+                filled_average_price=Decimal("0.30"),
+                filled_at=(
+                    now + timedelta(minutes=1)
+                ).isoformat(),
+            )
+            store.record_order_reconciliation(
+                "alpaca-paper",
+                BrokerReconciliation(
+                    broker="alpaca",
+                    environment="paper",
+                    observed_at=now + timedelta(minutes=1),
+                    account=account(),
+                    market=BrokerMarketClock(
+                        timestamp=now.isoformat(),
+                        is_open=True,
+                        next_open=now.isoformat(),
+                        next_close=now.isoformat(),
+                    ),
+                    positions=(),
+                    open_orders=(),
+                    recent_orders=(exit_order,),
+                ),
+            )
+
+            trade = reader.recent_trade_records()[0]
+            statistics = reader.strategy_performance(
+                "alpaca-paper"
+            )[0]
+            self.assertEqual(trade["state"], "position_closed")
+            self.assertEqual(trade["realized_pnl"], "50.00")
+            self.assertEqual(
+                statistics["option_realized_pnl"], "50.00"
+            )
+            self.assertEqual(
+                statistics[
+                    "positive_theta_trade_realized_pnl"
+                ],
+                "50.00",
+            )
+            self.assertEqual(statistics["closed_trade_count"], 1)
+            self.assertEqual(
+                statistics["theta_attribution"],
+                "decision_time_model_not_realized_profit",
+            )

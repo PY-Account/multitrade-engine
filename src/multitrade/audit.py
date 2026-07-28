@@ -4,7 +4,7 @@ import hashlib
 import json
 import sqlite3
 from contextlib import closing
-from dataclasses import asdict, replace
+from dataclasses import asdict, is_dataclass, replace
 from datetime import date, datetime, timezone
 from decimal import Decimal
 from enum import Enum
@@ -48,6 +48,8 @@ def _json_default(value: Any) -> Any:
         return value.isoformat()
     if isinstance(value, Enum):
         return value.value
+    if is_dataclass(value):
+        return asdict(value)
     raise TypeError(f"Cannot serialize {type(value).__name__}")
 
 
@@ -164,8 +166,11 @@ class SqliteAuditStore:
 
                 CREATE TABLE IF NOT EXISTS risk_reservations (
                     intent_id TEXT PRIMARY KEY,
+                    account_id TEXT NOT NULL,
                     strategy_id TEXT NOT NULL,
                     symbol TEXT NOT NULL,
+                    asset_class TEXT NOT NULL,
+                    instruments_json TEXT NOT NULL,
                     risk_amount TEXT NOT NULL,
                     quantity TEXT NOT NULL,
                     state TEXT NOT NULL,
@@ -247,6 +252,8 @@ class SqliteAuditStore:
                     intent_id TEXT NOT NULL UNIQUE,
                     account_id TEXT NOT NULL,
                     strategy_id TEXT NOT NULL,
+                    asset_class TEXT NOT NULL,
+                    structure TEXT,
                     symbol TEXT NOT NULL,
                     side TEXT NOT NULL,
                     state TEXT NOT NULL,
@@ -262,6 +269,9 @@ class SqliteAuditStore:
                     realized_pnl TEXT,
                     exit_reason TEXT,
                     closed_at TEXT,
+                    option_legs_json TEXT NOT NULL,
+                    opening_net_price TEXT,
+                    modeled_theta_per_day TEXT,
                     explanation_json TEXT NOT NULL,
                     created_at TEXT NOT NULL,
                     updated_at TEXT NOT NULL
@@ -282,6 +292,22 @@ class SqliteAuditStore:
                     metrics_json TEXT NOT NULL,
                     trades_json TEXT NOT NULL
                 );
+
+                CREATE TABLE IF NOT EXISTS trade_exit_orders (
+                    exit_intent_id TEXT PRIMARY KEY,
+                    parent_intent_id TEXT NOT NULL,
+                    account_id TEXT NOT NULL,
+                    broker_order_id TEXT NOT NULL,
+                    state TEXT NOT NULL,
+                    exit_net_price TEXT,
+                    submitted_at TEXT NOT NULL,
+                    updated_at TEXT NOT NULL,
+                    FOREIGN KEY(parent_intent_id)
+                        REFERENCES trade_records(intent_id)
+                );
+
+                CREATE INDEX IF NOT EXISTS idx_trade_exit_parent
+                ON trade_exit_orders(parent_intent_id, state);
 
                 CREATE TABLE IF NOT EXISTS broker_order_snapshots (
                     broker_order_id TEXT PRIMARY KEY,
@@ -597,6 +623,57 @@ class SqliteAuditStore:
             )
             self._ensure_column(
                 connection,
+                "risk_reservations",
+                "account_id",
+                "TEXT NOT NULL DEFAULT 'alpaca-paper'",
+            )
+            self._ensure_column(
+                connection,
+                "risk_reservations",
+                "asset_class",
+                "TEXT NOT NULL DEFAULT 'stock'",
+            )
+            self._ensure_column(
+                connection,
+                "risk_reservations",
+                "instruments_json",
+                "TEXT NOT NULL DEFAULT '[]'",
+            )
+            self._ensure_column(
+                connection,
+                "trade_records",
+                "asset_class",
+                "TEXT NOT NULL DEFAULT 'stock'",
+            )
+            self._ensure_column(
+                connection, "trade_records", "structure", "TEXT"
+            )
+            self._ensure_column(
+                connection,
+                "trade_records",
+                "option_legs_json",
+                "TEXT NOT NULL DEFAULT '[]'",
+            )
+            self._ensure_column(
+                connection,
+                "trade_records",
+                "opening_net_price",
+                "TEXT",
+            )
+            self._ensure_column(
+                connection,
+                "trade_records",
+                "modeled_theta_per_day",
+                "TEXT",
+            )
+            connection.execute(
+                """
+                CREATE INDEX IF NOT EXISTS idx_risk_account_state
+                ON risk_reservations(account_id, state)
+                """
+            )
+            self._ensure_column(
+                connection,
                 "broker_order_snapshots",
                 "exit_leg_type",
                 "TEXT",
@@ -653,7 +730,9 @@ class SqliteAuditStore:
                     approved=False,
                     intent_id=intent.intent_id,
                     reason=f"duplicate_intent_{duplicate['state']}",
-                    projected_active_risk=self._active_risk(connection),
+                    projected_active_risk=self._active_risk(
+                        connection, intent.account_id
+                    ),
                 )
                 self._insert_event(
                     connection,
@@ -664,7 +743,9 @@ class SqliteAuditStore:
                 connection.execute("COMMIT")
                 return decision
 
-            active_risk = self._active_risk(connection)
+            active_risk = self._active_risk(
+                connection, intent.account_id
+            )
             decision = risk_engine.evaluate(
                 intent, replace(snapshot, active_risk=active_risk)
             )
@@ -677,19 +758,29 @@ class SqliteAuditStore:
                 intent.intent_id,
                 {"intent": asdict(intent), "decision": asdict(decision)},
             )
-            if decision.approved:
+            if decision.approved and not intent.reduce_only:
                 now = datetime.now(timezone.utc).isoformat()
                 connection.execute(
                     """
                     INSERT INTO risk_reservations (
-                        intent_id, strategy_id, symbol, risk_amount,
+                        intent_id, account_id, strategy_id, symbol,
+                        asset_class, instruments_json, risk_amount,
                         quantity, state, created_at, updated_at
-                    ) VALUES (?, ?, ?, ?, ?, 'reserved', ?, ?)
+                    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, 'reserved', ?, ?)
                     """,
                     (
                         intent.intent_id,
+                        intent.account_id,
                         intent.strategy_id,
                         intent.symbol,
+                        intent.asset_class.value,
+                        _json(
+                            [
+                                leg.symbol
+                                for leg in intent.option_legs
+                            ]
+                            or [intent.symbol]
+                        ),
                         format(decision.reserved_risk, "f"),
                         format(decision.approved_quantity, "f"),
                         now,
@@ -732,6 +823,75 @@ class SqliteAuditStore:
                 "order_submitted",
                 intent_id,
                 {"broker_order_id": broker_order_id},
+            )
+            connection.execute("COMMIT")
+        except Exception:
+            if connection.in_transaction:
+                connection.execute("ROLLBACK")
+            raise
+        finally:
+            self._close_if_needed(connection)
+
+    def record_exit_submitted(
+        self,
+        exit_intent: TradeIntent,
+        broker_order_id: str,
+    ) -> None:
+        if (
+            not exit_intent.reduce_only
+            or not exit_intent.parent_intent_id
+        ):
+            raise ValueError("Expected a linked reduce-only intent")
+        connection = self._connect()
+        try:
+            connection.execute("BEGIN IMMEDIATE")
+            now = datetime.now(timezone.utc).isoformat()
+            parent = connection.execute(
+                """
+                SELECT account_id, asset_class, state
+                FROM trade_records WHERE intent_id = ?
+                """,
+                (exit_intent.parent_intent_id,),
+            ).fetchone()
+            if parent is None:
+                raise ValueError("Parent trade record was not found")
+            if parent["account_id"] != exit_intent.account_id:
+                raise ValueError("Exit and parent account do not match")
+            if parent["asset_class"] != "option":
+                raise ValueError("Only option exit linkage is implemented")
+            connection.execute(
+                """
+                INSERT INTO trade_exit_orders (
+                    exit_intent_id, parent_intent_id, account_id,
+                    broker_order_id, state, submitted_at, updated_at
+                ) VALUES (?, ?, ?, ?, 'submitted', ?, ?)
+                """,
+                (
+                    exit_intent.intent_id,
+                    exit_intent.parent_intent_id,
+                    exit_intent.account_id,
+                    broker_order_id,
+                    now,
+                    now,
+                ),
+            )
+            connection.execute(
+                """
+                UPDATE trade_records
+                SET state = 'exit_submitted', updated_at = ?
+                WHERE intent_id = ?
+                """,
+                (now, exit_intent.parent_intent_id),
+            )
+            self._insert_event(
+                connection,
+                "option_exit_submitted",
+                exit_intent.parent_intent_id,
+                {
+                    "exit_intent_id": exit_intent.intent_id,
+                    "broker_order_id": broker_order_id,
+                    "explanation": exit_intent.explanation,
+                },
             )
             connection.execute("COMMIT")
         except Exception:
@@ -875,12 +1035,138 @@ class SqliteAuditStore:
                 )
                 if not order.client_order_id:
                     continue
+                exit_link = connection.execute(
+                    """
+                    SELECT parent_intent_id, state
+                    FROM trade_exit_orders
+                    WHERE exit_intent_id = ? AND account_id = ?
+                    """,
+                    (order.client_order_id, account_id),
+                ).fetchone()
+                if exit_link is not None:
+                    connection.execute(
+                        """
+                        UPDATE trade_exit_orders
+                        SET state = ?, exit_net_price = COALESCE(?, exit_net_price),
+                            updated_at = ?
+                        WHERE exit_intent_id = ?
+                        """,
+                        (
+                            order.status,
+                            (
+                                format(
+                                    order.filled_average_price, "f"
+                                )
+                                if order.filled_average_price
+                                is not None
+                                else None
+                            ),
+                            observed_at,
+                            order.client_order_id,
+                        ),
+                    )
+                    parent_intent_id = exit_link[
+                        "parent_intent_id"
+                    ]
+                    if (
+                        order.status == "filled"
+                        and order.filled_average_price is not None
+                    ):
+                        parent = connection.execute(
+                            """
+                            SELECT approved_quantity, opening_net_price
+                            FROM trade_records
+                            WHERE intent_id = ? AND asset_class = 'option'
+                            """,
+                            (parent_intent_id,),
+                        ).fetchone()
+                        if (
+                            parent is not None
+                            and parent["opening_net_price"]
+                            is not None
+                        ):
+                            quantity = Decimal(
+                                parent["approved_quantity"]
+                            )
+                            opening_price = Decimal(
+                                parent["opening_net_price"]
+                            )
+                            exit_price = (
+                                order.filled_average_price
+                            )
+                            realized_pnl = -(
+                                opening_price + exit_price
+                            ) * Decimal("100") * quantity
+                            connection.execute(
+                                """
+                                UPDATE trade_records
+                                SET state = 'position_closed',
+                                    exit_price = ?,
+                                    realized_pnl = ?,
+                                    exit_reason = 'managed_option_exit',
+                                    closed_at = ?, updated_at = ?
+                                WHERE intent_id = ?
+                                """,
+                                (
+                                    format(exit_price, "f"),
+                                    format(realized_pnl, "f"),
+                                    order.filled_at or observed_at,
+                                    observed_at,
+                                    parent_intent_id,
+                                ),
+                            )
+                            connection.execute(
+                                """
+                                UPDATE risk_reservations
+                                SET state = 'released', updated_at = ?
+                                WHERE intent_id = ?
+                                  AND account_id = ?
+                                  AND state IN (
+                                      'reserved', 'submitted', 'open',
+                                      'closing_pending'
+                                  )
+                                """,
+                                (
+                                    observed_at,
+                                    parent_intent_id,
+                                    account_id,
+                                ),
+                            )
+                            self._insert_event(
+                                connection,
+                                "option_position_closed",
+                                parent_intent_id,
+                                {
+                                    "exit_intent_id": (
+                                        order.client_order_id
+                                    ),
+                                    "broker_order_id": (
+                                        order.broker_order_id
+                                    ),
+                                    "opening_net_price": opening_price,
+                                    "exit_net_price": exit_price,
+                                    "quantity": quantity,
+                                    "realized_pnl": realized_pnl,
+                                },
+                            )
+                    elif order.status in terminal_without_position:
+                        connection.execute(
+                            """
+                            UPDATE trade_records
+                            SET state = 'position_open', updated_at = ?
+                            WHERE intent_id = ?
+                              AND state = 'exit_submitted'
+                            """,
+                            (observed_at, parent_intent_id),
+                        )
+                    continue
                 reservation = connection.execute(
                     """
-                    SELECT state, symbol FROM risk_reservations
-                    WHERE intent_id = ?
+                    SELECT state, symbol, instruments_json
+                    FROM risk_reservations
+                    WHERE intent_id = ? AND account_id = ?
                     """,
-                    (order.client_order_id,),
+                    (order.client_order_id, account_id),
                 ).fetchone()
                 if reservation is None:
                     continue
@@ -889,7 +1175,14 @@ class SqliteAuditStore:
                 if previous_state == "released":
                     continue
                 symbol = reservation["symbol"]
-                has_position = symbol in position_symbols
+                instruments = set(
+                    json.loads(reservation["instruments_json"] or "[]")
+                )
+                if not instruments:
+                    instruments = {symbol}
+                has_position = bool(
+                    instruments.intersection(position_symbols)
+                )
                 is_active = (
                     order.status in active_states or order.has_active_legs
                 )
@@ -1010,6 +1303,11 @@ class SqliteAuditStore:
                         UPDATE trade_records
                         SET state = ?, broker_order_id = ?,
                             entry_price = COALESCE(?, entry_price),
+                            opening_net_price = CASE
+                                WHEN asset_class = 'option'
+                                THEN COALESCE(?, opening_net_price)
+                                ELSE opening_net_price
+                            END,
                             exit_price = COALESCE(?, exit_price),
                             realized_pnl = COALESCE(?, realized_pnl),
                             exit_reason = COALESCE(?, exit_reason),
@@ -1020,6 +1318,11 @@ class SqliteAuditStore:
                         (
                             trade_state,
                             order.broker_order_id,
+                            (
+                                format(entry_price, "f")
+                                if entry_price is not None
+                                else None
+                            ),
                             (
                                 format(entry_price, "f")
                                 if entry_price is not None
@@ -1135,22 +1438,32 @@ class SqliteAuditStore:
 
     def active_reservation_identity(
         self,
+        account_id: str | None = None,
     ) -> tuple[set[str], set[str]]:
         connection = self._connect()
         try:
             placeholders = ",".join(
                 "?" for _ in ACTIVE_RESERVATION_STATES
             )
-            rows = connection.execute(
-                f"""
-                SELECT intent_id, symbol FROM risk_reservations
-                WHERE state IN ({placeholders})
-                """,
-                ACTIVE_RESERVATION_STATES,
-            ).fetchall()
+            query = (
+                "SELECT intent_id, symbol, instruments_json "
+                "FROM risk_reservations "
+                f"WHERE state IN ({placeholders})"
+            )
+            parameters: tuple[Any, ...] = ACTIVE_RESERVATION_STATES
+            if account_id is not None:
+                query += " AND account_id = ?"
+                parameters = (*parameters, account_id)
+            rows = connection.execute(query, parameters).fetchall()
+            managed_symbols: set[str] = set()
+            for row in rows:
+                managed_symbols.add(row["symbol"])
+                managed_symbols.update(
+                    json.loads(row["instruments_json"] or "[]")
+                )
             return (
                 {row["intent_id"] for row in rows},
-                {row["symbol"] for row in rows},
+                managed_symbols,
             )
         finally:
             self._close_if_needed(connection)
@@ -1175,6 +1488,67 @@ class SqliteAuditStore:
                 if row is not None
                 else None
             )
+        finally:
+            self._close_if_needed(connection)
+
+    def open_option_trades(
+        self, account_id: str
+    ) -> list[dict[str, Any]]:
+        connection = self._connect()
+        try:
+            rows = connection.execute(
+                """
+                SELECT t.intent_id, t.strategy_id, t.symbol, t.state,
+                       t.approved_quantity, t.opening_net_price,
+                       t.option_legs_json, t.explanation_json,
+                       t.broker_order_id, t.created_at, t.updated_at
+                FROM trade_records AS t
+                WHERE t.account_id = ?
+                  AND t.asset_class = 'option'
+                  AND t.state IN (
+                      'submitted', 'broker_filled', 'position_open',
+                      'position_close_pending'
+                  )
+                  AND NOT EXISTS (
+                      SELECT 1 FROM trade_exit_orders AS x
+                      WHERE x.parent_intent_id = t.intent_id
+                        AND x.state IN (
+                            'submitted', 'accepted', 'new',
+                            'pending_new', 'partially_filled',
+                            'held', 'pending_cancel',
+                            'pending_replace'
+                        )
+                  )
+                ORDER BY t.created_at
+                """,
+                (account_id,),
+            ).fetchall()
+            return [
+                {
+                    "intent_id": row["intent_id"],
+                    "strategy_id": row["strategy_id"],
+                    "symbol": row["symbol"],
+                    "state": row["state"],
+                    "approved_quantity": row[
+                        "approved_quantity"
+                    ],
+                    "opening_net_price": row[
+                        "opening_net_price"
+                    ],
+                    "option_legs": json.loads(
+                        row["option_legs_json"]
+                    ),
+                    "explanation": json.loads(
+                        row["explanation_json"]
+                    ),
+                    "broker_order_id": row[
+                        "broker_order_id"
+                    ],
+                    "created_at": row["created_at"],
+                    "updated_at": row["updated_at"],
+                }
+                for row in rows
+            ]
         finally:
             self._close_if_needed(connection)
 
@@ -1468,11 +1842,15 @@ class SqliteAuditStore:
                 """
                 INSERT INTO trade_records (
                     signal_id, intent_id, account_id, strategy_id,
-                    symbol, side, state, requested_quantity,
+                    asset_class, structure, symbol, side, state,
+                    requested_quantity,
                     approved_quantity, reserved_risk, reference_price,
                     stop_price, target_price, broker_order_id,
-                    explanation_json, created_at, updated_at
-                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                    option_legs_json, opening_net_price,
+                    modeled_theta_per_day, explanation_json,
+                    created_at, updated_at
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?,
+                          ?, ?, ?, ?, ?)
                 ON CONFLICT(signal_id) DO UPDATE SET
                     state = excluded.state,
                     approved_quantity = excluded.approved_quantity,
@@ -1485,6 +1863,8 @@ class SqliteAuditStore:
                     intent.intent_id,
                     intent.account_id,
                     intent.strategy_id,
+                    intent.asset_class.value,
+                    intent.explanation.get("structure"),
                     intent.symbol,
                     intent.side.value,
                     state,
@@ -1507,6 +1887,33 @@ class SqliteAuditStore:
                         else None
                     ),
                     broker_order_id,
+                    _json(intent.option_legs),
+                    (
+                        format(intent.limit_price, "f")
+                        if (
+                            intent.asset_class.value == "option"
+                            and intent.limit_price is not None
+                        )
+                        else None
+                    ),
+                    (
+                        format(
+                            Decimal(
+                                str(
+                                    intent.explanation[
+                                        "modeled_theta_per_day_per_package"
+                                    ]
+                                )
+                            )
+                            * result.decision.approved_quantity,
+                            "f",
+                        )
+                        if intent.explanation.get(
+                            "modeled_theta_per_day_per_package"
+                        )
+                        is not None
+                        else None
+                    ),
                     _json(intent.explanation),
                     signal.created_at.isoformat(),
                     now,
@@ -2036,10 +2443,10 @@ class SqliteAuditStore:
         finally:
             self._close_if_needed(connection)
 
-    def active_risk(self) -> Decimal:
+    def active_risk(self, account_id: str | None = None) -> Decimal:
         connection = self._connect()
         try:
-            return self._active_risk(connection)
+            return self._active_risk(connection, account_id)
         finally:
             self._close_if_needed(connection)
 
@@ -2066,15 +2473,20 @@ class SqliteAuditStore:
             self._close_if_needed(connection)
 
     @staticmethod
-    def _active_risk(connection: sqlite3.Connection) -> Decimal:
+    def _active_risk(
+        connection: sqlite3.Connection,
+        account_id: str | None = None,
+    ) -> Decimal:
         placeholders = ",".join("?" for _ in ACTIVE_RESERVATION_STATES)
-        rows = connection.execute(
-            f"""
-            SELECT risk_amount FROM risk_reservations
-            WHERE state IN ({placeholders})
-            """,
-            ACTIVE_RESERVATION_STATES,
-        ).fetchall()
+        query = (
+            "SELECT risk_amount FROM risk_reservations "
+            f"WHERE state IN ({placeholders})"
+        )
+        parameters: tuple[Any, ...] = ACTIVE_RESERVATION_STATES
+        if account_id is not None:
+            query += " AND account_id = ?"
+            parameters = (*parameters, account_id)
+        rows = connection.execute(query, parameters).fetchall()
         return sum(
             (Decimal(row["risk_amount"]) for row in rows),
             start=ZERO,
@@ -2120,9 +2532,11 @@ class SqliteAuditReader:
         connection.execute("PRAGMA query_only = ON")
         return connection
 
-    def active_risk(self) -> Decimal:
+    def active_risk(self, account_id: str | None = None) -> Decimal:
         with closing(self._connect()) as connection:
-            return SqliteAuditStore._active_risk(connection)
+            return SqliteAuditStore._active_risk(
+                connection, account_id
+            )
 
     def recent_events(self, limit: int = 100) -> list[dict[str, Any]]:
         safe_limit = max(1, min(limit, 200))
@@ -2164,15 +2578,28 @@ class SqliteAuditReader:
             "payload": json.loads(row["payload_json"]),
         }
 
-    def reservation_summary(self) -> dict[str, dict[str, Any]]:
+    def reservation_summary(
+        self, account_id: str | None = None
+    ) -> dict[str, dict[str, Any]]:
         with closing(self._connect()) as connection:
-            rows = connection.execute(
-                """
-                SELECT state, risk_amount
-                FROM risk_reservations
-                ORDER BY state
-                """
-            ).fetchall()
+            if account_id is None:
+                rows = connection.execute(
+                    """
+                    SELECT state, risk_amount
+                    FROM risk_reservations
+                    ORDER BY state
+                    """
+                ).fetchall()
+            else:
+                rows = connection.execute(
+                    """
+                    SELECT state, risk_amount
+                    FROM risk_reservations
+                    WHERE account_id = ?
+                    ORDER BY state
+                    """,
+                    (account_id,),
+                ).fetchall()
 
         summary: dict[str, dict[str, Any]] = {}
         for row in rows:
@@ -2284,11 +2711,14 @@ class SqliteAuditReader:
             rows = connection.execute(
                 """
                 SELECT signal_id, intent_id, account_id, strategy_id,
-                       symbol, side, state, requested_quantity,
+                       asset_class, structure, symbol, side, state,
+                       requested_quantity,
                        approved_quantity, reserved_risk, reference_price,
                        stop_price, target_price, broker_order_id,
                        entry_price, exit_price, realized_pnl,
-                       exit_reason, closed_at, explanation_json,
+                       exit_reason, closed_at, option_legs_json,
+                       opening_net_price, modeled_theta_per_day,
+                       explanation_json,
                        created_at, updated_at
                 FROM trade_records
                 ORDER BY created_at DESC LIMIT ?
@@ -2301,6 +2731,8 @@ class SqliteAuditReader:
                 "intent_id": row["intent_id"],
                 "account_id": row["account_id"],
                 "strategy_id": row["strategy_id"],
+                "asset_class": row["asset_class"],
+                "structure": row["structure"],
                 "symbol": row["symbol"],
                 "side": row["side"],
                 "state": row["state"],
@@ -2316,12 +2748,299 @@ class SqliteAuditReader:
                 "realized_pnl": row["realized_pnl"],
                 "exit_reason": row["exit_reason"],
                 "closed_at": row["closed_at"],
+                "option_legs": json.loads(row["option_legs_json"]),
+                "opening_net_price": row["opening_net_price"],
+                "modeled_theta_per_day": row[
+                    "modeled_theta_per_day"
+                ],
                 "explanation": json.loads(row["explanation_json"]),
                 "created_at": row["created_at"],
                 "updated_at": row["updated_at"],
             }
             for row in rows
         ]
+
+    def strategy_performance(
+        self, account_id: str | None = None
+    ) -> list[dict[str, Any]]:
+        """Return realized, account-scoped execution statistics.
+
+        Missing fills remain missing. Modeled option theta is exposed as a
+        decision-time sensitivity estimate and is never labeled as profit.
+        """
+        with closing(self._connect()) as connection:
+            parameters: tuple[Any, ...] = ()
+            trade_filter = ""
+            signal_filter = ""
+            if account_id is not None:
+                trade_filter = "WHERE account_id = ?"
+                signal_filter = "WHERE account_id = ?"
+                parameters = (account_id,)
+            trades = connection.execute(
+                f"""
+                SELECT account_id, strategy_id, asset_class, structure,
+                       state, reserved_risk, realized_pnl,
+                       modeled_theta_per_day, created_at, closed_at
+                FROM trade_records
+                {trade_filter}
+                ORDER BY COALESCE(closed_at, created_at), created_at
+                """,
+                parameters,
+            ).fetchall()
+            signals = connection.execute(
+                f"""
+                SELECT account_id, strategy_id, status, COUNT(*) AS count
+                FROM strategy_signals
+                {signal_filter}
+                GROUP BY account_id, strategy_id, status
+                """,
+                parameters,
+            ).fetchall()
+
+        grouped: dict[tuple[str, str], dict[str, Any]] = {}
+
+        def entry_for(key: tuple[str, str]) -> dict[str, Any]:
+            return grouped.setdefault(
+                key,
+                {
+                    "account_id": key[0],
+                    "strategy_id": key[1],
+                    "signal_count": 0,
+                    "signal_status_counts": {},
+                    "decision_count": 0,
+                    "state_counts": {},
+                    "closed_trade_count": 0,
+                    "win_count": 0,
+                    "loss_count": 0,
+                    "breakeven_count": 0,
+                    "gross_profit": ZERO,
+                    "gross_loss": ZERO,
+                    "realized_pnl": ZERO,
+                    "realized_r_total": ZERO,
+                    "realized_r_count": 0,
+                    "maximum_realized_drawdown": ZERO,
+                    "current_modeled_theta_per_day": ZERO,
+                    "option_decision_count": 0,
+                    "option_realized_pnl": ZERO,
+                    "positive_theta_closed_trade_count": 0,
+                    "positive_theta_trade_realized_pnl": ZERO,
+                    "structure_statistics": {},
+                    "_cumulative_pnl": ZERO,
+                    "_peak_cumulative_pnl": ZERO,
+                },
+            )
+
+        for row in signals:
+            item = entry_for(
+                (row["account_id"], row["strategy_id"])
+            )
+            count = int(row["count"])
+            item["signal_count"] += count
+            item["signal_status_counts"][row["status"]] = count
+
+        active_trade_states = {
+            "submitted",
+            "broker_accepted",
+            "broker_new",
+            "broker_partially_filled",
+            "broker_filled",
+            "position_open",
+            "position_close_pending",
+            "exit_submitted",
+        }
+        for row in trades:
+            item = entry_for(
+                (row["account_id"], row["strategy_id"])
+            )
+            item["decision_count"] += 1
+            state = row["state"]
+            item["state_counts"][state] = (
+                item["state_counts"].get(state, 0) + 1
+            )
+            is_option = row["asset_class"] == "option"
+            structure = row["structure"] or (
+                "stock" if not is_option else "unspecified_option"
+            )
+            structure_item = item["structure_statistics"].setdefault(
+                structure,
+                {
+                    "decision_count": 0,
+                    "closed_trade_count": 0,
+                    "realized_pnl": ZERO,
+                    "current_modeled_theta_per_day": ZERO,
+                },
+            )
+            structure_item["decision_count"] += 1
+            if is_option:
+                item["option_decision_count"] += 1
+            if (
+                state in active_trade_states
+                and row["modeled_theta_per_day"] is not None
+            ):
+                theta = Decimal(row["modeled_theta_per_day"])
+                item["current_modeled_theta_per_day"] += theta
+                structure_item[
+                    "current_modeled_theta_per_day"
+                ] += theta
+
+            if row["realized_pnl"] is None:
+                continue
+            pnl = Decimal(row["realized_pnl"])
+            item["closed_trade_count"] += 1
+            item["realized_pnl"] += pnl
+            structure_item["closed_trade_count"] += 1
+            structure_item["realized_pnl"] += pnl
+            if is_option:
+                item["option_realized_pnl"] += pnl
+                if (
+                    row["modeled_theta_per_day"] is not None
+                    and Decimal(row["modeled_theta_per_day"]) > ZERO
+                ):
+                    item[
+                        "positive_theta_closed_trade_count"
+                    ] += 1
+                    item[
+                        "positive_theta_trade_realized_pnl"
+                    ] += pnl
+            if pnl > ZERO:
+                item["win_count"] += 1
+                item["gross_profit"] += pnl
+            elif pnl < ZERO:
+                item["loss_count"] += 1
+                item["gross_loss"] += abs(pnl)
+            else:
+                item["breakeven_count"] += 1
+            reserved_risk = Decimal(row["reserved_risk"])
+            if reserved_risk > ZERO:
+                item["realized_r_total"] += pnl / reserved_risk
+                item["realized_r_count"] += 1
+            item["_cumulative_pnl"] += pnl
+            item["_peak_cumulative_pnl"] = max(
+                item["_peak_cumulative_pnl"],
+                item["_cumulative_pnl"],
+            )
+            item["maximum_realized_drawdown"] = max(
+                item["maximum_realized_drawdown"],
+                item["_peak_cumulative_pnl"]
+                - item["_cumulative_pnl"],
+            )
+
+        result: list[dict[str, Any]] = []
+        for item in grouped.values():
+            closed_count = item["closed_trade_count"]
+            win_count = item["win_count"]
+            realized_r_count = item["realized_r_count"]
+            structures = {
+                name: {
+                    key: (
+                        format(value, "f")
+                        if isinstance(value, Decimal)
+                        else value
+                    )
+                    for key, value in values.items()
+                }
+                for name, values in sorted(
+                    item["structure_statistics"].items()
+                )
+            }
+            result.append(
+                {
+                    "account_id": item["account_id"],
+                    "strategy_id": item["strategy_id"],
+                    "signal_count": item["signal_count"],
+                    "signal_status_counts": item[
+                        "signal_status_counts"
+                    ],
+                    "decision_count": item["decision_count"],
+                    "state_counts": item["state_counts"],
+                    "closed_trade_count": closed_count,
+                    "win_count": win_count,
+                    "loss_count": item["loss_count"],
+                    "breakeven_count": item["breakeven_count"],
+                    "win_rate": (
+                        format(
+                            Decimal(win_count)
+                            / Decimal(closed_count),
+                            ".6f",
+                        )
+                        if closed_count
+                        else None
+                    ),
+                    "gross_profit": format(
+                        item["gross_profit"], "f"
+                    ),
+                    "gross_loss": format(
+                        item["gross_loss"], "f"
+                    ),
+                    "profit_factor": (
+                        format(
+                            item["gross_profit"]
+                            / item["gross_loss"],
+                            ".6f",
+                        )
+                        if item["gross_loss"] > ZERO
+                        else None
+                    ),
+                    "realized_pnl": format(
+                        item["realized_pnl"], "f"
+                    ),
+                    "average_realized_pnl": (
+                        format(
+                            item["realized_pnl"]
+                            / Decimal(closed_count),
+                            "f",
+                        )
+                        if closed_count
+                        else None
+                    ),
+                    "average_realized_r": (
+                        format(
+                            item["realized_r_total"]
+                            / Decimal(realized_r_count),
+                            ".6f",
+                        )
+                        if realized_r_count
+                        else None
+                    ),
+                    "maximum_realized_drawdown": format(
+                        item["maximum_realized_drawdown"], "f"
+                    ),
+                    "option_decision_count": item[
+                        "option_decision_count"
+                    ],
+                    "option_realized_pnl": format(
+                        item["option_realized_pnl"], "f"
+                    ),
+                    "positive_theta_closed_trade_count": item[
+                        "positive_theta_closed_trade_count"
+                    ],
+                    "positive_theta_trade_realized_pnl": format(
+                        item[
+                            "positive_theta_trade_realized_pnl"
+                        ],
+                        "f",
+                    ),
+                    "current_modeled_theta_per_day": format(
+                        item["current_modeled_theta_per_day"], "f"
+                    ),
+                    "theta_attribution": (
+                        "decision_time_model_not_realized_profit"
+                    ),
+                    "structure_statistics": structures,
+                    "sample_status": (
+                        "realized_sample_available"
+                        if closed_count
+                        else "no_closed_paper_trades"
+                    ),
+                }
+            )
+        return sorted(
+            result,
+            key=lambda item: (
+                item["account_id"],
+                item["strategy_id"],
+            ),
+        )
 
     def recent_backtests(
         self, limit: int = 20

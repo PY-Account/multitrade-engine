@@ -50,6 +50,11 @@ class OptionLeg:
     ratio: int
     mark_price: Decimal
     multiplier: int = 100
+    delta: Decimal | None = None
+    gamma: Decimal | None = None
+    theta: Decimal | None = None
+    vega: Decimal | None = None
+    implied_volatility: Decimal | None = None
 
     def __post_init__(self) -> None:
         if not self.symbol or not self.underlying:
@@ -81,6 +86,7 @@ class TradeIntent:
     account_id: str = "alpaca-paper"
     signal_id: str | None = None
     explanation: Mapping[str, Any] = field(default_factory=dict)
+    parent_intent_id: str | None = None
     intent_id: str = field(default_factory=lambda: str(uuid4()))
     created_at: datetime = field(
         default_factory=lambda: datetime.now(timezone.utc)
@@ -124,6 +130,10 @@ class TradeIntent:
             )
         if not self.account_id:
             raise ValueError("account_id is required")
+        if self.reduce_only and not self.parent_intent_id:
+            raise ValueError(
+                "reduce_only intents require parent_intent_id"
+            )
 
 
 @dataclass(frozen=True, slots=True)

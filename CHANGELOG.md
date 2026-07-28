@@ -1,5 +1,38 @@
 # Changelog
 
+## 0.12.0 - 2026-07-28
+
+- Made risk reservations explicitly account-scoped and persisted the asset
+  class plus all option contract symbols used by a package.
+- Added account/strategy execution statistics with honest missing-sample
+  handling: signals, decisions, lifecycle states, wins/losses, realized P/L,
+  realized R, profit factor, realized drawdown, option P/L, and per-structure
+  results.
+- Added decision-time delta, gamma, theta, vega, and implied-volatility
+  provenance without presenting modeled theta as realized profit.
+- Added defined-risk bull-put/bear-call credit spreads, iron condors, and
+  protective puts alongside the existing debit spreads.
+- Added deterministic DTE/delta contract selection, liquidity and width
+  gates, positive-theta enforcement, Alpaca option-level checks, OPRA-only
+  submission policy, and a fresh-quote ceiling.
+- Added guarded Alpaca Paper option/MLeg submission from account allocations,
+  with signed debit/credit net prices and explicit open position intents.
+- Added reduce-only, atomic MLeg exits for profit, loss, and pre-expiration
+  policies; reconciled exit fills link to their parent trade and release the
+  original risk reservation.
+- Added positive-theta-trade P/L as a whole-package statistic, clearly
+  separated from any unsupported pure-theta attribution claim.
+- Added four option allocations to the default account: three enabled for
+  observation and one disabled protective-hedge template. Every Paper
+  permission remains false.
+- Added an account Strategy Performance dashboard tab, richer option
+  allocation/lifecycle display, broker options-level status, migration tests,
+  and an options Paper operations runbook.
+
+This release remains Alpaca Paper-only. Option exits are application-managed,
+so a service or data outage can delay them. All option Paper permissions remain
+off in the tracked configuration.
+
 ## 0.11.0 - 2026-07-28
 
 - Expanded the frozen experiment program from four baselines to twelve

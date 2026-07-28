@@ -34,6 +34,9 @@ class BrokerAccount:
     account_blocked: bool
     trade_suspended_by_user: bool
     shorting_enabled: bool
+    options_buying_power: Decimal = Decimal("0")
+    options_approved_level: int = 0
+    options_trading_level: int = 0
 
 
 @dataclass(frozen=True, slots=True)

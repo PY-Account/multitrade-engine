@@ -365,7 +365,7 @@
     </div>
     <div class="table-wrap">
       <table>
-        <thead><tr><th>Strategy</th><th>Enabled</th><th>Execution symbols</th><th class="number">Capital weight</th><th class="number">Risk / trade</th><th class="number">Minimum confidence</th><th>Paper permission</th><th>Lab readiness</th></tr></thead>
+        <thead><tr><th>Strategy</th><th>Class</th><th>Signal source</th><th>Structure</th><th>Enabled</th><th>Execution symbols</th><th class="number">Capital weight</th><th class="number">Risk / trade</th><th class="number">Minimum confidence</th><th>Lifecycle policy</th><th>Paper permission</th><th>Lab readiness</th></tr></thead>
         <tbody id="allocations"></tbody>
       </table>
     </div>
@@ -451,6 +451,18 @@
       <table>
         <thead><tr><th>Time</th><th>Strategy</th><th>Symbol</th><th>Action</th><th class="number">Confidence</th><th>Status</th><th>Reason</th></tr></thead>
         <tbody id="signals"></tbody>
+      </table>
+    </div>
+  </section>
+
+  <section class="panel workspace-view" data-primary="account" data-secondary="performance">
+    <div class="panel-head">
+      <div><h2>Account-scoped strategy performance</h2><p class="subcopy">Realized Paper results are separated from decisions and open positions. Modeled option theta is a decision-time sensitivity estimate, not realized profit or a performance promise.</p></div>
+    </div>
+    <div class="table-wrap">
+      <table>
+        <thead><tr><th>Strategy</th><th class="number">Signals</th><th class="number">Decisions</th><th class="number">Closed</th><th class="number">Wins</th><th class="number">Losses</th><th class="number">Win rate</th><th class="number">Realized P/L</th><th class="number">Avg. R</th><th class="number">Profit factor</th><th class="number">Realized drawdown</th><th class="number">Option decisions</th><th class="number">Option P/L</th><th class="number">Positive-theta trade P/L</th><th class="number">Modeled theta/day</th><th>Sample status</th></tr></thead>
+        <tbody id="strategy-performance"></tbody>
       </table>
     </div>
   </section>
@@ -649,6 +661,7 @@
     account: [
       ["overview", "Overview"],
       ["portfolio", "Positions & Orders"],
+      ["performance", "Strategy Performance"],
       ["trades", "Trades & Charts"],
     ],
     "asset-universe": [
@@ -914,6 +927,10 @@
       ["User trading active", !account.trade_suspended_by_user],
       ["Shorting enabled", account.shorting_enabled],
       ["PDT status clear", !account.pattern_day_trader],
+      [
+        `Options level ${account.options_trading_level ?? 0}`,
+        Number(account.options_trading_level || 0) >= 3,
+      ],
     ];
     for (const [label, healthy] of controls) {
       const pill = document.createElement("span");
@@ -1165,7 +1182,7 @@
     );
     const allocations = account?.allocations || [];
     if (!allocations.length) {
-      emptyRow(body, 8, "No account allocation configuration is available.");
+      emptyRow(body, 12, "No account allocation configuration is available.");
       return;
     }
     const latestByStrategy = new Map();
@@ -1182,16 +1199,27 @@
       }
     }
     for (const allocation of allocations) {
-      const report = latestByStrategy.get(allocation.strategy_id);
+      const report = latestByStrategy.get(
+        allocation.source_strategy_id || allocation.strategy_id
+      );
       const readiness = report?.readiness_status
         ?.replaceAll("_", " ") || "awaiting lab cycle";
       const values = [
         [allocation.strategy_id, ""],
+        [allocation.asset_class || "stock", ""],
+        [allocation.source_strategy_id || allocation.strategy_id, ""],
+        [allocation.option_policy?.structure || "stock bracket", ""],
         [allocation.enabled ? "Enabled" : "Disabled", allocation.enabled ? "ok" : "warn"],
         [(allocation.symbols || account.watchlist || []).join(", "), ""],
         [percent(allocation.capital_weight), "number"],
         [percent(allocation.risk_fraction), "number"],
         [percent(allocation.minimum_confidence), "number"],
+        [
+          allocation.option_policy
+            ? `${allocation.option_policy.minimum_dte}-${allocation.option_policy.maximum_dte} DTE; exit ${allocation.option_policy.exit_before_expiry_days} DTE; TP ${percent(allocation.option_policy.profit_target_fraction)}; loss ${allocation.option_policy.loss_limit_multiple}x`
+            : "Bracket stop + target",
+          "",
+        ],
         [allocation.paper_execution_allowed ? "Configured" : "Blocked", allocation.paper_execution_allowed ? "warn" : "ok"],
         [readiness, report?.readiness_status === "extended_paper_observation_candidate" ? "ok" : "warn"],
       ];
@@ -1691,6 +1719,61 @@
     }
   }
 
+  function renderStrategyPerformance(statistics) {
+    const body = document.getElementById("strategy-performance");
+    body.replaceChildren();
+    const rows = statistics.filter(
+      item => item.account_id === selectedAccountId
+    );
+    if (!rows.length) {
+      emptyRow(
+        body,
+        16,
+        "No strategy decisions have accumulated for this account yet."
+      );
+      return;
+    }
+    for (const item of rows) {
+      const realized = Number(item.realized_pnl || 0);
+      const optionRealized = Number(item.option_realized_pnl || 0);
+      const positiveThetaRealized = Number(
+        item.positive_theta_trade_realized_pnl || 0
+      );
+      const theta = Number(item.current_modeled_theta_per_day || 0);
+      const values = [
+        [item.strategy_id, ""],
+        [item.signal_count ?? 0, "number"],
+        [item.decision_count ?? 0, "number"],
+        [item.closed_trade_count ?? 0, "number"],
+        [item.win_count ?? 0, "number"],
+        [item.loss_count ?? 0, "number"],
+        [item.win_rate == null ? "--" : percent(item.win_rate), "number"],
+        [money(item.realized_pnl), `number ${realized >= 0 ? "ok" : "bad"}`],
+        [item.average_realized_r == null ? "--" : Number(item.average_realized_r).toFixed(2), "number"],
+        [item.profit_factor == null ? "--" : Number(item.profit_factor).toFixed(2), "number"],
+        [money(item.maximum_realized_drawdown), "number"],
+        [item.option_decision_count ?? 0, "number"],
+        [money(item.option_realized_pnl), `number ${optionRealized >= 0 ? "ok" : "bad"}`],
+        [
+          money(item.positive_theta_trade_realized_pnl),
+          `number ${positiveThetaRealized >= 0 ? "ok" : "bad"}`,
+        ],
+        [
+          item.option_decision_count
+            ? money(item.current_modeled_theta_per_day)
+            : "--",
+          `number ${theta >= 0 ? "ok" : "warn"}`,
+        ],
+        [String(item.sample_status || "unknown").replaceAll("_", " "), item.closed_trade_count ? "ok" : "warn"],
+      ];
+      const row = document.createElement("tr");
+      for (const [value, className] of values) {
+        row.appendChild(cell(value, className));
+      }
+      body.appendChild(row);
+    }
+  }
+
   function renderBacktests(backtests, validations) {
     const body = document.getElementById("backtests");
     body.replaceChildren();
@@ -1968,6 +2051,7 @@
       renderEvidenceCatalog(data.evidence_catalog || []);
       renderSignals(data.signals || []);
       renderTradeRecords(data.trade_records || []);
+      renderStrategyPerformance(data.strategy_performance || []);
       renderBacktests(data.backtests || [], data.validations || []);
       renderEvents(data.events || []);
     } catch (error) {

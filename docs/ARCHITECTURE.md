@@ -109,6 +109,10 @@ positions, maximum daily orders, symbol cooldown, capital weights, confidence
 filters, risk budgets, per-strategy execution-symbol subsets, and per-strategy
 Paper approval. Every execution symbol must belong to the account watchlist.
 Capital weights for enabled strategies cannot exceed 100%.
+Each allocation declares its execution asset class. Option allocations also
+freeze a signal source, structure, DTE window, delta targets, maximum width,
+minimum modeled theta, quote-age ceiling, profit/loss exits, and mandatory
+pre-expiration exit window.
 
 ### Risk authority
 
@@ -123,6 +127,10 @@ The risk engine applies:
   unsupported crypto shorts.
 
 SQLite uses an immediate transaction to evaluate and reserve risk atomically.
+Reservations include account ID, asset class, underlying, and every option
+contract symbol. Aggregate risk is calculated independently for each account;
+contract-level identity prevents an option position from being mistaken for
+an unrelated underlying position.
 The audit store persists each account's start-of-day and observed peak equity,
 so an intra-day recovery does not erase the drawdown reference. Any broker
 position or open order that cannot be linked to an active engine reservation
@@ -141,6 +149,20 @@ previously observed position is absent in two consecutive reconciliations.
 When Alpaca returns the filled
 bracket child, the ledger records entry, exit, exit reason, and estimated
 realized P/L.
+
+Alpaca Paper option entries use `day` limit orders. Multi-leg packages are one
+`mleg` parent with explicit open/close position intents. A positive parent net
+price is a debit and a negative one is a credit. Entry selection fails closed
+on missing Greeks, bad liquidity, excessive spread width, wrong trading level,
+stale quotes, or non-positive theta when theta is the stated mechanism.
+
+The automation worker evaluates open option packages before new entries. It
+constructs one atomic closing MLeg at conservative bid/ask prices when the
+profit target, loss limit, or pre-expiration boundary triggers. A close fill is
+linked to its parent trade and releases the original reservation. This is
+application-managed protection, not a broker-native options bracket: a worker
+outage can delay an exit, so options remain disabled for Paper submission in
+the tracked configuration.
 
 ### Validation and oversight
 
@@ -201,9 +223,9 @@ shared `/app/var` volume.
 
 ## Scaling boundary
 
-Release 0.11 intentionally supports one enabled Paper account and one
-orchestrator. Multi-account/cross-broker execution requires PostgreSQL with
-account-scoped reservations, a portfolio-wide exposure service, credential
+Release 0.12 intentionally supports one enabled Paper account and one
+orchestrator. Multi-account/cross-broker execution still requires PostgreSQL
+or an equivalent coordinated store, a portfolio-wide exposure service, credential
 isolation per connector, and distributed locking. Dedicated crypto and forex
 adapters must normalize their different sessions, leverage, order types, and
 failure modes before being allowed through the same risk authority.

@@ -10,12 +10,16 @@ from multitrade.automation import PaperAutomationService
 from multitrade.brokers.base import (
     BrokerAccount,
     BrokerMarketClock,
+    BrokerOrder,
     BrokerReconciliation,
 )
 from multitrade.config import Settings
 from multitrade.domain import AssetClass
 from multitrade.market import MarketBar
+from multitrade.options import OptionSnapshot
 from multitrade.portfolio import AccountPlan, StrategyAllocation
+from multitrade.options import OptionExecutionPolicy, OptionStructure
+from multitrade.domain import OptionRight
 
 
 def test_bars(now: datetime) -> tuple[MarketBar, ...]:
@@ -133,6 +137,81 @@ class FakeMarketData:
         return {"AAPL": self.bars}
 
 
+class OptionFakeBroker(FakeBroker):
+    def __init__(self, observed_at: datetime) -> None:
+        super().__init__(observed_at)
+        self.submitted = []
+
+    def reconcile(self) -> BrokerReconciliation:
+        result = super().reconcile()
+        return replace(
+            result,
+            account=replace(
+                result.account,
+                options_buying_power=Decimal("10000"),
+                options_approved_level=3,
+                options_trading_level=3,
+            ),
+        )
+
+    def submit_order(self, intent, approved_quantity):
+        self.submit_calls += 1
+        self.submitted.append((intent, approved_quantity))
+        return BrokerOrder(
+            broker_order_id="paper-option-order",
+            status="accepted",
+            raw={},
+        )
+
+
+class FakeOptionData:
+    feed = "opra"
+
+    def __init__(self, now: datetime) -> None:
+        self.expiration = (now + timedelta(days=40)).date()
+
+    def fetch_chain(self, underlying, **kwargs):
+        del kwargs
+        return (
+            OptionSnapshot(
+                symbol=(
+                    f"AAPL{self.expiration:%y%m%d}C00100000"
+                ),
+                underlying=underlying,
+                expiration=self.expiration,
+                right=OptionRight.CALL,
+                strike=Decimal("100"),
+                bid=Decimal("0.45"),
+                ask=Decimal("0.50"),
+                bid_size=10,
+                ask_size=10,
+                implied_volatility=Decimal("0.25"),
+                delta=Decimal("0.55"),
+                quote_timestamp="2026-01-05T17:59:00Z",
+                feed=self.feed,
+                theta=Decimal("-0.08"),
+            ),
+            OptionSnapshot(
+                symbol=(
+                    f"AAPL{self.expiration:%y%m%d}C00105000"
+                ),
+                underlying=underlying,
+                expiration=self.expiration,
+                right=OptionRight.CALL,
+                strike=Decimal("105"),
+                bid=Decimal("0.12"),
+                ask=Decimal("0.14"),
+                bid_size=10,
+                ask_size=10,
+                implied_volatility=Decimal("0.25"),
+                delta=Decimal("0.30"),
+                quote_timestamp="2026-01-05T17:59:00Z",
+                feed=self.feed,
+                theta=Decimal("-0.05"),
+            ),
+        )
+
+
 class AutomationTests(TestCase):
     def test_signal_observation_is_idempotent_and_never_submits(
         self,
@@ -190,3 +269,83 @@ class AutomationTests(TestCase):
             self.assertEqual(len(signals), 1)
             self.assertEqual(signals[0]["status"], "observed")
             self.assertEqual(broker.submit_calls, 0)
+
+    def test_defined_risk_option_allocation_can_reach_paper_broker(
+        self,
+    ) -> None:
+        with TemporaryDirectory() as directory:
+            now = datetime(2026, 1, 5, 18, 0, tzinfo=timezone.utc)
+            settings = replace(
+                Settings.from_env(),
+                automation_enabled=True,
+                enable_paper_orders=True,
+                emergency_stop=False,
+                option_data_feed="opra",
+                db_path=Path(directory) / "trading.db",
+                strategy_health_path=(
+                    Path(directory) / "strategy-health.json"
+                ),
+                market_max_bar_age_seconds=900,
+            )
+            allocation = StrategyAllocation(
+                strategy_id="breakout_retest_bull_call",
+                enabled=True,
+                capital_weight=Decimal("0.10"),
+                risk_fraction=Decimal("0.005"),
+                minimum_confidence=Decimal("0.60"),
+                paper_execution_allowed=True,
+                symbols=("AAPL",),
+                asset_class=AssetClass.OPTION,
+                option_policy=OptionExecutionPolicy(
+                    structure=OptionStructure.BULL_CALL_DEBIT,
+                    source_strategy_id="breakout_retest",
+                    maximum_strike_width=Decimal("10"),
+                ),
+            )
+            plan = AccountPlan(
+                account_id="alpaca-paper",
+                broker="alpaca",
+                environment="paper",
+                enabled=True,
+                asset_classes=(
+                    AssetClass.STOCK,
+                    AssetClass.OPTION,
+                ),
+                watchlist=("AAPL",),
+                timeframe="5Min",
+                maximum_positions=4,
+                maximum_daily_orders=6,
+                symbol_cooldown_minutes=60,
+                allocations={allocation.strategy_id: allocation},
+            )
+            broker = OptionFakeBroker(now)
+            store = SqliteAuditStore(settings.db_path)
+            service = PaperAutomationService(
+                settings=settings,
+                broker=broker,
+                market_data=FakeMarketData(test_bars(now)),
+                option_data=FakeOptionData(now),
+                store=store,
+                account_plan=plan,
+            )
+
+            result = service.run_cycle(now=now)
+            trades = SqliteAuditReader(
+                settings.db_path
+            ).recent_trade_records()
+
+            self.assertEqual(result.orders_submitted, 1)
+            self.assertEqual(broker.submit_calls, 1)
+            self.assertEqual(
+                broker.submitted[0][0].asset_class,
+                AssetClass.OPTION,
+            )
+            self.assertEqual(
+                broker.submitted[0][0].explanation["structure"],
+                "bull_call_debit_spread",
+            )
+            self.assertEqual(trades[0]["asset_class"], "option")
+            self.assertEqual(
+                trades[0]["strategy_id"],
+                "breakout_retest_bull_call",
+            )

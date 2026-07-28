@@ -140,6 +140,7 @@ class DashboardTests(TestCase):
             self.assertEqual(result["portfolio_risk_reports"], [])
             self.assertEqual(result["strategy_lab_reports"], [])
             self.assertEqual(result["strategy_model_trials"], [])
+            self.assertEqual(result["strategy_performance"], [])
             self.assertEqual(
                 len(
                     result["strategy_experiments"][
@@ -216,6 +217,12 @@ class DashboardTests(TestCase):
                     ]
 
                 self.assertIn("Open positions", html)
+                self.assertIn(
+                    "Account-scoped strategy performance", html
+                )
+                self.assertIn(
+                    'id="strategy-performance"', html
+                )
                 self.assertIn('id="release-version"', html)
                 self.assertIn(
                     "Deployed Git revision", html

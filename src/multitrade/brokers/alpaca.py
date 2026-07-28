@@ -201,6 +201,15 @@ class AlpacaPaperBroker:
             shorting_enabled=bool(
                 account.get("shorting_enabled", False)
             ),
+            options_buying_power=_decimal(
+                account.get("options_buying_power")
+            ),
+            options_approved_level=int(
+                account.get("options_approved_level") or 0
+            ),
+            options_trading_level=int(
+                account.get("options_trading_level") or 0
+            ),
         )
         market = BrokerMarketClock(
             timestamp=str(clock_payload.get("timestamp", "")),
@@ -356,6 +365,19 @@ class AlpacaPaperBroker:
                 leg = intent.option_legs[0]
                 payload["symbol"] = leg.symbol
                 payload["side"] = leg.side.value
+                payload["position_intent"] = (
+                    (
+                        "buy_to_close"
+                        if leg.side is Side.BUY
+                        else "sell_to_close"
+                    )
+                    if intent.reduce_only
+                    else (
+                        "buy_to_open"
+                        if leg.side is Side.BUY
+                        else "sell_to_open"
+                    )
+                )
                 return payload
             payload["order_class"] = "mleg"
             payload["legs"] = [
@@ -364,9 +386,17 @@ class AlpacaPaperBroker:
                     "ratio_qty": str(leg.ratio),
                     "side": leg.side.value,
                     "position_intent": (
-                        "buy_to_open"
-                        if leg.side is Side.BUY
-                        else "sell_to_open"
+                        (
+                            "buy_to_close"
+                            if leg.side is Side.BUY
+                            else "sell_to_close"
+                        )
+                        if intent.reduce_only
+                        else (
+                            "buy_to_open"
+                            if leg.side is Side.BUY
+                            else "sell_to_open"
+                        )
                     ),
                 }
                 for leg in intent.option_legs

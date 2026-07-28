@@ -14,6 +14,7 @@ from multitrade.domain import (
     TimeInForce,
     TradeIntent,
 )
+from multitrade.options import OptionExecutionPolicy, OptionStructure
 from multitrade.strategies.base import SignalAction, StrategySignal
 
 
@@ -26,6 +27,8 @@ class StrategyAllocation:
     minimum_confidence: Decimal
     paper_execution_allowed: bool = False
     symbols: tuple[str, ...] = ()
+    asset_class: AssetClass = AssetClass.STOCK
+    option_policy: OptionExecutionPolicy | None = None
 
     def __post_init__(self) -> None:
         if not self.strategy_id:
@@ -38,6 +41,21 @@ class StrategyAllocation:
             raise ValueError("minimum_confidence must be in [0, 1]")
         if any(not symbol for symbol in self.symbols):
             raise ValueError("Strategy symbols cannot be empty strings")
+        if self.asset_class is AssetClass.OPTION:
+            if self.option_policy is None:
+                raise ValueError(
+                    "Option allocations require an option policy"
+                )
+        elif self.option_policy is not None:
+            raise ValueError(
+                "Only option allocations may define an option policy"
+            )
+
+    @property
+    def source_strategy_id(self) -> str:
+        if self.option_policy is not None:
+            return self.option_policy.source_strategy_id
+        return self.strategy_id
 
 
 @dataclass(frozen=True, slots=True)
@@ -68,6 +86,11 @@ class AccountPlan:
         if self.symbol_cooldown_minutes < 0:
             raise ValueError("symbol_cooldown_minutes cannot be negative")
         for allocation in self.allocations.values():
+            if allocation.asset_class not in self.asset_classes:
+                raise ValueError(
+                    f"{allocation.strategy_id} asset class is not enabled "
+                    f"for account {self.account_id}"
+                )
             unknown_symbols = set(allocation.symbols) - set(self.watchlist)
             if unknown_symbols:
                 raise ValueError(
@@ -120,6 +143,82 @@ def load_account_plans(path: str | Path) -> tuple[AccountPlan, ...]:
                 raise ValueError(
                     f"Duplicate strategy allocation: {strategy_id}"
                 )
+            asset_class = AssetClass(
+                allocation_row.get("asset_class", "stock")
+            )
+            option_payload = allocation_row.get("option_policy")
+            option_policy = None
+            if option_payload is not None:
+                if not isinstance(option_payload, dict):
+                    raise ValueError("option_policy must be an object")
+                option_policy = OptionExecutionPolicy(
+                    structure=OptionStructure(
+                        option_payload.get("structure", "")
+                    ),
+                    source_strategy_id=str(
+                        option_payload.get(
+                            "source_strategy_id", ""
+                        )
+                    ).strip(),
+                    minimum_dte=int(
+                        option_payload.get("minimum_dte", 30)
+                    ),
+                    maximum_dte=int(
+                        option_payload.get("maximum_dte", 60)
+                    ),
+                    long_delta_target=_decimal(
+                        option_payload.get(
+                            "long_delta_target", "0.55"
+                        ),
+                        "long_delta_target",
+                    ),
+                    short_delta_target=_decimal(
+                        option_payload.get(
+                            "short_delta_target", "0.30"
+                        ),
+                        "short_delta_target",
+                    ),
+                    wing_delta_target=_decimal(
+                        option_payload.get(
+                            "wing_delta_target", "0.10"
+                        ),
+                        "wing_delta_target",
+                    ),
+                    maximum_strike_width=_decimal(
+                        option_payload.get(
+                            "maximum_strike_width", "10"
+                        ),
+                        "maximum_strike_width",
+                    ),
+                    minimum_modeled_theta=_decimal(
+                        option_payload.get(
+                            "minimum_modeled_theta", "0"
+                        ),
+                        "minimum_modeled_theta",
+                    ),
+                    profit_target_fraction=_decimal(
+                        option_payload.get(
+                            "profit_target_fraction", "0.50"
+                        ),
+                        "profit_target_fraction",
+                    ),
+                    loss_limit_multiple=_decimal(
+                        option_payload.get(
+                            "loss_limit_multiple", "1.50"
+                        ),
+                        "loss_limit_multiple",
+                    ),
+                    exit_before_expiry_days=int(
+                        option_payload.get(
+                            "exit_before_expiry_days", 7
+                        )
+                    ),
+                    maximum_quote_age_seconds=int(
+                        option_payload.get(
+                            "maximum_quote_age_seconds", 120
+                        )
+                    ),
+                )
             allocations[strategy_id] = StrategyAllocation(
                 strategy_id=strategy_id,
                 enabled=bool(allocation_row.get("enabled", False)),
@@ -149,6 +248,8 @@ def load_account_plans(path: str | Path) -> tuple[AccountPlan, ...]:
                         if str(symbol).strip()
                     )
                 ),
+                asset_class=asset_class,
+                option_policy=option_policy,
             )
         plans.append(
             AccountPlan(

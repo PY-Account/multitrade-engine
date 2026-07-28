@@ -5,7 +5,8 @@ algorithmic-trading organization. It separates market analysis, strategy
 signals, portfolio allocation, central risk approval, broker execution,
 reconciliation, audit, backtesting, and monitoring.
 
-Release 0.11 is designed for controlled Alpaca Paper observation and dry-run
+Release 0.12 adds guarded, defined-risk options operation and account-scoped
+strategy statistics to controlled Alpaca Paper observation and dry-run
 testing. It does not support live trading and it does not claim that any
 strategy is profitable.
 
@@ -25,7 +26,9 @@ strategy is profitable.
 - aggregate reserved/open risk cannot exceed 10% of equity.
 - Daily-loss and drawdown guards, maximum positions, daily order limits, and
   per-symbol cooldowns are enforced.
-- Unlimited-loss option structures are rejected.
+- Unlimited-loss option structures are rejected. Option automation is limited
+  to defined-risk packages, requires the broker trading level for the package,
+  and requires fresh OPRA quotes before a Paper submission.
 - API secrets are excluded from Git, container images, responses, and logs.
 
 The 3% and 10% figures are hard ceilings, not operating targets.
@@ -85,8 +88,20 @@ The 3% and 10% figures are hard ceilings, not operating targets.
 - Manual, recommended, combined, or account-watchlist research assignments
   per strategy, kept separate from each strategy's reviewed account execution
   symbols.
-- Alpaca option-chain normalization and liquidity-filtered bull-call and
-  bear-put debit-spread construction. This layer is research-only.
+- Alpaca option-chain normalization, Greeks, deterministic delta/DTE contract
+  selection, and liquidity-filtered bull-call/bear-put debit spreads,
+  bull-put/bear-call credit spreads, iron condors, and protective puts.
+- Defined-risk option packages can pass the same central account risk
+  authority and Alpaca Paper MLeg path as stocks only after global and
+  per-strategy controls agree. Positive-theta candidates must have positive
+  decision-time net theta.
+- Managed option exits use atomic close MLeg orders for configured profit,
+  loss, and pre-expiration limits. Fill reconciliation records package P/L
+  using Alpaca's signed net-price convention.
+- Per-account/per-strategy Paper statistics: signals, decisions, state counts,
+  wins/losses, realized P/L, realized R, profit factor, realized drawdown,
+  option P/L, positive-theta-trade P/L, and current modeled theta exposure.
+  Modeled theta is never presented as realized profit.
 - Authenticated HTTPS operations dashboard with hierarchical Account, Asset
   Universe, Strategy Lab, Allocation & Risk, and Operations workspaces; account
   selection; strategy runtime, signals, trade explanations, validation
@@ -119,7 +134,8 @@ Behavior:
 | Automation false | Signals are recorded as observation-only |
 | Automation true, Paper orders false | Risk-evaluated dry run |
 | Both true, strategy approval false | Per-strategy dry run |
-| Both true, strategy approval true | Guarded Alpaca Paper bracket submission |
+| Both true, stock strategy approval true | Guarded Alpaca Paper bracket submission |
+| Both true, option approval true, Level/OPRA/quote checks pass | Guarded Alpaca Paper option or MLeg submission |
 | Emergency stop true | No new Paper submission |
 
 The emergency stop does not cancel or close existing broker orders or
@@ -218,11 +234,15 @@ documented in
 [`docs/STRATEGY_EXPERIMENTS.md`](docs/STRATEGY_EXPERIMENTS.md).
 Trial fingerprints, hash chains, and their security limitations are documented
 in [`docs/MODEL_TRIAL_REGISTRY.md`](docs/MODEL_TRIAL_REGISTRY.md).
+Defined-risk option selection, lifecycle, theta accounting, and Paper gates are
+documented in
+[`docs/OPTIONS_PAPER_OPERATIONS.md`](docs/OPTIONS_PAPER_OPERATIONS.md).
 
 ## Current boundary
 
 This release supports one enabled Alpaca Paper account in the running workers.
-The configuration model is account-scoped, but true multi-account execution,
+Reservations, configuration, and strategy statistics are account-scoped, but
+true simultaneous multi-account execution,
 PostgreSQL portfolio aggregation, dedicated crypto/forex broker adapters,
 role-based administration/MFA, and any live-trading program remain separate
 future releases. SQLite is safe here only because execution is intentionally a

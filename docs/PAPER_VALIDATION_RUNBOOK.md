@@ -118,6 +118,35 @@ This configuration file is tracked in Git. Make the approval through a reviewed
 release; do not edit a tracked file directly on the VPS because the safe
 updater will stop on local changes.
 
+### Separate options admission
+
+Do not approve an option allocation in the first stock Paper stage. First
+confirm that the dashboard reports options trading level 3 for spreads and
+that the VPS uses:
+
+```dotenv
+TRADING_OPTION_DATA_FEED=opra
+```
+
+The free indicative feed is delayed/modified and is accepted for observation,
+not for an option submission. Then review at least five sessions of option
+dry-run records for DTE, selected deltas, width, bid/ask liquidity, signed net
+price, maximum loss, modeled theta, and exit thresholds.
+
+Approve only one defined-risk option allocation and one liquid underlying.
+Keep risk at or below 0.3%, maximum open positions low, and verify the first
+MLeg in both Alpaca and the dashboard. Confirm that:
+
+- every leg filled as one parent package;
+- the contract symbols match the recorded decision;
+- reserved risk remains until the package closes;
+- the exit worker records a conservative liquidation price;
+- positive-theta trade P/L is not described as pure theta attribution; and
+- no package remains open inside its configured pre-expiration window.
+
+Protective puts require an already managed long stock position of at least
+100 shares per contract. They are not allowed as standalone bearish bets.
+
 ## Emergency response
 
 To stop new submissions:
@@ -148,7 +177,7 @@ at Alpaca. Do not disable the heartbeat or dashboard while exposure exists.
 
 ## Promotion rule
 
-No live-trading promotion is part of release 0.11. A separate live program
+No live-trading promotion is part of release 0.12. A separate live program
 requires independent code review, PostgreSQL, recovery drills, alerting,
 credential rotation, reconciliation tests, legal/tax review, and explicit
 authorization.

@@ -172,6 +172,9 @@ class DashboardData:
             signals = self.reader.recent_signals(event_limit)
             strategy_runtime = self.reader.strategy_runtime()
             trade_records = self.reader.recent_trade_records(event_limit)
+            strategy_performance = (
+                self.reader.strategy_performance()
+            )
             backtests = self.reader.recent_backtests(20)
             validations = self.reader.recent_validations(20)
             research_decisions = (
@@ -204,6 +207,7 @@ class DashboardData:
             signals = []
             strategy_runtime = []
             trade_records = []
+            strategy_performance = []
             backtests = []
             validations = []
             research_decisions = []
@@ -270,6 +274,67 @@ class DashboardData:
                         ),
                         "paper_execution_allowed": (
                             allocation.paper_execution_allowed
+                        ),
+                        "asset_class": (
+                            allocation.asset_class.value
+                        ),
+                        "source_strategy_id": (
+                            allocation.source_strategy_id
+                        ),
+                        "option_policy": (
+                            {
+                                "structure": (
+                                    allocation.option_policy.structure.value
+                                ),
+                                "minimum_dte": (
+                                    allocation.option_policy.minimum_dte
+                                ),
+                                "maximum_dte": (
+                                    allocation.option_policy.maximum_dte
+                                ),
+                                "long_delta_target": format(
+                                    allocation.option_policy.long_delta_target,
+                                    "f",
+                                ),
+                                "short_delta_target": format(
+                                    allocation.option_policy.short_delta_target,
+                                    "f",
+                                ),
+                                "wing_delta_target": format(
+                                    allocation.option_policy.wing_delta_target,
+                                    "f",
+                                ),
+                                "maximum_strike_width": format(
+                                    allocation.option_policy.maximum_strike_width,
+                                    "f",
+                                ),
+                                "minimum_modeled_theta": format(
+                                    allocation.option_policy.minimum_modeled_theta,
+                                    "f",
+                                ),
+                                "profit_target_fraction": format(
+                                    allocation.option_policy.profit_target_fraction,
+                                    "f",
+                                ),
+                                "loss_limit_multiple": format(
+                                    allocation.option_policy.loss_limit_multiple,
+                                    "f",
+                                ),
+                                "exit_before_expiry_days": (
+                                    allocation.option_policy.exit_before_expiry_days
+                                ),
+                                "maximum_quote_age_seconds": (
+                                    allocation.option_policy.maximum_quote_age_seconds
+                                ),
+                                "required_trading_level": (
+                                    allocation.option_policy.required_trading_level
+                                ),
+                                "theta_objective": (
+                                    allocation.option_policy.theta_objective
+                                ),
+                            }
+                            if allocation.option_policy is not None
+                            else None
                         ),
                         "symbols": list(allocation.symbols),
                     }
@@ -376,6 +441,7 @@ class DashboardData:
             "signals": signals,
             "strategy_runtime": strategy_runtime,
             "trade_records": trade_records,
+            "strategy_performance": strategy_performance,
             "backtests": backtests,
             "validations": validations,
             "research_decisions": research_decisions,
@@ -424,7 +490,7 @@ class DashboardData:
 
 
 class DashboardRequestHandler(BaseHTTPRequestHandler):
-    server_version = "MultiTradeDashboard/0.11.0"
+    server_version = "MultiTradeDashboard/0.12.0"
     sys_version = ""
     data_service: DashboardData
     expected_authorization: str

@@ -61,6 +61,8 @@ class RiskEngine:
     def evaluate(
         self, intent: TradeIntent, snapshot: AccountSnapshot
     ) -> RiskDecision:
+        if intent.reduce_only:
+            return self._evaluate_reduce_only(intent, snapshot)
         guard_rejection = self._account_guard(intent, snapshot)
         if guard_rejection is not None:
             return guard_rejection
@@ -123,16 +125,17 @@ class RiskEngine:
             projected_active_risk=snapshot.active_risk + reserved_risk,
         )
 
+    def estimate_risk_per_unit(
+        self, intent: TradeIntent
+    ) -> Decimal:
+        """Expose the same conservative unit-risk model used for approval."""
+        if intent.reduce_only:
+            return ZERO
+        return self._risk_per_unit(intent)
+
     def _account_guard(
         self, intent: TradeIntent, snapshot: AccountSnapshot
     ) -> RiskDecision | None:
-        if intent.reduce_only:
-            return self._reject(
-                intent,
-                "reduce_only_flow_not_implemented_in_mvp",
-                snapshot.active_risk,
-            )
-
         daily_loss = max(ZERO, snapshot.start_of_day_equity - snapshot.equity)
         if daily_loss >= (
             snapshot.start_of_day_equity * self.policy.max_daily_loss
@@ -157,6 +160,48 @@ class RiskEngine:
                 snapshot.active_risk,
             )
         return None
+
+    def _evaluate_reduce_only(
+        self,
+        intent: TradeIntent,
+        snapshot: AccountSnapshot,
+    ) -> RiskDecision:
+        if intent.asset_class is not AssetClass.OPTION:
+            return self._reject(
+                intent,
+                "only_option_reduce_only_is_implemented",
+                snapshot.active_risk,
+            )
+        if not intent.option_legs:
+            return self._reject(
+                intent,
+                "reduce_only_option_legs_are_required",
+                snapshot.active_risk,
+            )
+        for leg in intent.option_legs:
+            position = snapshot.positions.get(leg.symbol, ZERO)
+            required = (
+                intent.requested_quantity * Decimal(leg.ratio)
+            )
+            if leg.side is Side.SELL:
+                available = max(ZERO, position)
+            else:
+                available = max(ZERO, -position)
+            if available < required:
+                return self._reject(
+                    intent,
+                    f"reduce_only_position_insufficient:{leg.symbol}",
+                    snapshot.active_risk,
+                )
+        return RiskDecision(
+            approved=True,
+            intent_id=intent.intent_id,
+            reason="reduce_only_approved",
+            approved_quantity=intent.requested_quantity,
+            risk_per_unit=ZERO,
+            reserved_risk=ZERO,
+            projected_active_risk=snapshot.active_risk,
+        )
 
     def _risk_per_unit(self, intent: TradeIntent) -> Decimal:
         if intent.asset_class is AssetClass.OPTION:

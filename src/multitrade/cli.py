@@ -147,10 +147,30 @@ def _doctor() -> int:
         enabled_accounts = [
             plan.account_id for plan in plans if plan.enabled
         ]
+        option_allocations = [
+            {
+                "account_id": plan.account_id,
+                "strategy_id": allocation.strategy_id,
+                "structure": (
+                    allocation.option_policy.structure.value
+                ),
+                "enabled": allocation.enabled,
+                "paper_execution_allowed": (
+                    allocation.paper_execution_allowed
+                ),
+                "required_trading_level": (
+                    allocation.option_policy.required_trading_level
+                ),
+            }
+            for plan in plans
+            for allocation in plan.allocations.values()
+            if allocation.option_policy is not None
+        ]
     except (OSError, ValueError, json.JSONDecodeError) as exc:
         portfolio_configuration_valid = False
         portfolio_configuration_error = str(exc)
         enabled_accounts = []
+        option_allocations = []
     try:
         research_program = load_research_program(
             settings.research_program_path
@@ -254,6 +274,9 @@ def _doctor() -> int:
         ),
         "market_data_feed": settings.market_data_feed,
         "option_data_feed": settings.option_data_feed,
+        "option_allocations": option_allocations,
+        "option_execution_requires_opra": True,
+        "option_theta_is_modeled_not_realized": True,
         "portfolio_config_path": str(settings.portfolio_config_path),
         "portfolio_configuration_valid": portfolio_configuration_valid,
         "portfolio_configuration_error": (
