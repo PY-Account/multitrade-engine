@@ -5,12 +5,13 @@ algorithmic-trading organization. It separates market analysis, strategy
 signals, portfolio allocation, central risk approval, broker execution,
 reconciliation, audit, backtesting, and monitoring.
 
-Release 0.17 adds bounded, all-candidate accelerated historical validation,
-transparent research scorecards, and diagnostic failure explanations on top
-of audited Paper strategy controls, exact-contract option evidence, atomic
-firm-wide risk, and isolated multi-account Alpaca Paper supervision. It does
-not support live trading and it does not claim that any strategy is
-profitable.
+Release 0.18 adds trade-attribution diagnostics to bounded, all-candidate
+accelerated historical validation. Scorecards now separate gross signal
+results from modeled costs and identify symbol, regime, entry-hour, exit,
+MFE, and MAE failure concentrations on top of audited Paper strategy controls,
+exact-contract option evidence, atomic firm-wide risk, and isolated
+multi-account Alpaca Paper supervision. It does not support live trading and
+it does not claim that any strategy is profitable.
 
 ## Safety invariants
 
@@ -79,6 +80,10 @@ The 3% and 10% figures are hard ceilings, not operating targets.
   market-data download to evaluate every frozen baseline and comparison
   variant in a bounded worker pool. Its scorecards are stored separately and
   cannot add prospective experiment trials or authorize execution.
+- Additive accelerated diagnostics that distinguish negative gross signal
+  behavior from cost-eroded behavior and attribute outcomes by symbol, market
+  regime, New York entry hour, exit reason, signal reason set, and
+  conservatively measured MFE/MAE.
 - An append-only model-trial registry that fingerprints strategy code and
   parameters, laboratory configuration, and exact market inputs; registered
   trials are hash-chained per account/strategy and independently verified by

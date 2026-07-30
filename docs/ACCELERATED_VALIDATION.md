@@ -43,6 +43,20 @@ The dashboard shows the latest account-specific run, symbol coverage, run
 duration, candidate classification, failed gates, and plain-language
 diagnostics.
 
+The **Trade Attribution Diagnostics** table requires a run produced by
+version 0.18 or later. It separates:
+
+- gross P/L before modeled slippage and commissions;
+- modeled transaction costs and net P/L;
+- strongest and weakest symbols and market regimes;
+- weakest New York entry hour and largest-loss exit reason;
+- average maximum favorable and adverse excursion.
+
+The complete stored payload also contains additive rows for every symbol,
+regime, entry hour, exit reason, and complete signal-reason set. These rows
+explain where a fixed candidate failed. They are not an optimizer and do not
+modify parameters.
+
 ## Research score
 
 The score is a deterministic summary of existing pass/fail gates, not a
@@ -93,3 +107,9 @@ No classification authorizes an order.
 Promoting, modifying, or retiring a candidate remains a reviewed,
 version-controlled process. The accelerated validator only helps prioritize
 that review.
+
+After introducing diagnostics, rerun the unchanged frozen candidates once.
+Use that run to write a limited, mechanism-based Strategy v2 hypothesis.
+Because the diagnostic dataset has then been inspected, it remains
+development evidence; final acceptance still requires untouched or future
+observations.

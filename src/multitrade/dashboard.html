@@ -582,6 +582,18 @@
         <tbody id="accelerated-scorecards"></tbody>
       </table>
     </div>
+    <div class="panel-head">
+      <div>
+        <h3>Trade attribution diagnostics</h3>
+        <p class="subcopy">Out-of-sample results decomposed before and after modeled costs, with the strongest and weakest additive buckets. These diagnostics explain failure; they do not optimize or modify a candidate.</p>
+      </div>
+    </div>
+    <div class="table-wrap">
+      <table>
+        <thead><tr><th>Strategy / variant</th><th>Primary diagnosis</th><th class="number">Trades</th><th class="number">Gross before costs</th><th class="number">Modeled costs</th><th class="number">Net P/L</th><th class="number">Cost drag</th><th>Strongest symbol</th><th>Weakest symbol</th><th>Weakest regime</th><th>Weakest entry hour (ET)</th><th>Largest-loss exit</th><th class="number">Average MFE</th><th class="number">Average MAE</th><th>Execution</th></tr></thead>
+        <tbody id="accelerated-diagnostics"></tbody>
+      </table>
+    </div>
   </section>
 
   <section class="panel workspace-view" data-primary="strategy-lab" data-secondary="validation">
@@ -1643,7 +1655,11 @@
 
   function renderAcceleratedValidation(runs) {
     const body = document.getElementById("accelerated-scorecards");
+    const diagnosticBody = document.getElementById(
+      "accelerated-diagnostics"
+    );
     body.replaceChildren();
+    diagnosticBody.replaceChildren();
     const run = (runs || []).find(
       item => item.account_id === selectedAccountId
     );
@@ -1660,6 +1676,11 @@
         body,
         13,
         "No accelerated scorecards are stored for this account."
+      );
+      emptyRow(
+        diagnosticBody,
+        15,
+        "No accelerated trade diagnostics are stored for this account."
       );
       return;
     }
@@ -1696,6 +1717,11 @@
 
     if (!scorecards.length) {
       emptyRow(body, 13, "The run completed without candidate scorecards.");
+      emptyRow(
+        diagnosticBody,
+        15,
+        "The run completed without candidate diagnostics."
+      );
       return;
     }
     for (const scorecard of scorecards) {
@@ -1755,6 +1781,57 @@
         row.appendChild(cell(value, className));
       }
       body.appendChild(row);
+
+      const attribution = metrics.diagnostic_attribution || {};
+      const overall = attribution.overall || {};
+      const bucket = item => item?.bucket
+        ? `${item.bucket} (${money(item.net_profit)})`
+        : "--";
+      const diagnosticValues = [
+        [
+          `${scorecard.strategy_id} / ${scorecard.variant_id}`,
+          scorecard.comparison_variant ? "warn" : "",
+        ],
+        [
+          attribution.primary_diagnosis
+            ? attribution.primary_diagnosis.replaceAll("_", " ")
+            : "Rerun required for attribution",
+          attribution.primary_diagnosis ? "" : "warn",
+        ],
+        [overall.trade_count ?? "--", "number"],
+        [money(overall.gross_before_costs), "number"],
+        [money(overall.transaction_costs), "number"],
+        [
+          money(overall.net_profit),
+          Number(overall.net_profit || 0) >= 0
+            ? "number ok"
+            : "number bad",
+        ],
+        [
+          overall.cost_to_absolute_gross_movement == null
+            ? "--"
+            : percent(overall.cost_to_absolute_gross_movement),
+          "number",
+        ],
+        [bucket(attribution.strongest_symbol), ""],
+        [bucket(attribution.weakest_symbol), ""],
+        [bucket(attribution.weakest_regime), ""],
+        [
+          attribution.weakest_entry_hour_new_york?.bucket
+            ? `${attribution.weakest_entry_hour_new_york.bucket}:00 ET (${money(attribution.weakest_entry_hour_new_york.net_profit)})`
+            : "--",
+          "",
+        ],
+        [bucket(attribution.largest_loss_exit_reason), ""],
+        [money(overall.average_mfe), "number"],
+        [money(overall.average_mae), "number"],
+        ["Blocked (research only)", "ok"],
+      ];
+      const diagnosticRow = document.createElement("tr");
+      for (const [value, className] of diagnosticValues) {
+        diagnosticRow.appendChild(cell(value, className));
+      }
+      diagnosticBody.appendChild(diagnosticRow);
     }
   }
 

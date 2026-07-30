@@ -1,5 +1,28 @@
 # Changelog
 
+## 0.18.0 - 2026-07-30
+
+- Added decision-time diagnostic attribution to every accelerated candidate:
+  gross P/L before modeled costs, modeled transaction costs, net P/L, cost
+  drag, win rate, profit factor, average R, holding time, MFE, and MAE.
+- Added additive breakdowns by symbol, market regime, New York entry hour,
+  exit reason, and complete signal-reason set, plus strongest/weakest buckets
+  and a machine-readable primary diagnosis.
+- Extended backtest trades with regime, entry hour, reason-code, cost, and
+  conservative excursion evidence without changing order simulation, sizing,
+  risk, or net-P/L arithmetic.
+- Added a Trade Attribution Diagnostics table under Strategy Lab ->
+  Accelerated Validation. Historical runs remain readable and explicitly ask
+  for a rerun when attribution evidence is unavailable.
+- Preserved conservative intrabar ambiguity: if stop and target touch in one
+  bar, stop-first handling does not claim the favorable excursion also
+  occurred.
+
+This release explains candidate failure but does not tune parameters, create
+Strategy v2 candidates, increment prospective evidence, or authorize
+execution. New candidates should be designed only after reviewing a fresh
+diagnostic run.
+
 ## 0.17.3 - 2026-07-28
 
 - Partitioned stock-bar retrieval by both symbol group and 30-day time window,

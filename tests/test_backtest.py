@@ -99,6 +99,30 @@ class BacktestTests(TestCase):
         self.assertEqual(result.trades[0].exit_reason, "take_profit")
         self.assertGreater(result.trades[0].pnl, Decimal("0"))
 
+    def test_trade_records_cost_regime_and_excursion_attribution(
+        self,
+    ) -> None:
+        result = Backtester(
+            OneSignalStrategy(),
+            config=BacktestConfig(slippage_bps=Decimal("10")),
+        ).run(bars())
+        trade = result.trades[0]
+
+        self.assertEqual(
+            trade.pnl,
+            trade.gross_pnl - trade.transaction_costs,
+        )
+        self.assertGreater(trade.transaction_costs, Decimal("0"))
+        self.assertEqual(trade.entry_regime, "range")
+        self.assertEqual(trade.entry_hour_new_york, "12")
+        self.assertEqual(trade.reason_codes, ("test_setup",))
+        self.assertGreater(
+            trade.maximum_favorable_excursion, Decimal("0")
+        )
+        self.assertGreaterEqual(
+            trade.maximum_adverse_excursion, Decimal("0")
+        )
+
     def test_ambiguous_bar_resolves_to_stop_conservatively(self) -> None:
         result = Backtester(
             OneSignalStrategy(),
@@ -110,6 +134,14 @@ class BacktestTests(TestCase):
             "stop_before_target_same_bar",
         )
         self.assertLess(result.trades[0].pnl, Decimal("0"))
+        self.assertEqual(
+            result.trades[0].maximum_favorable_excursion,
+            result.trades[0].quantity,
+        )
+        self.assertGreater(
+            result.trades[0].maximum_adverse_excursion,
+            Decimal("0"),
+        )
 
     def test_intraday_position_flattens_before_extended_hours(self) -> None:
         session = list(bars())

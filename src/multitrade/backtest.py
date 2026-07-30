@@ -64,10 +64,17 @@ class BacktestTrade:
     target_price: Decimal
     quantity: Decimal
     initial_risk: Decimal
+    gross_pnl: Decimal
+    transaction_costs: Decimal
     pnl: Decimal
     r_multiple: Decimal
     exit_reason: str
     holding_bars: int
+    entry_regime: str
+    entry_hour_new_york: str
+    reason_codes: tuple[str, ...]
+    maximum_favorable_excursion: Decimal
+    maximum_adverse_excursion: Decimal
 
 
 @dataclass(frozen=True, slots=True)
@@ -150,12 +157,16 @@ class ChronologicalStabilityReport:
 class _OpenPosition:
     signal: StrategySignal
     entry_timestamp: datetime
+    raw_entry_price: Decimal
     entry_price: Decimal
     stop_price: Decimal
     target_price: Decimal
     quantity: Decimal
     initial_risk: Decimal
     entry_index: int
+    entry_regime: str
+    maximum_favorable_excursion: Decimal = ZERO
+    maximum_adverse_excursion: Decimal = ZERO
 
 
 class Backtester:
@@ -219,6 +230,7 @@ class Backtester:
                     and _is_last_bar_of_session(ordered, index)
                 ):
                     exit_result = (
+                        current.close,
                         self._exit_with_slippage(
                             current.close,
                             open_position.signal.action,
@@ -226,10 +238,15 @@ class Backtester:
                         "session_close",
                     )
                 if exit_result is not None:
-                    exit_price, exit_reason = exit_result
+                    (
+                        raw_exit_price,
+                        exit_price,
+                        exit_reason,
+                    ) = exit_result
                     trade = self._close_trade(
                         open_position,
                         current,
+                        raw_exit_price,
                         exit_price,
                         exit_reason,
                         index,
@@ -279,17 +296,23 @@ class Backtester:
             ):
                 continue
             open_position = self._open_position(
-                signal, next_bar, index + 1, equity
+                signal,
+                next_bar,
+                index + 1,
+                equity,
+                entry_regime=features.regime.value,
             )
 
         if open_position is not None:
             final_bar = ordered[-1]
+            self._update_excursions(open_position, final_bar)
             exit_price = self._exit_with_slippage(
                 final_bar.close, open_position.signal.action
             )
             trade = self._close_trade(
                 open_position,
                 final_bar,
+                final_bar.close,
                 exit_price,
                 "end_of_data",
                 len(ordered) - 1,
@@ -342,9 +365,12 @@ class Backtester:
         entry_bar: MarketBar,
         entry_index: int,
         equity: Decimal,
+        *,
+        entry_regime: str,
     ) -> _OpenPosition | None:
+        raw_entry_price = entry_bar.open
         if signal.action is SignalAction.ENTER_LONG:
-            entry_price = entry_bar.open * (
+            entry_price = raw_entry_price * (
                 Decimal("1") + self.config.slippage_bps / BPS
             )
             risk_per_share = entry_price - signal.stop_price
@@ -354,7 +380,7 @@ class Backtester:
             ):
                 return None
         else:
-            entry_price = entry_bar.open * (
+            entry_price = raw_entry_price * (
                 Decimal("1") - self.config.slippage_bps / BPS
             )
             risk_per_share = signal.stop_price - entry_price
@@ -375,12 +401,14 @@ class Backtester:
         return _OpenPosition(
             signal=signal,
             entry_timestamp=entry_bar.timestamp,
+            raw_entry_price=raw_entry_price,
             entry_price=entry_price,
             stop_price=signal.stop_price,
             target_price=signal.target_price,
             quantity=quantity,
             initial_risk=risk_per_share * quantity,
             entry_index=entry_index,
+            entry_regime=entry_regime,
         )
 
     def _position_exit(
@@ -388,7 +416,7 @@ class Backtester:
         position: _OpenPosition,
         bar: MarketBar,
         index: int,
-    ) -> tuple[Decimal, str] | None:
+    ) -> tuple[Decimal, Decimal, str] | None:
         is_long = position.signal.action is SignalAction.ENTER_LONG
         if is_long:
             stop_hit = bar.low <= position.stop_price
@@ -397,7 +425,13 @@ class Backtester:
             stop_hit = bar.high >= position.stop_price
             target_hit = bar.low <= position.target_price
         if stop_hit:
+            self._update_exit_excursion(
+                position,
+                position.stop_price,
+                favorable=False,
+            )
             return (
+                position.stop_price,
                 self._exit_with_slippage(
                     position.stop_price, position.signal.action
                 ),
@@ -408,23 +442,89 @@ class Backtester:
                 ),
             )
         if target_hit:
+            self._update_exit_excursion(
+                position,
+                position.target_price,
+                favorable=True,
+            )
             return (
+                position.target_price,
                 self._exit_with_slippage(
                     position.target_price, position.signal.action
                 ),
                 "take_profit",
             )
+        self._update_excursions(position, bar)
         if (
             index - position.entry_index + 1
             >= self.config.maximum_holding_bars
         ):
             return (
+                bar.close,
                 self._exit_with_slippage(
                     bar.close, position.signal.action
                 ),
                 "maximum_holding_period",
             )
         return None
+
+    @staticmethod
+    def _update_excursions(
+        position: _OpenPosition,
+        bar: MarketBar,
+    ) -> None:
+        if position.signal.action is SignalAction.ENTER_LONG:
+            favorable = max(
+                ZERO,
+                (bar.high - position.raw_entry_price)
+                * position.quantity,
+            )
+            adverse = max(
+                ZERO,
+                (position.raw_entry_price - bar.low)
+                * position.quantity,
+            )
+        else:
+            favorable = max(
+                ZERO,
+                (position.raw_entry_price - bar.low)
+                * position.quantity,
+            )
+            adverse = max(
+                ZERO,
+                (bar.high - position.raw_entry_price)
+                * position.quantity,
+            )
+        position.maximum_favorable_excursion = max(
+            position.maximum_favorable_excursion,
+            favorable,
+        )
+        position.maximum_adverse_excursion = max(
+            position.maximum_adverse_excursion,
+            adverse,
+        )
+
+    @staticmethod
+    def _update_exit_excursion(
+        position: _OpenPosition,
+        price: Decimal,
+        *,
+        favorable: bool,
+    ) -> None:
+        excursion = (
+            abs(price - position.raw_entry_price)
+            * position.quantity
+        )
+        if favorable:
+            position.maximum_favorable_excursion = max(
+                position.maximum_favorable_excursion,
+                excursion,
+            )
+        else:
+            position.maximum_adverse_excursion = max(
+                position.maximum_adverse_excursion,
+                excursion,
+            )
 
     def _exit_with_slippage(
         self, price: Decimal, action: SignalAction
@@ -441,26 +541,38 @@ class Backtester:
         self,
         position: _OpenPosition,
         exit_bar: MarketBar,
+        raw_exit_price: Decimal,
         exit_price: Decimal,
         exit_reason: str,
         exit_index: int,
     ) -> BacktestTrade:
         if position.signal.action is SignalAction.ENTER_LONG:
             gross_pnl = (
+                raw_exit_price - position.raw_entry_price
+            ) * position.quantity
+            after_slippage_pnl = (
                 exit_price - position.entry_price
             ) * position.quantity
             side = "long"
         else:
             gross_pnl = (
+                position.raw_entry_price - raw_exit_price
+            ) * position.quantity
+            after_slippage_pnl = (
                 position.entry_price - exit_price
             ) * position.quantity
             side = "short"
-        costs = (
+        commission_costs = (
             self.config.commission_per_share
             * position.quantity
             * Decimal("2")
         )
-        pnl = gross_pnl - costs
+        slippage_costs = max(
+            ZERO,
+            gross_pnl - after_slippage_pnl,
+        )
+        transaction_costs = slippage_costs + commission_costs
+        pnl = gross_pnl - transaction_costs
         r_multiple = (
             pnl / position.initial_risk
             if position.initial_risk > ZERO
@@ -480,10 +592,23 @@ class Backtester:
             target_price=position.target_price,
             quantity=position.quantity,
             initial_risk=position.initial_risk,
+            gross_pnl=gross_pnl,
+            transaction_costs=transaction_costs,
             pnl=pnl,
             r_multiple=r_multiple,
             exit_reason=exit_reason,
             holding_bars=exit_index - position.entry_index + 1,
+            entry_regime=position.entry_regime,
+            entry_hour_new_york=_new_york_local(
+                position.entry_timestamp
+            ).strftime("%H"),
+            reason_codes=position.signal.reason_codes,
+            maximum_favorable_excursion=(
+                position.maximum_favorable_excursion
+            ),
+            maximum_adverse_excursion=(
+                position.maximum_adverse_excursion
+            ),
         )
 
     def _metrics(

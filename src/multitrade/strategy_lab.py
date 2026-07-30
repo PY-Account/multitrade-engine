@@ -11,6 +11,7 @@ from uuid import uuid4
 from multitrade.audit import SqliteAuditReader, SqliteAuditStore
 from multitrade.backtest import BacktestConfig, StrategyValidator
 from multitrade.config import Settings
+from multitrade.diagnostics import build_trade_attribution
 from multitrade.domain import ZERO
 from multitrade.experiments import (
     StrategyExperimentBinding,
@@ -225,6 +226,7 @@ class StrategyLabEvaluator:
             or account_plan.allocations[strategy.strategy_id]
         )
         results: list[StrategySymbolResult] = []
+        diagnostic_trades = []
         missing: list[str] = []
         requested_symbols = tuple(
             dict.fromkeys(symbols or account_plan.watchlist)
@@ -258,6 +260,9 @@ class StrategyLabEvaluator:
                     ),
                 )
                 base = base_validator.validate(bars)
+                diagnostic_trades.extend(
+                    base.out_of_sample.trades
+                )
                 stressed = StrategyValidator(
                     strategy,
                     config=BacktestConfig(
@@ -335,6 +340,9 @@ class StrategyLabEvaluator:
             )
 
         aggregate = self._aggregate(results)
+        aggregate["diagnostic_attribution"] = (
+            build_trade_attribution(diagnostic_trades)
+        )
         chronological_r_multiples = tuple(
             value
             for result in results

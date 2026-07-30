@@ -262,6 +262,9 @@ def scorecard_from_report(
         "trade_sequence_stress": metrics.get(
             "trade_sequence_stress", {}
         ),
+        "diagnostic_attribution": metrics.get(
+            "diagnostic_attribution", {}
+        ),
     }
     definition = report.trial_definition
     return AcceleratedScorecard(

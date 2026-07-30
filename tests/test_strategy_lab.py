@@ -294,6 +294,26 @@ class StrategyLabTests(TestCase):
             ]["simulated_paths"],
             500,
         )
+        diagnostics = report.aggregate_metrics[
+            "diagnostic_attribution"
+        ]
+        self.assertEqual(
+            diagnostics["overall"]["trade_count"],
+            report.aggregate_metrics[
+                "out_of_sample_trade_count"
+            ],
+        )
+        self.assertEqual(len(diagnostics["by_symbol"]), 2)
+        self.assertIn(
+            diagnostics["primary_diagnosis"],
+            {
+                "negative_before_modeled_costs",
+                "gross_edge_erased_by_modeled_costs",
+                "positive_net_but_insufficient_profit_factor",
+                "positive_diagnostic_sample_requires_validation",
+            },
+        )
+        self.assertFalse(diagnostics["execution_eligible"])
         self.assertIn(
             "chronological_fold_coverage",
             report.gates,
