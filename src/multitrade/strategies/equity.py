@@ -22,6 +22,16 @@ def _target(reference: Decimal, stop: Decimal, multiple: Decimal) -> Decimal:
     return reference + (reference - stop) * multiple
 
 
+def _mean(values: tuple[Decimal, ...]) -> Decimal:
+    return sum(values, start=ZERO) / Decimal(len(values))
+
+
+def _standard_deviation(values: tuple[Decimal, ...]) -> Decimal:
+    average = _mean(values)
+    variance = _mean(tuple((value - average) ** 2 for value in values))
+    return variance.sqrt()
+
+
 def _ema(values: tuple[Decimal, ...], length: int) -> tuple[Decimal, ...]:
     if length < 1:
         raise ValueError("EMA length must be positive")
@@ -592,6 +602,90 @@ class ChartPatternConfluenceStrategy:
         )
 
 
+@dataclass(frozen=True, slots=True)
+class SupportDeltaPutIncomeStrategy:
+    """Bullish support-rejection signal for defined-risk put spreads."""
+
+    strategy_id: str = "support_delta_put_income"
+    version: str = "1.0.0"
+    bollinger_window: int = 20
+    bollinger_deviations: Decimal = Decimal("2")
+    support_lookback: int = 40
+    proximity_atr: Decimal = Decimal("0.50")
+    stop_atr_buffer: Decimal = Decimal("0.50")
+    reward_multiple: Decimal = Decimal("1.50")
+
+    def evaluate(self, context: StrategyContext) -> StrategySignal | None:
+        minimum = max(self.bollinger_window, self.support_lookback) + 1
+        if len(context.bars) < minimum or context.features.atr <= ZERO:
+            return None
+        bars = context.bars
+        latest = bars[-1]
+        previous = bars[-2]
+        closes = tuple(bar.close for bar in bars[-self.bollinger_window :])
+        middle = _mean(closes)
+        lower_band = middle - (
+            _standard_deviation(closes) * self.bollinger_deviations
+        )
+        support_window = bars[-self.support_lookback - 1 : -1]
+        structural_support = min(bar.low for bar in support_window)
+        nearest_support = max(lower_band, structural_support)
+        distance = abs(latest.low - nearest_support)
+        near_support = distance <= context.features.atr * self.proximity_atr
+        rejected = (
+            latest.low <= nearest_support
+            and latest.close > nearest_support
+            and latest.close > latest.open
+            and latest.close > previous.close
+        )
+        trend_safe = (
+            context.features.regime is not MarketRegime.TREND_DOWN
+            and latest.close >= context.features.sma_slow
+        )
+        if not (near_support and rejected and trend_safe):
+            return None
+        stop = min(latest.low, nearest_support) - (
+            context.features.atr * self.stop_atr_buffer
+        )
+        if stop <= ZERO or stop >= latest.close:
+            return None
+        distance_score = max(
+            ZERO,
+            Decimal("1")
+            - distance / (context.features.atr * self.proximity_atr),
+        )
+        return create_signal(
+            context=context,
+            strategy_id=self.strategy_id,
+            version=self.version,
+            action=SignalAction.ENTER_LONG,
+            confidence=min(
+                Decimal("0.90"),
+                Decimal("0.62") + distance_score * Decimal("0.20"),
+            ),
+            reference_price=latest.close,
+            stop_price=stop,
+            target_price=_target(latest.close, stop, self.reward_multiple),
+            reason_codes=(
+                "lower_band_or_support_proximity",
+                "bullish_support_rejection",
+                "strong_downtrend_excluded",
+                "defined_risk_put_spread_candidate",
+            ),
+            evidence={
+                "bollinger_middle": middle,
+                "bollinger_lower": lower_band,
+                "structural_support": structural_support,
+                "selected_support": nearest_support,
+                "support_distance_atr": distance / context.features.atr,
+                "slow_average": context.features.sma_slow,
+                "market_regime": context.features.regime,
+                "vehicle_constraint": "bull_put_credit_spread_only",
+                "hypothesis_status": "research_only_unproven",
+            },
+        )
+
+
 def default_equity_strategies() -> dict[str, Strategy]:
     strategies: tuple[Strategy, ...] = (
         BreakoutRetestStrategy(),
@@ -600,6 +694,7 @@ def default_equity_strategies() -> dict[str, Strategy]:
         RangeMeanReversionStrategy(),
         T3RangeTrendStrategy(),
         ChartPatternConfluenceStrategy(),
+        SupportDeltaPutIncomeStrategy(),
     )
     return {
         strategy.strategy_id: strategy for strategy in strategies
@@ -619,6 +714,7 @@ def equity_strategy_from_parameters(
         "range_mean_reversion": RangeMeanReversionStrategy,
         "t3_range_trend": T3RangeTrendStrategy,
         "chart_pattern_confluence": ChartPatternConfluenceStrategy,
+        "support_delta_put_income": SupportDeltaPutIncomeStrategy,
     }
     strategy_type = strategy_types.get(strategy_id)
     if strategy_type is None:

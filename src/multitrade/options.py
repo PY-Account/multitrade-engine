@@ -512,9 +512,11 @@ class OptionExecutionPolicy:
     maximum_dte: int = 60
     long_delta_target: Decimal = Decimal("0.55")
     short_delta_target: Decimal = Decimal("0.30")
+    maximum_short_delta: Decimal = Decimal("0.35")
     wing_delta_target: Decimal = Decimal("0.10")
     maximum_strike_width: Decimal = Decimal("10")
     minimum_modeled_theta: Decimal = ZERO
+    minimum_credit_to_risk: Decimal = ZERO
     profit_target_fraction: Decimal = Decimal("0.50")
     loss_limit_multiple: Decimal = Decimal("1.50")
     exit_before_expiry_days: int = 7
@@ -528,12 +530,17 @@ class OptionExecutionPolicy:
         for value in (
             self.long_delta_target,
             self.short_delta_target,
+            self.maximum_short_delta,
             self.wing_delta_target,
         ):
             if not ZERO < value < Decimal("1"):
                 raise ValueError("Option delta targets must be in (0, 1)")
         if self.maximum_strike_width <= ZERO:
             raise ValueError("maximum_strike_width must be positive")
+        if self.short_delta_target > self.maximum_short_delta:
+            raise ValueError("short_delta_target exceeds maximum_short_delta")
+        if not ZERO <= self.minimum_credit_to_risk < Decimal("1"):
+            raise ValueError("minimum_credit_to_risk must be in [0, 1)")
         if not ZERO < self.profit_target_fraction < Decimal("1"):
             raise ValueError("profit_target_fraction must be in (0, 1)")
         if self.loss_limit_multiple <= ZERO:
@@ -1211,6 +1218,7 @@ class DefinedRiskOptionSelector:
                 OptionRight.PUT,
                 self.policy.short_delta_target,
                 strike_max=underlying_price,
+                maximum_absolute_delta=self.policy.maximum_short_delta,
             )
             long_put = self._nearest_delta(
                 contracts,
@@ -1236,6 +1244,7 @@ class DefinedRiskOptionSelector:
                 OptionRight.CALL,
                 self.policy.short_delta_target,
                 strike_min=underlying_price,
+                maximum_absolute_delta=self.policy.maximum_short_delta,
             )
             long_call = self._nearest_delta(
                 contracts,
@@ -1261,6 +1270,7 @@ class DefinedRiskOptionSelector:
                 OptionRight.PUT,
                 self.policy.short_delta_target,
                 strike_max=underlying_price,
+                maximum_absolute_delta=self.policy.maximum_short_delta,
             )
             long_put = self._nearest_delta(
                 contracts,
@@ -1274,6 +1284,7 @@ class DefinedRiskOptionSelector:
                 OptionRight.CALL,
                 self.policy.short_delta_target,
                 strike_min=underlying_price,
+                maximum_absolute_delta=self.policy.maximum_short_delta,
             )
             long_call = self._nearest_delta(
                 contracts,
@@ -1333,6 +1344,29 @@ class DefinedRiskOptionSelector:
                 raise ValueError(
                     "Selected package fails minimum modeled theta"
                 )
+        short_deltas = tuple(
+            abs(leg.delta)
+            for leg in intent.option_legs
+            if leg.side is Side.SELL and leg.delta is not None
+        )
+        if short_deltas and any(
+            delta > self.policy.maximum_short_delta
+            for delta in short_deltas
+        ):
+            raise ValueError("Selected short option exceeds maximum delta")
+        if structure in {
+            OptionStructure.BULL_PUT_CREDIT,
+            OptionStructure.BEAR_CALL_CREDIT,
+        }:
+            credit = abs(Decimal(str(intent.limit_price)))
+            width = widths[0]
+            maximum_loss = width - credit
+            if maximum_loss <= ZERO:
+                raise ValueError("Selected spread maximum loss is invalid")
+            if credit / maximum_loss < self.policy.minimum_credit_to_risk:
+                raise ValueError(
+                    "Selected spread fails minimum credit-to-risk ratio"
+                )
         selected_snapshots = {
             contract.symbol: contract for contract in contracts
         }
@@ -1343,6 +1377,8 @@ class DefinedRiskOptionSelector:
                 "source_strategy_id": (
                     self.policy.source_strategy_id
                 ),
+                "maximum_short_delta": self.policy.maximum_short_delta,
+                "minimum_credit_to_risk": self.policy.minimum_credit_to_risk,
                 "expiration": expiration.isoformat(),
                 "days_to_expiration": (
                     expiration - as_of
@@ -1420,6 +1456,7 @@ class DefinedRiskOptionSelector:
         strike_min: Decimal | None = None,
         strike_max: Decimal | None = None,
         exclude_strike: Decimal | None = None,
+        maximum_absolute_delta: Decimal | None = None,
     ) -> OptionSnapshot:
         candidates = [
             contract
@@ -1437,6 +1474,10 @@ class DefinedRiskOptionSelector:
             and (
                 exclude_strike is None
                 or contract.strike != exclude_strike
+            )
+            and (
+                maximum_absolute_delta is None
+                or abs(contract.delta) <= maximum_absolute_delta
             )
         ]
         if not candidates:

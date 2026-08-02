@@ -1,5 +1,21 @@
 # Changelog
 
+## 0.24.0 - 2026-08-02
+
+- Added the research-only `support_delta_put_income` underlying signal: price
+  must reject a lower Bollinger band or recent support, close bullishly, and
+  avoid a detected downtrend.
+- Added a defined-risk Bull Put Spread allocation with 30-60 DTE, a maximum
+  short-put absolute delta of 0.22, a five-dollar maximum width, and a minimum
+  15% credit-to-maximum-loss ratio.
+- Added fail-closed option-policy enforcement for maximum short delta and
+  minimum credit-to-risk, while retaining liquidity, quote freshness, positive
+  theta, account-level 3% trade risk, and 10% aggregate-risk controls.
+- Registered baseline, strict-support, and broad-support immutable experiments
+  for accelerated historical screening and later prospective Paper evidence.
+- Exposed the new option constraints in the account allocation dashboard.
+- Paper order submission remains disabled for the new strategy.
+
 ## 0.23.1 - 2026-08-02
 
 - Replaced the browser-native HTTP Basic prompt with a first-party login page

@@ -252,6 +252,10 @@ def load_account_plans(path: str | Path) -> tuple[AccountPlan, ...]:
                         ),
                         "short_delta_target",
                     ),
+                    maximum_short_delta=_decimal(
+                        option_payload.get("maximum_short_delta", "0.35"),
+                        "maximum_short_delta",
+                    ),
                     wing_delta_target=_decimal(
                         option_payload.get(
                             "wing_delta_target", "0.10"
@@ -269,6 +273,10 @@ def load_account_plans(path: str | Path) -> tuple[AccountPlan, ...]:
                             "minimum_modeled_theta", "0"
                         ),
                         "minimum_modeled_theta",
+                    ),
+                    minimum_credit_to_risk=_decimal(
+                        option_payload.get("minimum_credit_to_risk", "0"),
+                        "minimum_credit_to_risk",
                     ),
                     profit_target_fraction=_decimal(
                         option_payload.get(

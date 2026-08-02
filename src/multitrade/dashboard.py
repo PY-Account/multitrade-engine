@@ -474,6 +474,10 @@ class DashboardData:
                                     allocation.option_policy.short_delta_target,
                                     "f",
                                 ),
+                                "maximum_short_delta": format(
+                                    allocation.option_policy.maximum_short_delta,
+                                    "f",
+                                ),
                                 "wing_delta_target": format(
                                     allocation.option_policy.wing_delta_target,
                                     "f",
@@ -484,6 +488,10 @@ class DashboardData:
                                 ),
                                 "minimum_modeled_theta": format(
                                     allocation.option_policy.minimum_modeled_theta,
+                                    "f",
+                                ),
+                                "minimum_credit_to_risk": format(
+                                    allocation.option_policy.minimum_credit_to_risk,
                                     "f",
                                 ),
                                 "profit_target_fraction": format(

@@ -58,6 +58,14 @@ _SEARCH_SPACES: dict[str, dict[str, tuple[object, ...]]] = {
         "stop_atr_buffer": ("0.20", "0.25", "0.50"),
         "reward_multiple": ("1.5", "2", "2.5"),
     },
+    "support_delta_put_income": {
+        "bollinger_window": (15, 20, 30),
+        "bollinger_deviations": ("1.75", "2", "2.25"),
+        "support_lookback": (20, 40, 60),
+        "proximity_atr": ("0.30", "0.50", "0.75"),
+        "stop_atr_buffer": ("0.35", "0.50", "0.75"),
+        "reward_multiple": ("1.25", "1.50", "2"),
+    },
 }
 
 

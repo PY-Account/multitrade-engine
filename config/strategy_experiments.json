@@ -5,7 +5,8 @@
     "volatility_contraction": "volatility_contraction_baseline_2026q3",
     "range_mean_reversion": "range_mean_reversion_baseline_2026q3",
     "t3_range_trend": "t3_range_trend_baseline_2026q3",
-    "chart_pattern_confluence": "chart_pattern_confluence_baseline_2026q3"
+    "chart_pattern_confluence": "chart_pattern_confluence_baseline_2026q3",
+    "support_delta_put_income": "support_delta_put_income_baseline_2026q3"
   },
   "experiments": [
     {
@@ -482,6 +483,90 @@
         "minimum_pattern_score": "0.60",
         "stop_atr_buffer": "0.50",
         "reward_multiple": "1.5"
+      },
+      "execution_eligible": false
+    },
+    {
+      "experiment_id": "support_delta_put_income_baseline_2026q3",
+      "family_id": "defined_risk_put_income",
+      "strategy_id": "support_delta_put_income",
+      "strategy_version": "1.0.0",
+      "variant_id": "baseline_v1",
+      "registered_at": "2026-08-02T18:00:00+00:00",
+      "prospective_observation_start": "2026-08-03T00:00:00+00:00",
+      "review_not_before": "2026-08-24T00:00:00+00:00",
+      "status": "frozen_research",
+      "hypothesis": "A defined-risk bull put spread with short-put absolute delta at or below 0.22 has positive expectancy when the underlying rejects a lower Bollinger band or recent support outside a strong downtrend.",
+      "mechanism": "Support rejection supplies directional timing while capped spread loss, contract liquidity, positive theta, and minimum credit-to-risk constraints control tail and execution risk.",
+      "primary_metric": "chronological_median_fold_return",
+      "minimum_prospective_days": 21,
+      "minimum_prospective_trials": 20,
+      "final_holdout_status": "not_reserved",
+      "expected_parameters": {
+        "strategy_id": "support_delta_put_income",
+        "version": "1.0.0",
+        "bollinger_window": 20,
+        "bollinger_deviations": "2",
+        "support_lookback": 40,
+        "proximity_atr": "0.50",
+        "stop_atr_buffer": "0.50",
+        "reward_multiple": "1.50"
+      },
+      "execution_eligible": false
+    },
+    {
+      "experiment_id": "support_delta_put_income_strict_2026q3",
+      "family_id": "defined_risk_put_income",
+      "strategy_id": "support_delta_put_income",
+      "strategy_version": "1.0.0",
+      "variant_id": "strict_support_v1",
+      "registered_at": "2026-08-02T18:00:00+00:00",
+      "prospective_observation_start": "2026-08-03T00:00:00+00:00",
+      "review_not_before": "2026-08-24T00:00:00+00:00",
+      "status": "frozen_research",
+      "hypothesis": "Tighter support proximity improves the baseline setup by avoiding entries whose apparent rejection occurs too far from a defensible price level.",
+      "mechanism": "The same defined-risk option vehicle is retained while the underlying must trade within 0.30 ATR of its selected lower band or support.",
+      "primary_metric": "chronological_median_fold_return",
+      "minimum_prospective_days": 21,
+      "minimum_prospective_trials": 20,
+      "final_holdout_status": "not_reserved",
+      "expected_parameters": {
+        "strategy_id": "support_delta_put_income",
+        "version": "1.0.0",
+        "bollinger_window": 20,
+        "bollinger_deviations": "2",
+        "support_lookback": 40,
+        "proximity_atr": "0.30",
+        "stop_atr_buffer": "0.50",
+        "reward_multiple": "1.50"
+      },
+      "execution_eligible": false
+    },
+    {
+      "experiment_id": "support_delta_put_income_broad_2026q3",
+      "family_id": "defined_risk_put_income",
+      "strategy_id": "support_delta_put_income",
+      "strategy_version": "1.0.0",
+      "variant_id": "broad_support_v1",
+      "registered_at": "2026-08-02T18:00:00+00:00",
+      "prospective_observation_start": "2026-08-03T00:00:00+00:00",
+      "review_not_before": "2026-08-24T00:00:00+00:00",
+      "status": "frozen_research",
+      "hypothesis": "A broader support zone supplies adequate observations without destroying the put-income timing edge after conservative costs.",
+      "mechanism": "The underlying may reject within 0.75 ATR of support, testing sensitivity without changing the option delta or defined-loss policy.",
+      "primary_metric": "chronological_median_fold_return",
+      "minimum_prospective_days": 21,
+      "minimum_prospective_trials": 20,
+      "final_holdout_status": "not_reserved",
+      "expected_parameters": {
+        "strategy_id": "support_delta_put_income",
+        "version": "1.0.0",
+        "bollinger_window": 20,
+        "bollinger_deviations": "2",
+        "support_lookback": 40,
+        "proximity_atr": "0.75",
+        "stop_atr_buffer": "0.75",
+        "reward_multiple": "1.50"
       },
       "execution_eligible": false
     }

@@ -94,6 +94,26 @@ class OptionDataTests(TestCase):
 
 
 class DefinedRiskOptionFactoryTests(TestCase):
+    def test_put_income_policy_validates_delta_and_credit_ratio(self) -> None:
+        with self.assertRaisesRegex(ValueError, "exceeds maximum"):
+            OptionExecutionPolicy(
+                structure=OptionStructure.BULL_PUT_CREDIT,
+                source_strategy_id="support_delta_put_income",
+                short_delta_target=Decimal("0.25"),
+                maximum_short_delta=Decimal("0.22"),
+            )
+        policy = OptionExecutionPolicy(
+            structure=OptionStructure.BULL_PUT_CREDIT,
+            source_strategy_id="support_delta_put_income",
+            short_delta_target=Decimal("0.20"),
+            maximum_short_delta=Decimal("0.22"),
+            wing_delta_target=Decimal("0.08"),
+            maximum_strike_width=Decimal("5"),
+            minimum_credit_to_risk=Decimal("0.20"),
+        )
+        self.assertEqual(policy.maximum_short_delta, Decimal("0.22"))
+        self.assertEqual(policy.minimum_credit_to_risk, Decimal("0.20"))
+
     def test_bull_call_spread_uses_conservative_debit_for_risk(self) -> None:
         long_call = snapshot(
             "AAPL260918C00150000",

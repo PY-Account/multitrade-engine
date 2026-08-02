@@ -144,6 +144,33 @@
           }
         },
         {
+          "strategy_id": "support_delta_put_bull_spread",
+          "asset_class": "option",
+          "enabled": true,
+          "capital_weight": "0.05",
+          "risk_fraction": "0.003",
+          "minimum_confidence": "0.65",
+          "paper_execution_allowed": false,
+          "symbols": ["SPY", "QQQ", "AAPL", "MSFT"],
+          "option_policy": {
+            "structure": "bull_put_credit_spread",
+            "source_strategy_id": "support_delta_put_income",
+            "minimum_dte": 30,
+            "maximum_dte": 60,
+            "long_delta_target": "0.55",
+            "short_delta_target": "0.20",
+            "maximum_short_delta": "0.22",
+            "wing_delta_target": "0.08",
+            "maximum_strike_width": "5",
+            "minimum_modeled_theta": "0",
+            "minimum_credit_to_risk": "0.15",
+            "profit_target_fraction": "0.50",
+            "loss_limit_multiple": "1.50",
+            "exit_before_expiry_days": 10,
+            "maximum_quote_age_seconds": 120
+          }
+        },
+        {
           "strategy_id": "managed_protective_put",
           "asset_class": "option",
           "enabled": false,

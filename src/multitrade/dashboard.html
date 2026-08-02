@@ -1613,7 +1613,7 @@
         [percent(allocation.minimum_confidence), "number"],
         [
           allocation.option_policy
-            ? `${allocation.option_policy.minimum_dte}-${allocation.option_policy.maximum_dte} DTE; exit ${allocation.option_policy.exit_before_expiry_days} DTE; TP ${percent(allocation.option_policy.profit_target_fraction)}; loss ${allocation.option_policy.loss_limit_multiple}x`
+            ? `${allocation.option_policy.minimum_dte}-${allocation.option_policy.maximum_dte} DTE; short Δ≤${allocation.option_policy.maximum_short_delta}; credit/risk≥${percent(allocation.option_policy.minimum_credit_to_risk)}; exit ${allocation.option_policy.exit_before_expiry_days} DTE; TP ${percent(allocation.option_policy.profit_target_fraction)}; loss ${allocation.option_policy.loss_limit_multiple}x`
             : "Bracket stop + target",
           "",
         ],

@@ -1,4 +1,5 @@
 import json
+from dataclasses import replace
 from datetime import datetime, timedelta, timezone
 from decimal import Decimal
 from pathlib import Path
@@ -7,7 +8,7 @@ from unittest import TestCase
 
 from multitrade.brokers.alpaca import AlpacaPaperBroker
 from multitrade.domain import AccountSnapshot, AssetClass
-from multitrade.features import FeatureEngine
+from multitrade.features import FeatureEngine, FeatureSnapshot, MarketRegime
 from multitrade.market import MarketBar
 from multitrade.portfolio import (
     SignalAllocator,
@@ -17,6 +18,7 @@ from multitrade.portfolio import (
 from multitrade.strategies.base import StrategyContext
 from multitrade.strategies.equity import (
     BreakoutRetestStrategy,
+    SupportDeltaPutIncomeStrategy,
     T3RangeTrendStrategy,
 )
 
@@ -48,6 +50,70 @@ def market_bar(
 
 
 class StrategyTests(TestCase):
+    def test_support_delta_put_signal_requires_bullish_rejection(self) -> None:
+        bars = tuple(
+            market_bar(
+                index,
+                open_price="100",
+                high="101",
+                low="99",
+                close="100",
+                volume="1000",
+            )
+            for index in range(41)
+        ) + (
+            market_bar(
+                41,
+                open_price="99.2",
+                high="101",
+                low="99.0",
+                close="100.5",
+                volume="1200",
+            ),
+        )
+        features = FeatureSnapshot(
+            symbol="AAPL",
+            bar_timestamp=bars[-1].timestamp.isoformat(),
+            close=Decimal("100.5"),
+            sma_fast=Decimal("100"),
+            sma_slow=Decimal("99.5"),
+            atr=Decimal("2"),
+            atr_percent=Decimal("0.02"),
+            average_volume=Decimal("1000"),
+            relative_volume=Decimal("1.2"),
+            return_volatility=Decimal("0.01"),
+            relative_volatility=Decimal("1"),
+            donchian_high=Decimal("101"),
+            donchian_low=Decimal("99"),
+            trend_strength=Decimal("0.005"),
+            regime=MarketRegime.RANGE,
+            sample_size=len(bars),
+        )
+        context = StrategyContext(
+            account_id="alpaca-paper",
+            bars=bars,
+            features=features,
+            evaluated_at=bars[-1].timestamp + timedelta(minutes=5),
+        )
+
+        signal = SupportDeltaPutIncomeStrategy().evaluate(context)
+
+        self.assertIsNotNone(signal)
+        self.assertIn("bullish_support_rejection", signal.reason_codes)
+        self.assertEqual(
+            signal.evidence["vehicle_constraint"],
+            "bull_put_credit_spread_only",
+        )
+        downtrend = StrategyContext(
+            account_id=context.account_id,
+            bars=context.bars,
+            features=replace(features, regime=MarketRegime.TREND_DOWN),
+            evaluated_at=context.evaluated_at,
+        )
+        self.assertIsNone(
+            SupportDeltaPutIncomeStrategy().evaluate(downtrend)
+        )
+
     def test_t3_range_adaptation_emits_only_on_dual_filter_transition(
         self,
     ) -> None:
