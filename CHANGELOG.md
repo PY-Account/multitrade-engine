@@ -2,6 +2,8 @@
 
 ## 0.22.0 - 2026-08-02
 
+- Fixed the runtime package and dashboard HTTP server versions so the deployed
+  release badge reports 0.22.0 rather than the previous hard-coded value.
 - Added deterministic, closed-bar mathematical detectors for engulfing
   candles, bullish pin bars, dragonfly/gravestone doji, bear/bull traps, bull
   flags, FVG retests, golden/death crosses, ABCD equality, and confirmed
