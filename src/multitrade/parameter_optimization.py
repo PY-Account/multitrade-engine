@@ -87,6 +87,19 @@ _SEARCH_SPACES: dict[str, dict[str, tuple[object, ...]]] = {
         "minimum_sma_return": ("0.0005", "0.001", "0.002"),
         "maximum_atr_percent": ("0.025", "0.04"),
     },
+    "structural_trend_retest_v2": {
+        "lookback": (20, 30, 40), "retest_bars": (2, 4, 6),
+        "volume_multiplier": ("1.10", "1.20", "1.35"),
+        "pullback_volume_ratio": ("0.70", "0.85"),
+        "level_tolerance": ("0.002", "0.003", "0.005"),
+        "reward_multiple": ("1.5", "2", "2.5"),
+    },
+    "zero_dte_iron_condor": {
+        "maximum_opening_gap": ("0.02", "0.03", "0.04"),
+        "maximum_opening_range": ("0.01", "0.015", "0.02"),
+        "maximum_relative_volume": ("1.20", "1.50"),
+        "maximum_trend_strength": ("0.005", "0.01"),
+    },
 }
 
 

@@ -94,6 +94,27 @@ class OptionDataTests(TestCase):
 
 
 class DefinedRiskOptionFactoryTests(TestCase):
+    def test_zero_dte_policy_requires_timed_same_day_exit(self) -> None:
+        policy = OptionExecutionPolicy(
+            structure=OptionStructure.IRON_CONDOR,
+            source_strategy_id="zero_dte_iron_condor",
+            minimum_dte=0,
+            maximum_dte=0,
+            short_delta_target=Decimal("0.15"),
+            maximum_short_delta=Decimal("0.20"),
+            exit_before_expiry_days=0,
+            maximum_holding_minutes=210,
+        )
+        self.assertEqual(policy.maximum_holding_minutes, 210)
+        with self.assertRaisesRegex(ValueError, "zero exit"):
+            OptionExecutionPolicy(
+                structure=OptionStructure.IRON_CONDOR,
+                source_strategy_id="zero_dte_iron_condor",
+                minimum_dte=0,
+                maximum_dte=0,
+                exit_before_expiry_days=1,
+            )
+
     def test_put_income_policy_validates_delta_and_credit_ratio(self) -> None:
         with self.assertRaisesRegex(ValueError, "exceeds maximum"):
             OptionExecutionPolicy(

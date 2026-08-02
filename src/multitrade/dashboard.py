@@ -505,6 +505,9 @@ class DashboardData:
                                 "exit_before_expiry_days": (
                                     allocation.option_policy.exit_before_expiry_days
                                 ),
+                                "maximum_holding_minutes": (
+                                    allocation.option_policy.maximum_holding_minutes
+                                ),
                                 "maximum_quote_age_seconds": (
                                     allocation.option_policy.maximum_quote_age_seconds
                                 ),

@@ -520,12 +520,13 @@ class OptionExecutionPolicy:
     profit_target_fraction: Decimal = Decimal("0.50")
     loss_limit_multiple: Decimal = Decimal("1.50")
     exit_before_expiry_days: int = 7
+    maximum_holding_minutes: int | None = None
     maximum_quote_age_seconds: int = 120
 
     def __post_init__(self) -> None:
         if not self.source_strategy_id:
             raise ValueError("Option source_strategy_id is required")
-        if self.minimum_dte < 1 or self.maximum_dte < self.minimum_dte:
+        if self.minimum_dte < 0 or self.maximum_dte < self.minimum_dte:
             raise ValueError("Option DTE interval is invalid")
         for value in (
             self.long_delta_target,
@@ -545,10 +546,15 @@ class OptionExecutionPolicy:
             raise ValueError("profit_target_fraction must be in (0, 1)")
         if self.loss_limit_multiple <= ZERO:
             raise ValueError("loss_limit_multiple must be positive")
-        if not 1 <= self.exit_before_expiry_days < self.minimum_dte:
+        if self.minimum_dte == 0:
+            if self.exit_before_expiry_days != 0:
+                raise ValueError("0DTE policy requires zero exit_before_expiry_days")
+        elif not 1 <= self.exit_before_expiry_days < self.minimum_dte:
             raise ValueError(
                 "exit_before_expiry_days must be below minimum_dte"
             )
+        if self.maximum_holding_minutes is not None and not 30 <= self.maximum_holding_minutes <= 360:
+            raise ValueError("maximum_holding_minutes must be in [30, 360]")
         if not 15 <= self.maximum_quote_age_seconds <= 900:
             raise ValueError(
                 "maximum_quote_age_seconds must be in [15, 900]"
@@ -1392,6 +1398,7 @@ class DefinedRiskOptionSelector:
                 "exit_before_expiry_days": (
                     self.policy.exit_before_expiry_days
                 ),
+                "maximum_holding_minutes": self.policy.maximum_holding_minutes,
                 "required_options_trading_level": (
                     self.policy.required_trading_level
                 ),

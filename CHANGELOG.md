@@ -1,5 +1,19 @@
 # Changelog
 
+## 0.27.0 - 2026-08-02
+
+- Added `structural_trend_retest_v2`: trend regime, volume-confirmed resistance
+  break, lower-volume pullback, level hold, bullish rejection, and
+  structure-anchored invalidation.
+- Added research-only `zero_dte_iron_condor` for SPY/QQQ at 10:00 ET after a
+  bounded opening gap/range, relative-volume, trend-strength, and volatility
+  screen.
+- Added true 0DTE option-policy support, 45% premium target, capped four-leg
+  risk, 210-minute maximum holding time, and profit/loss checks before forced
+  time exit.
+- Registered immutable experiments and bounded optimization spaces. Paper
+  submission remains disabled.
+
 ## 0.26.0 - 2026-08-02
 
 - Added a causal Signal Inversion Laboratory for breakout/retest, trend

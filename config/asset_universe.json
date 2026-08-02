@@ -108,6 +108,12 @@
     },
     {
       "strategy_id":"t3_range_trend_inverse","selection_mode":"combined","policy_id":"liquid_us_breakout_candidates","manual_symbols":["SPY","QQQ","AAPL","MSFT","GLD","SLV"],"maximum_symbols":20
+    },
+    {
+      "strategy_id":"structural_trend_retest_v2","selection_mode":"combined","policy_id":"liquid_us_breakout_candidates","manual_symbols":["SPY","QQQ","AAPL","MSFT","AMD","NVDA"],"maximum_symbols":20
+    },
+    {
+      "strategy_id":"zero_dte_iron_condor","selection_mode":"manual","manual_symbols":["SPY","QQQ"],"maximum_symbols":2
     }
   ],
   "index_snapshots": [],

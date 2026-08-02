@@ -295,6 +295,11 @@ def load_account_plans(path: str | Path) -> tuple[AccountPlan, ...]:
                             "exit_before_expiry_days", 7
                         )
                     ),
+                    maximum_holding_minutes=(
+                        int(option_payload["maximum_holding_minutes"])
+                        if option_payload.get("maximum_holding_minutes") is not None
+                        else None
+                    ),
                     maximum_quote_age_seconds=int(
                         option_payload.get(
                             "maximum_quote_age_seconds", 120

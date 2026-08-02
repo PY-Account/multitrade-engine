@@ -2,6 +2,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass, fields
 from decimal import Decimal
+from zoneinfo import ZoneInfo
 
 from multitrade.domain import ZERO
 from multitrade.features import MarketRegime
@@ -855,6 +856,89 @@ class SignalInversionStrategy:
         )
 
 
+@dataclass(frozen=True, slots=True)
+class StructuralTrendRetestV2Strategy:
+    strategy_id: str = "structural_trend_retest_v2"
+    version: str = "2.0.0"
+    lookback: int = 30
+    retest_bars: int = 4
+    volume_multiplier: Decimal = Decimal("1.20")
+    pullback_volume_ratio: Decimal = Decimal("0.85")
+    level_tolerance: Decimal = Decimal("0.003")
+    reward_multiple: Decimal = Decimal("2")
+
+    def evaluate(self, context: StrategyContext) -> StrategySignal | None:
+        bars = context.bars
+        if len(bars) < self.lookback + self.retest_bars + 2:
+            return None
+        history = bars[-self.lookback-self.retest_bars-1:-self.retest_bars-1]
+        breakout = bars[-self.retest_bars-1]
+        pullback = bars[-self.retest_bars:]
+        level = max(bar.high for bar in history)
+        average_volume = _mean(tuple(bar.volume for bar in history))
+        breakout_ok = breakout.close > level and breakout.volume >= average_volume * self.volume_multiplier
+        pullback_volume = _mean(tuple(bar.volume for bar in pullback))
+        retest = pullback[-1]
+        retest_ok = (
+            min(bar.low for bar in pullback) <= level * (Decimal("1") + self.level_tolerance)
+            and all(bar.close >= level * (Decimal("1") - self.level_tolerance) for bar in pullback)
+            and pullback_volume <= breakout.volume * self.pullback_volume_ratio
+            and retest.close > retest.open
+            and retest.close > level
+        )
+        trend_ok = context.features.regime is MarketRegime.TREND_UP and context.features.sma_fast > context.features.sma_slow
+        if not (breakout_ok and retest_ok and trend_ok):
+            return None
+        stop = min(bar.low for bar in pullback) - context.features.atr * Decimal("0.25")
+        if stop <= ZERO or stop >= retest.close:
+            return None
+        return create_signal(context=context, strategy_id=self.strategy_id, version=self.version,
+            action=SignalAction.ENTER_LONG, confidence=Decimal("0.72"), reference_price=retest.close,
+            stop_price=stop, target_price=_target(retest.close, stop, self.reward_multiple),
+            reason_codes=("higher_timeframe_proxy_uptrend","volume_confirmed_breakout","low_volume_structural_retest","bullish_rejection"),
+            evidence={"breakout_level":level,"breakout_volume":breakout.volume,"pullback_average_volume":pullback_volume,"regime":context.features.regime})
+
+
+@dataclass(frozen=True, slots=True)
+class ZeroDteIronCondorStrategy:
+    strategy_id: str = "zero_dte_iron_condor"
+    version: str = "1.0.0"
+    maximum_opening_gap: Decimal = Decimal("0.04")
+    maximum_opening_range: Decimal = Decimal("0.02")
+    maximum_relative_volume: Decimal = Decimal("1.50")
+    maximum_trend_strength: Decimal = Decimal("0.01")
+
+    def evaluate(self, context: StrategyContext) -> StrategySignal | None:
+        eastern = ZoneInfo("America/New_York")
+        latest_et = context.bars[-1].timestamp.astimezone(eastern)
+        if not (latest_et.hour == 10 and latest_et.minute < 10):
+            return None
+        today = tuple(bar for bar in context.bars if bar.timestamp.astimezone(eastern).date() == latest_et.date())
+        earlier = tuple(bar for bar in context.bars if bar.timestamp.astimezone(eastern).date() < latest_et.date())
+        if len(today) < 6 or not earlier:
+            return None
+        opening = today[:6]
+        prior_close = earlier[-1].close
+        gap = abs(opening[0].open / prior_close - Decimal("1"))
+        opening_range = (max(bar.high for bar in opening) - min(bar.low for bar in opening)) / opening[0].open
+        quiet = (
+            gap <= self.maximum_opening_gap
+            and opening_range <= self.maximum_opening_range
+            and context.features.relative_volume <= self.maximum_relative_volume
+            and context.features.trend_strength <= self.maximum_trend_strength
+            and context.features.regime is not MarketRegime.HIGH_VOLATILITY
+        )
+        if not quiet:
+            return None
+        reference = context.bars[-1].close
+        stop = reference - max(context.features.atr, reference * Decimal("0.005"))
+        return create_signal(context=context, strategy_id=self.strategy_id, version=self.version,
+            action=SignalAction.ENTER_LONG, confidence=Decimal("0.68"), reference_price=reference,
+            stop_price=stop, target_price=_target(reference, stop, Decimal("1")),
+            reason_codes=("zero_dte_research_window","opening_gap_bounded","opening_range_bounded","non_trending_session_filter"),
+            evidence={"prior_close":prior_close,"opening_gap":gap,"opening_range_fraction":opening_range,"execution_vehicle":"iron_condor","entry_window_et":"10:00-10:10"})
+
+
 def default_equity_strategies() -> dict[str, Strategy]:
     strategies: tuple[Strategy, ...] = (
         BreakoutRetestStrategy(),
@@ -870,6 +954,8 @@ def default_equity_strategies() -> dict[str, Strategy]:
         SignalInversionStrategy("trend_pullback_inverse", "1.0.0", "trend_pullback"),
         SignalInversionStrategy("chart_pattern_inverse", "1.0.0", "chart_pattern_confluence"),
         SignalInversionStrategy("t3_range_trend_inverse", "1.0.0", "t3_range_trend"),
+        StructuralTrendRetestV2Strategy(),
+        ZeroDteIronCondorStrategy(),
     )
     return {
         strategy.strategy_id: strategy for strategy in strategies
@@ -896,6 +982,8 @@ def equity_strategy_from_parameters(
         "trend_pullback_inverse": SignalInversionStrategy,
         "chart_pattern_inverse": SignalInversionStrategy,
         "t3_range_trend_inverse": SignalInversionStrategy,
+        "structural_trend_retest_v2": StructuralTrendRetestV2Strategy,
+        "zero_dte_iron_condor": ZeroDteIronCondorStrategy,
     }
     strategy_type = strategy_types.get(strategy_id)
     if strategy_type is None:

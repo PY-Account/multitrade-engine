@@ -647,9 +647,10 @@ class PaperAutomationService:
                     )
                 )
                 reason = None
-                if days_to_expiration <= exit_days:
-                    reason = "expiration_window"
-                elif estimated_pnl >= (
+                maximum_holding = explanation.get("maximum_holding_minutes")
+                created_at = datetime.fromisoformat(str(trade["created_at"]).replace("Z", "+00:00"))
+                held_minutes = (checked_at - created_at).total_seconds() / 60
+                if estimated_pnl >= (
                     premium_basis * profit_target
                 ):
                     reason = "profit_target"
@@ -657,6 +658,10 @@ class PaperAutomationService:
                     premium_basis * loss_multiple
                 ):
                     reason = "loss_limit"
+                elif maximum_holding is not None and held_minutes >= int(maximum_holding):
+                    reason = "maximum_holding_time"
+                elif maximum_holding is None and days_to_expiration <= exit_days:
+                    reason = "expiration_window"
                 self.store.record_event(
                     "option_exit_evaluated",
                     trade["intent_id"],
