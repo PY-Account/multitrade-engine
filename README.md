@@ -5,7 +5,11 @@ algorithmic-trading organization. It separates market analysis, strategy
 signals, portfolio allocation, central risk approval, broker execution,
 reconciliation, audit, backtesting, and monitoring.
 
-Release 0.18 adds trade-attribution diagnostics to bounded, all-candidate
+Release 0.19 turns trade-attribution diagnostics into a bounded research
+decision queue. It ranks candidates within each family, distinguishes a
+broken signal from an edge erased by costs, and drafts a preregistered next
+hypothesis while keeping automatic parameter changes and execution blocked.
+Release 0.18 added trade-attribution diagnostics to bounded, all-candidate
 accelerated historical validation. Scorecards now separate gross signal
 results from modeled costs and identify symbol, regime, entry-hour, exit,
 MFE, and MAE failure concentrations on top of audited Paper strategy controls,

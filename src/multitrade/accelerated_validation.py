@@ -11,6 +11,7 @@ from uuid import uuid4
 from multitrade.audit import SqliteAuditStore
 from multitrade.config import Settings
 from multitrade.portfolio import AccountPlan
+from multitrade.research_decisions import build_research_decision
 from multitrade.strategy_lab import (
     ContinuousStrategyLabService,
     StrategyLabReport,
@@ -361,6 +362,43 @@ class AcceleratedValidationService:
             scorecard_from_report(report, run_id=run_id)
             for report in self.lab_service.last_reports
         )
+        family_members: dict[str, list[AcceleratedScorecard]] = {}
+        for scorecard in scorecards:
+            family_members.setdefault(scorecard.family_id, []).append(
+                scorecard
+            )
+        enriched: list[AcceleratedScorecard] = []
+        for family_id, members in family_members.items():
+            ordered = sorted(
+                members,
+                key=lambda item: (
+                    -item.research_score,
+                    -int(
+                        item.metrics.get(
+                            "out_of_sample_trade_count", 0
+                        )
+                    ),
+                    item.candidate_id,
+                ),
+            )
+            for family_rank, scorecard in enumerate(ordered, start=1):
+                metrics = dict(scorecard.metrics)
+                metrics["research_decision"] = build_research_decision(
+                    candidate_id=scorecard.candidate_id,
+                    family_id=family_id,
+                    classification=scorecard.classification,
+                    failed_gates=scorecard.failed_gates,
+                    research_score=scorecard.research_score,
+                    attribution=metrics.get(
+                        "diagnostic_attribution", {}
+                    ),
+                    family_rank=family_rank,
+                    family_candidate_count=len(ordered),
+                )
+                enriched.append(replace(scorecard, metrics=metrics))
+        scorecards = tuple(
+            sorted(enriched, key=lambda item: item.candidate_id)
+        )
         classifications = Counter(
             item.classification for item in scorecards
         )
@@ -389,6 +427,22 @@ class AcceleratedValidationService:
             "all_candidates_evaluated_same_cycle": True,
             "prospective_trial_count_incremented": False,
             "execution_enabled": False,
+            "research_shortlist": tuple(
+                item.candidate_id
+                for item in sorted(
+                    scorecards,
+                    key=lambda candidate: (
+                        candidate.metrics["research_decision"][
+                            "family_rank"
+                        ],
+                        -candidate.research_score,
+                        candidate.candidate_id,
+                    ),
+                )
+                if item.metrics["research_decision"]["family_rank"]
+                == 1
+            ),
+            "automatic_parameter_changes": False,
         }
         run = AcceleratedValidationRun(
             run_id=run_id,

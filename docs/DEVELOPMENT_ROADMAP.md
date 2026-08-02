@@ -5,6 +5,15 @@ the current Paper configuration, or authorize live trading.
 
 ## 1. Accelerated strategy-validation pipeline
 
+### Delivered in 0.19
+
+- deterministic evidence-to-research decisions for every candidate;
+- within-family research ranking and a non-executable shortlist;
+- minimum-sample rules for regime, entry-hour, and symbol loss segments;
+- explicit V2 hypotheses and mandatory untouched validation evidence;
+- a dashboard Research Decision Queue with automatic tuning and execution
+  disabled.
+
 ### Delivered in 0.17
 
 - one-command evaluation of every frozen baseline and registered sensitivity

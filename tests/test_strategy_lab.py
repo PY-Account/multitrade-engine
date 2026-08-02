@@ -781,8 +781,18 @@ class StrategyLabTests(TestCase):
                 all(
                     0 <= item.research_score <= 100
                     and not item.execution_eligible
+                    and not item.metrics["research_decision"][
+                        "execution_eligible"
+                    ]
+                    and not item.metrics["research_decision"][
+                        "automatic_parameter_change"
+                    ]
                     for item in run.scorecards
                 )
+            )
+            self.assertEqual(len(run.summary["research_shortlist"]), 1)
+            self.assertFalse(
+                run.summary["automatic_parameter_changes"]
             )
             self.assertEqual(
                 len(run.dataset_fingerprints), 1
@@ -796,6 +806,12 @@ class StrategyLabTests(TestCase):
             self.assertEqual(len(stored_runs), 1)
             self.assertFalse(
                 stored_runs[0]["execution_eligible"]
+            )
+            self.assertTrue(
+                all(
+                    "research_decision" in item["metrics"]
+                    for item in stored_runs[0]["scorecards"]
+                )
             )
             self.assertFalse(
                 stored_runs[0]["summary"][

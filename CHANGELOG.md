@@ -1,5 +1,24 @@
 # Changelog
 
+## 0.19.0 - 2026-08-02
+
+- Added an evidence-to-research decision engine to every accelerated
+  candidate scorecard. It distinguishes missing evidence, negative gross
+  expectancy, cost-erased edge, weak profit factor, robustness work, and
+  candidates ready for untouched confirmation.
+- Added deterministic within-family ranking and a research shortlist. Ranking
+  prioritizes investigation only and cannot authorize Paper or live orders.
+- Added supported-loss-segment detection across regime, New York entry hour,
+  and symbol. A segment requires at least five trades and at least ten percent
+  of the candidate sample, preventing one-trade anecdotes from becoming V2
+  filters.
+- Added a dashboard Research Decision Queue showing the recommended action,
+  rationale, preregistered V2 hypothesis, supporting segment, and mandatory
+  next evidence.
+- Every recommendation marks the inspected dataset as development evidence,
+  requires a new untouched chronological holdout and adverse-cost retest, and
+  explicitly disables automatic parameter changes and execution eligibility.
+
 ## 0.18.0 - 2026-07-30
 
 - Added decision-time diagnostic attribution to every accelerated candidate:

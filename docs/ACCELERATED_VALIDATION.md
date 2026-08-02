@@ -113,3 +113,23 @@ Use that run to write a limited, mechanism-based Strategy v2 hypothesis.
 Because the diagnostic dataset has then been inspected, it remains
 development evidence; final acceptance still requires untouched or future
 observations.
+
+## Research decision queue
+
+Version 0.19 translates each fixed candidate's diagnostics into one bounded
+next action. The action differentiates no evidence, negative expectancy before
+costs, gross edge erased by costs, insufficient profit factor, remaining
+robustness work, and historical candidates that should stop tuning and move to
+untouched confirmation.
+
+Candidates are ranked only against the other frozen members of their family.
+The family winner is a research priority, not a trading approval. A losing
+regime, entry hour, or symbol is mentioned as a V2 hypothesis only when it has
+at least five trades and represents at least ten percent of the candidate's
+out-of-sample sample. The system never deletes those trades retrospectively.
+
+Once the queue uses a dataset to draft a hypothesis, that dataset is labeled
+`inspected_not_holdout`. A V2 candidate must be preregistered as a distinct
+experiment and evaluated on a later untouched chronological holdout, under
+adverse costs and cross-symbol breadth gates. Automatic parameter mutation and
+execution eligibility remain false.

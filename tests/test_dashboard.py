@@ -344,8 +344,12 @@ class DashboardTests(TestCase):
                     'id="accelerated-diagnostics"', html
                 )
                 self.assertIn(
+                    'id="accelerated-research-decisions"', html
+                )
+                self.assertIn(
                     "Trade attribution diagnostics", html
                 )
+                self.assertIn("Research decision queue", html)
                 self.assertIn(
                     "prospective trial count was not incremented",
                     html,

@@ -594,6 +594,18 @@
         <tbody id="accelerated-diagnostics"></tbody>
       </table>
     </div>
+    <div class="panel-head">
+      <div>
+        <h3>Research decision queue</h3>
+        <p class="subcopy">Evidence-based next actions ranked within each strategy family. A recommendation creates a bounded research hypothesis only; it never edits parameters, approves a candidate, or enables execution.</p>
+      </div>
+    </div>
+    <div class="table-wrap">
+      <table>
+        <thead><tr><th>Family rank</th><th>Strategy / variant</th><th>Recommended action</th><th>Why</th><th>Preregistered V2 hypothesis</th><th>Supported weak segment</th><th>Required next evidence</th><th>Automation</th><th>Execution</th></tr></thead>
+        <tbody id="accelerated-research-decisions"></tbody>
+      </table>
+    </div>
   </section>
 
   <section class="panel workspace-view" data-primary="strategy-lab" data-secondary="validation">
@@ -1658,8 +1670,12 @@
     const diagnosticBody = document.getElementById(
       "accelerated-diagnostics"
     );
+    const decisionBody = document.getElementById(
+      "accelerated-research-decisions"
+    );
     body.replaceChildren();
     diagnosticBody.replaceChildren();
+    decisionBody.replaceChildren();
     const run = (runs || []).find(
       item => item.account_id === selectedAccountId
     );
@@ -1681,6 +1697,11 @@
         diagnosticBody,
         15,
         "No accelerated trade diagnostics are stored for this account."
+      );
+      emptyRow(
+        decisionBody,
+        9,
+        "No research decisions are stored for this account."
       );
       return;
     }
@@ -1721,6 +1742,11 @@
         diagnosticBody,
         15,
         "The run completed without candidate diagnostics."
+      );
+      emptyRow(
+        decisionBody,
+        9,
+        "The run completed without candidate research decisions."
       );
       return;
     }
@@ -1832,6 +1858,53 @@
         diagnosticRow.appendChild(cell(value, className));
       }
       diagnosticBody.appendChild(diagnosticRow);
+
+      const decision = metrics.research_decision || {};
+      const weak = decision.supported_weak_bucket;
+      const decisionValues = [
+        [
+          decision.family_rank
+            ? `${decision.family_rank}/${decision.family_candidate_count}`
+            : "Rerun required",
+          decision.family_rank === 1 ? "ok" : "",
+        ],
+        [
+          `${scorecard.strategy_id} / ${scorecard.variant_id}`,
+          scorecard.comparison_variant ? "warn" : "",
+        ],
+        [
+          decision.recommended_action
+            ? decision.recommended_action.replaceAll("_", " ")
+            : "Rerun required for decision",
+          decision.recommended_action ? "" : "warn",
+        ],
+        [decision.rationale || "--", ""],
+        [decision.preregistered_hypothesis || "--", ""],
+        [
+          weak
+            ? `${weak.dimension}: ${weak.bucket} · ${weak.trade_count} trades · ${money(weak.net_profit)}`
+            : "No sufficiently supported loss segment",
+          weak ? "warn" : "",
+        ],
+        [
+          (decision.required_next_evidence || [])
+            .map(item => String(item).replaceAll("_", " "))
+            .join("; ") || "--",
+          "",
+        ],
+        [
+          decision.automatic_parameter_change
+            ? "Unexpected automatic change"
+            : "Manual review + preregistration",
+          decision.automatic_parameter_change ? "bad" : "ok",
+        ],
+        ["Blocked (research only)", "ok"],
+      ];
+      const decisionRow = document.createElement("tr");
+      for (const [value, className] of decisionValues) {
+        decisionRow.appendChild(cell(value, className));
+      }
+      decisionBody.appendChild(decisionRow);
     }
   }
 
