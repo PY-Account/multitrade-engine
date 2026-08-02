@@ -8,7 +8,12 @@ from pathlib import Path
 from tempfile import TemporaryDirectory
 from unittest import TestCase
 from urllib.error import HTTPError
-from urllib.request import Request, urlopen
+from urllib.request import (
+    HTTPRedirectHandler,
+    Request,
+    build_opener,
+    urlopen,
+)
 
 from multitrade.audit import SqliteAuditStore
 from multitrade.dashboard import DashboardData, create_dashboard_server
@@ -270,10 +275,11 @@ class DashboardTests(TestCase):
             thread.start()
             port = server.server_address[1]
             try:
-                with self.assertRaises(HTTPError) as error:
-                    urlopen(f"http://127.0.0.1:{port}/", timeout=3)
-                self.assertEqual(error.exception.code, 401)
-                error.exception.close()
+                with urlopen(
+                    f"http://127.0.0.1:{port}/", timeout=3
+                ) as login_response:
+                    login_html = login_response.read().decode("utf-8")
+                self.assertIn("Secure operator sign in", login_html)
 
                 token = base64.b64encode(
                     b"operator:a-long-test-password"
@@ -386,6 +392,104 @@ class DashboardTests(TestCase):
                 self.assertIn('Universe correlation and concentration', html)
                 self.assertNotIn("{{NONCE}}", html)
                 self.assertIn("script-src 'nonce-", policy)
+            finally:
+                server.shutdown()
+                server.server_close()
+                thread.join(timeout=3)
+
+    def test_form_login_creates_secure_session_and_logout_revokes_it(
+        self,
+    ) -> None:
+        class NoRedirect(HTTPRedirectHandler):
+            def redirect_request(self, *args, **kwargs):
+                del args, kwargs
+                return None
+
+        with TemporaryDirectory() as directory:
+            service, _, _ = self._fixture(directory)
+            server = create_dashboard_server(
+                "127.0.0.1",
+                0,
+                service,
+                username="operator",
+                password="a-long-test-password",
+            )
+            thread = threading.Thread(
+                target=server.serve_forever, daemon=True
+            )
+            thread.start()
+            port = server.server_address[1]
+            opener = build_opener(NoRedirect())
+            try:
+                with urlopen(
+                    f"http://127.0.0.1:{port}/login", timeout=3
+                ) as response:
+                    login_html = response.read().decode("utf-8")
+                    policy = response.headers["Content-Security-Policy"]
+                csrf = re.search(
+                    r'name="csrf_token" value="([^"]+)"', login_html
+                ).group(1)
+                self.assertIn("form-action 'self'", policy)
+
+                body = (
+                    f"csrf_token={csrf}&username=operator&"
+                    "password=a-long-test-password"
+                ).encode("ascii")
+                request = Request(
+                    f"http://127.0.0.1:{port}/login",
+                    data=body,
+                    method="POST",
+                    headers={
+                        "Content-Type": (
+                            "application/x-www-form-urlencoded"
+                        )
+                    },
+                )
+                with self.assertRaises(HTTPError) as redirect:
+                    opener.open(request, timeout=3)
+                self.assertEqual(redirect.exception.code, 303)
+                cookie = redirect.exception.headers["Set-Cookie"]
+                redirect.exception.close()
+                self.assertIn("Secure", cookie)
+                self.assertIn("HttpOnly", cookie)
+                self.assertIn("SameSite=Strict", cookie)
+                session_cookie = cookie.split(";", 1)[0]
+
+                root = Request(
+                    f"http://127.0.0.1:{port}/",
+                    headers={"Cookie": session_cookie},
+                )
+                with urlopen(root, timeout=3) as response:
+                    dashboard_html = response.read().decode("utf-8")
+                self.assertIn("Broker monitoring", dashboard_html)
+                logout_csrf = re.search(
+                    r'name="csrf-token" content="([^"]+)"',
+                    dashboard_html,
+                ).group(1)
+                logout_body = f"csrf_token={logout_csrf}".encode("ascii")
+                logout = Request(
+                    f"http://127.0.0.1:{port}/logout",
+                    data=logout_body,
+                    method="POST",
+                    headers={
+                        "Cookie": session_cookie,
+                        "Content-Type": (
+                            "application/x-www-form-urlencoded"
+                        ),
+                    },
+                )
+                with self.assertRaises(HTTPError) as redirect:
+                    opener.open(logout, timeout=3)
+                self.assertEqual(redirect.exception.code, 303)
+                self.assertIn(
+                    "Max-Age=0",
+                    redirect.exception.headers["Set-Cookie"],
+                )
+                redirect.exception.close()
+
+                with urlopen(root, timeout=3) as response:
+                    signed_out_html = response.read().decode("utf-8")
+                self.assertIn("Secure operator sign in", signed_out_html)
             finally:
                 server.shutdown()
                 server.server_close()

@@ -138,7 +138,8 @@ The 3% and 10% figures are hard ceilings, not operating targets.
 - Atomic firm-wide risk limits cap aggregate, repeated-underlying, and
   repeated-strategy risk across every managed account. Stale account equity is
   excluded from capacity while its active reservations remain counted.
-- Authenticated HTTPS operations dashboard with hierarchical Account, Asset
+- Authenticated HTTPS operations dashboard with a secure form session and
+  hierarchical Account, Asset
   Universe, Strategy Lab, Allocation & Risk, Operations, and Management
   workspaces; account selection; strategy runtime, signals, trade
   explanations, validation results, browser-local display preferences,

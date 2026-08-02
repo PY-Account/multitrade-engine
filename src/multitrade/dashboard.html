@@ -285,6 +285,10 @@
       <div class="header-actions">
         <span class="release-badge" id="release-version" title="Deployed code revision">v-- · build --</span>
         <button id="preferences-open" type="button">Preferences</button>
+        <form method="post" action="/logout">
+          <input type="hidden" name="csrf_token" value="{{CSRF_TOKEN}}">
+          <button type="submit">Sign out</button>
+        </form>
       </div>
       <div id="updated">Waiting for reconciliation...</div>
     </div>

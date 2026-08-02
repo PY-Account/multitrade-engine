@@ -11,6 +11,7 @@ import time
 from datetime import datetime, timezone
 from decimal import Decimal, InvalidOperation
 from hmac import compare_digest
+from http.cookies import SimpleCookie
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 from typing import Any
@@ -37,6 +38,26 @@ from multitrade.universe import AssetUniverseProgram, program_payload
 _DASHBOARD_HTML = (
     Path(__file__).with_name("dashboard.html").read_text(encoding="utf-8")
 )
+
+_LOGIN_HTML = """<!doctype html>
+<html lang="en"><head><meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>MultiTrade sign in</title>
+<style nonce="{{NONCE}}">
+body{margin:0;min-height:100vh;display:grid;place-items:center;background:#08131d;
+color:#eaf4fb;font:16px system-ui,sans-serif}main{width:min(390px,calc(100% - 32px));
+background:#101f2b;border:1px solid #294152;border-radius:16px;padding:28px;
+box-sizing:border-box}h1{margin:0 0 8px}p{color:#a9c0cf}label{display:block;margin:18px 0 6px}
+input{box-sizing:border-box;width:100%;padding:12px;border-radius:8px;border:1px solid
+#3c596b;background:#07121b;color:#fff}button{width:100%;margin-top:22px;padding:12px;
+border:0;border-radius:8px;background:#3ba6ff;color:#04111b;font-weight:700;cursor:pointer}
+.error{color:#ff9c9c}</style></head><body><main><h1>MultiTrade Operations</h1>
+<p>Secure operator sign in</p>{{ERROR}}<form method="post" action="/login">
+<input type="hidden" name="csrf_token" value="{{CSRF_TOKEN}}">
+<label for="username">Username</label><input id="username" name="username"
+autocomplete="username" required maxlength="128"><label for="password">Password</label>
+<input id="password" name="password" type="password" autocomplete="current-password"
+required maxlength="512"><button type="submit">Sign in</button></form></main></body></html>"""
 
 
 class DashboardData:
@@ -817,6 +838,10 @@ class DashboardRequestHandler(BaseHTTPRequestHandler):
     csrf_tokens: dict[str, tuple[str, float]] = {}
     config_lock = threading.Lock()
     configured_username: str
+    session_lock = threading.Lock()
+    sessions: dict[str, float] = {}
+    session_lifetime_seconds: int = 28800
+    session_cookie_name = "__Host-multitrade_session"
     analyst_api_enabled: bool = False
     analyst_api_token: str = ""
     analyst_requests_per_minute: int = 30
@@ -831,15 +856,18 @@ class DashboardRequestHandler(BaseHTTPRequestHandler):
         if parsed.path.startswith("/api/analyst/v1/"):
             self._serve_analyst_get(parsed)
             return
+        if parsed.path == "/login":
+            self._send_login_page()
+            return
         if not self._authorized():
-            self.send_response(401)
-            self.send_header(
-                "WWW-Authenticate",
-                'Basic realm="MultiTrade Operations", charset="UTF-8"',
-            )
-            self._security_headers()
-            self.send_header("Content-Length", "0")
-            self.end_headers()
+            if parsed.path == "/":
+                self.send_response(303)
+                self._security_headers()
+                self.send_header("Location", "/login")
+                self.send_header("Content-Length", "0")
+                self.end_headers()
+            else:
+                self._send_json(401, {"error": "authentication_required"})
             return
         if parsed.path == "/":
             nonce = secrets.token_urlsafe(18)
@@ -851,7 +879,7 @@ class DashboardRequestHandler(BaseHTTPRequestHandler):
                 .encode("utf-8")
             )
             self.send_response(200)
-            self._security_headers(nonce)
+            self._security_headers(nonce, allow_forms=True)
             self.send_header("Content-Type", "text/html; charset=utf-8")
             self.send_header("Content-Length", str(len(payload)))
             self.end_headers()
@@ -887,6 +915,12 @@ class DashboardRequestHandler(BaseHTTPRequestHandler):
 
     def do_POST(self) -> None:
         parsed = urlparse(self.path)
+        if parsed.path == "/login":
+            self._handle_login()
+            return
+        if parsed.path == "/logout":
+            self._handle_logout()
+            return
         if parsed.path.startswith("/api/analyst/"):
             try:
                 length = int(self.headers.get("Content-Length", "0"))
@@ -951,6 +985,107 @@ class DashboardRequestHandler(BaseHTTPRequestHandler):
             self._send_json(503, {"error": "configuration_store_unavailable"})
             return
         self._send_json(200, {"status": "updated", "configuration": result})
+
+    def _send_login_page(self, error: bool = False) -> None:
+        nonce = secrets.token_urlsafe(18)
+        csrf_token = secrets.token_urlsafe(32)
+        self._register_csrf_token(csrf_token)
+        error_html = (
+            '<p class="error">Invalid username or password.</p>'
+            if error
+            else ""
+        )
+        payload = (
+            _LOGIN_HTML.replace("{{NONCE}}", nonce)
+            .replace("{{CSRF_TOKEN}}", csrf_token)
+            .replace("{{ERROR}}", error_html)
+            .encode("utf-8")
+        )
+        self.send_response(401 if error else 200)
+        self._security_headers(nonce, allow_forms=True)
+        self.send_header("Content-Type", "text/html; charset=utf-8")
+        self.send_header("Content-Length", str(len(payload)))
+        self.end_headers()
+        self.wfile.write(payload)
+
+    def _read_form(self) -> dict[str, str] | None:
+        if not self.headers.get("Content-Type", "").lower().startswith(
+            "application/x-www-form-urlencoded"
+        ):
+            return None
+        try:
+            length = int(self.headers.get("Content-Length", "0"))
+        except ValueError:
+            return None
+        if length < 1 or length > 4096:
+            return None
+        try:
+            values = parse_qs(
+                self.rfile.read(length).decode("utf-8"),
+                keep_blank_values=True,
+                max_num_fields=4,
+            )
+        except (UnicodeDecodeError, ValueError):
+            return None
+        return {key: rows[0] for key, rows in values.items() if rows}
+
+    def _handle_login(self) -> None:
+        form = self._read_form()
+        if form is None or not self._valid_csrf_token(
+            form.get("csrf_token", "")
+        ):
+            self._send_json(400, {"error": "invalid_login_request"})
+            return
+        encoded = base64.b64encode(
+            f"{form.get('username', '')}:{form.get('password', '')}".encode(
+                "utf-8"
+            )
+        ).decode("ascii")
+        if not self._authorization_attempt(f"Basic {encoded}"):
+            self._send_login_page(error=True)
+            return
+        session_id = secrets.token_urlsafe(48)
+        expires_at = time.monotonic() + self.session_lifetime_seconds
+        handler = type(self)
+        with handler.session_lock:
+            handler.sessions[session_id] = expires_at
+        self.send_response(303)
+        self._security_headers()
+        self.send_header("Location", "/")
+        self.send_header(
+            "Set-Cookie",
+            f"{self.session_cookie_name}={session_id}; Path=/; "
+            "Secure; HttpOnly; SameSite=Strict; Max-Age="
+            f"{self.session_lifetime_seconds}",
+        )
+        self.send_header("Content-Length", "0")
+        self.end_headers()
+
+    def _handle_logout(self) -> None:
+        if not self._authorized():
+            self._send_json(401, {"error": "authentication_required"})
+            return
+        form = self._read_form()
+        if form is None or not self._valid_csrf_token(
+            form.get("csrf_token", "")
+        ):
+            self._send_json(403, {"error": "invalid_csrf_token"})
+            return
+        session_id = self._session_id()
+        if session_id:
+            handler = type(self)
+            with handler.session_lock:
+                handler.sessions.pop(session_id, None)
+        self.send_response(303)
+        self._security_headers()
+        self.send_header("Location", "/login")
+        self.send_header(
+            "Set-Cookie",
+            f"{self.session_cookie_name}=; Path=/; Secure; HttpOnly; "
+            "SameSite=Strict; Max-Age=0",
+        )
+        self.send_header("Content-Length", "0")
+        self.end_headers()
 
     def _serve_analyst_get(self, parsed: Any) -> None:
         auth_status = self._analyst_auth_status()
@@ -1049,6 +1184,29 @@ class DashboardRequestHandler(BaseHTTPRequestHandler):
         return 200
 
     def _authorized(self) -> bool:
+        session_id = self._session_id()
+        if session_id:
+            now = time.monotonic()
+            handler = type(self)
+            with handler.session_lock:
+                expires_at = handler.sessions.get(session_id, 0)
+                if expires_at > now:
+                    return True
+                handler.sessions.pop(session_id, None)
+        return self._authorization_attempt(
+            self.headers.get("Authorization", "")
+        )
+
+    def _session_id(self) -> str:
+        cookie = SimpleCookie()
+        try:
+            cookie.load(self.headers.get("Cookie", ""))
+        except Exception:
+            return ""
+        morsel = cookie.get(self.session_cookie_name)
+        return morsel.value if morsel is not None else ""
+
+    def _authorization_attempt(self, supplied: str) -> bool:
         client = self.client_address[0]
         now = time.monotonic()
         with self.auth_lock:
@@ -1057,7 +1215,6 @@ class DashboardRequestHandler(BaseHTTPRequestHandler):
                 return False
             if blocked_until:
                 self.auth_blocked_until.pop(client, None)
-        supplied = self.headers.get("Authorization", "")
         authorized = compare_digest(
             supplied, self.expected_authorization
         )
@@ -1104,9 +1261,12 @@ class DashboardRequestHandler(BaseHTTPRequestHandler):
                 and details[1] > now
             )
 
-    def _security_headers(self, nonce: str | None = None) -> None:
+    def _security_headers(
+        self, nonce: str | None = None, *, allow_forms: bool = False
+    ) -> None:
         script_source = f"'nonce-{nonce}'" if nonce else "'none'"
         style_source = f"'nonce-{nonce}'" if nonce else "'none'"
+        form_source = "'self'" if allow_forms else "'none'"
         self.send_header("Cache-Control", "no-store")
         self.send_header("X-Content-Type-Options", "nosniff")
         self.send_header("X-Frame-Options", "DENY")
@@ -1120,7 +1280,9 @@ class DashboardRequestHandler(BaseHTTPRequestHandler):
             "default-src 'none'; "
             f"script-src {script_source}; style-src {style_source}; "
             "connect-src 'self'; img-src 'self'; "
-            "base-uri 'none'; form-action 'none'; frame-ancestors 'none'",
+            "base-uri 'none'; "
+            f"form-action {form_source}; "
+            "frame-ancestors 'none'",
         )
 
     def _send_json(self, status: int, value: Any) -> None:
@@ -1164,6 +1326,8 @@ def create_dashboard_server(
     ConfiguredHandler.csrf_tokens = {}
     ConfiguredHandler.config_lock = threading.Lock()
     ConfiguredHandler.configured_username = username
+    ConfiguredHandler.session_lock = threading.Lock()
+    ConfiguredHandler.sessions = {}
     ConfiguredHandler.analyst_api_enabled = analyst_api_enabled
     ConfiguredHandler.analyst_api_token = analyst_api_token
     ConfiguredHandler.analyst_requests_per_minute = (

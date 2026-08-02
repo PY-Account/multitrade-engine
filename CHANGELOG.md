@@ -1,5 +1,18 @@
 # Changelog
 
+## 0.23.1 - 2026-08-02
+
+- Replaced the browser-native HTTP Basic prompt with a first-party login page
+  so the Codex in-app browser can authenticate normally.
+- Added opaque server-side sessions with a secure `__Host-` cookie, HttpOnly,
+  SameSite Strict, an eight-hour maximum lifetime, and immediate revocation on
+  logout or dashboard restart.
+- Added login CSRF validation, bounded form parsing, existing authentication
+  throttling/temporary lockout, a CSRF-protected logout control, and a strict
+  self-only form CSP.
+- Retained HTTP Basic support for existing API clients while unauthenticated
+  browser navigation now redirects to the login page.
+
 ## 0.23.0 - 2026-08-02
 
 - Added an opt-in, HTTPS-compatible Analyst API with separate Bearer-token
