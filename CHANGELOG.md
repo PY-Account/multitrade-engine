@@ -1,5 +1,13 @@
 # Changelog
 
+## 0.25.1 - 2026-08-02
+
+- Fixed the put-income V2 base evaluator dispatch for the server's CPython
+  runtime. Frozen slotted dataclass inheritance could raise
+  `super(type, obj)` before accelerated validation began.
+- Retained the separate V2 identity, frozen parameters, risk constraints, and
+  execution blocks unchanged.
+
 ## 0.25.0 - 2026-08-02
 
 - Added separately identified and preregistered

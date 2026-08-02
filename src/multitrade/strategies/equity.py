@@ -716,7 +716,9 @@ class SupportDeltaPutIncomeV2Strategy(SupportDeltaPutIncomeStrategy):
             or context.features.atr_percent > self.maximum_atr_percent
         ):
             return None
-        signal = super().evaluate(context)
+        # Explicit dispatch avoids CPython's zero-argument super() edge case
+        # with frozen, slotted dataclass inheritance on the server runtime.
+        signal = SupportDeltaPutIncomeStrategy.evaluate(self, context)
         if signal is None:
             return None
         return create_signal(
