@@ -5,7 +5,11 @@ algorithmic-trading organization. It separates market analysis, strategy
 signals, portfolio allocation, central risk approval, broker execution,
 reconciliation, audit, backtesting, and monitoring.
 
-Release 0.19 turns trade-attribution diagnostics into a bounded research
+Release 0.20 adds opt-in nested parameter optimization: bounded parameter
+grids are ranked on an earlier development segment and only the winner of each
+strategy is tested once on a later untouched holdout. Results remain
+research-only and cannot change account configuration or execution authority.
+Release 0.19 turned trade-attribution diagnostics into a bounded research
 decision queue. It ranks candidates within each family, distinguishes a
 broken signal from an edge erased by costs, and drafts a preregistered next
 hypothesis while keeping automatic parameter changes and execution blocked.

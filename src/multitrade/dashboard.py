@@ -710,7 +710,7 @@ class DashboardData:
 
 
 class DashboardRequestHandler(BaseHTTPRequestHandler):
-    server_version = "MultiTradeDashboard/0.19.0"
+    server_version = "MultiTradeDashboard/0.20.0"
     sys_version = ""
     data_service: DashboardData
     expected_authorization: str

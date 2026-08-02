@@ -5,6 +5,14 @@ the current Paper configuration, or authorize live trading.
 
 ## 1. Accelerated strategy-validation pipeline
 
+### Delivered in 0.20
+
+- opt-in bounded and deterministic parameter grids;
+- nested chronological development/holdout separation;
+- one holdout evaluation for the development winner of each strategy;
+- dashboard comparison of development, stressed, and holdout evidence;
+- strict isolation from configured parameters and execution authority.
+
 ### Delivered in 0.19
 
 - deterministic evidence-to-research decisions for every candidate;

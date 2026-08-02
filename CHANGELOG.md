@@ -1,5 +1,25 @@
 # Changelog
 
+## 0.20.0 - 2026-08-02
+
+- Added opt-in bounded parameter optimization to accelerated validation via
+  `--optimize --max-candidates N`.
+- Added explicit, code-defined grids for the four equity strategy families;
+  candidate generation is deterministic, capped, auditable, and does not
+  mutate the frozen production configuration.
+- Added nested chronological evaluation: generated candidates are selected
+  using only the earlier 70% development segment, then the single winner for
+  each strategy is evaluated once against the later untouched 30% holdout.
+- Development ranking uses the complete Strategy Lab gate set, including
+  adverse costs, cross-symbol breadth, chronological stability, drawdown, and
+  trade-sequence stress. Finding a profitable development result does not end
+  the search or count as validation.
+- Added a Nested Parameter Optimization dashboard table with parameters,
+  development and holdout returns, profit factor, stressed results, gate
+  counts, and explicit rejection/pass status.
+- Optimization output is research-only. It cannot edit account allocations,
+  replace frozen experiments, enable a strategy, or submit Paper/live orders.
+
 ## 0.19.0 - 2026-08-02
 
 - Added an evidence-to-research decision engine to every accelerated

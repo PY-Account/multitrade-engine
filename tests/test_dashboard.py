@@ -347,9 +347,13 @@ class DashboardTests(TestCase):
                     'id="accelerated-research-decisions"', html
                 )
                 self.assertIn(
+                    'id="accelerated-optimization"', html
+                )
+                self.assertIn(
                     "Trade attribution diagnostics", html
                 )
                 self.assertIn("Research decision queue", html)
+                self.assertIn("Nested parameter optimization", html)
                 self.assertIn(
                     "prospective trial count was not incremented",
                     html,

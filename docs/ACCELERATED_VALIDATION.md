@@ -31,6 +31,20 @@ docker compose run --rm --no-deps engine \
   multitrade accelerated-validation --workers 2
 ```
 
+To run bounded parameter research after the frozen-candidate screen:
+
+```bash
+docker compose run --rm --no-deps engine \
+  multitrade accelerated-validation --workers 2 \
+  --optimize --max-candidates 48
+```
+
+The optimizer uses deterministic code-defined grids. It ranks candidates only
+on the earlier 70 percent of the downloaded history, selects one winner per
+strategy, and evaluates each winner once on the later untouched 30 percent.
+It does not repeatedly inspect the holdout, stop at the first profitable
+candidate, or update the configured strategy parameters.
+
 The command exits with a non-zero status if any configured account fails. It
 prints a structured JSON result and continues other account evaluations when
 one account fails.

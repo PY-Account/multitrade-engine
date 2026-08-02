@@ -693,6 +693,12 @@ class ContinuousStrategyLabService:
         )
         self.evaluation_workers = evaluation_workers
         self.last_reports: tuple[StrategyLabReport, ...] = ()
+        self.last_bars_by_symbol: dict[
+            str, tuple[MarketBar, ...]
+        ] = {}
+        self.last_symbols_by_strategy: dict[
+            str, tuple[str, ...]
+        ] = {}
         self.comparison_strategies: dict[str, Strategy] = {}
         self.strategy_allocations: dict[str, StrategyAllocation] = {}
         self._configure_strategy_allocations()
@@ -892,6 +898,8 @@ class ContinuousStrategyLabService:
             symbol: closed_bars(rows, now=evaluated_at)
             for symbol, rows in fetched.items()
         }
+        self.last_bars_by_symbol = usable
+        self.last_symbols_by_strategy = symbols_by_strategy
         self.store.record_market_bars(
             bar for rows in usable.values() for bar in rows
         )

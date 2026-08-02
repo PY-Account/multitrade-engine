@@ -899,7 +899,12 @@ def _strategy_lab_healthcheck() -> int:
     return 0 if healthy else 1
 
 
-def _accelerated_validation(workers: int) -> int:
+def _accelerated_validation(
+    workers: int,
+    *,
+    optimize: bool = False,
+    max_candidates: int = 48,
+) -> int:
     if not 1 <= workers <= 8:
         raise ValueError(
             "Accelerated validation workers must be between 1 and 8"
@@ -926,7 +931,10 @@ def _accelerated_validation(workers: int) -> int:
                 plan,
                 store=store,
                 workers=workers,
-            ).run()
+            ).run(
+                optimize=optimize,
+                max_optimization_candidates=max_candidates,
+            )
             runs.append(accelerated_validation_payload(run))
         except Exception as exc:
             failures.append(
@@ -951,6 +959,7 @@ def _accelerated_validation(workers: int) -> int:
         "failures": failures,
         "prospective_trial_count_incremented": False,
         "execution_enabled": False,
+        "parameter_optimization_enabled": optimize,
     }
     print(
         json.dumps(
@@ -1596,6 +1605,20 @@ def build_parser() -> argparse.ArgumentParser:
         default=2,
         help="Parallel candidate evaluations per account (1-8)",
     )
+    accelerated_parser.add_argument(
+        "--optimize",
+        action="store_true",
+        help=(
+            "Run a bounded nested parameter search after frozen-candidate "
+            "screening; execution remains disabled"
+        ),
+    )
+    accelerated_parser.add_argument(
+        "--max-candidates",
+        type=int,
+        default=48,
+        help="Maximum generated research candidates across all strategies",
+    )
     option_evidence_parser = subparsers.add_parser(
         "option-evidence",
         help=(
@@ -1709,7 +1732,11 @@ def main(argv: list[str] | None = None) -> int:
         if args.command == "strategy-lab-healthcheck":
             return _strategy_lab_healthcheck()
         if args.command == "accelerated-validation":
-            return _accelerated_validation(args.workers)
+            return _accelerated_validation(
+                args.workers,
+                optimize=args.optimize,
+                max_candidates=args.max_candidates,
+            )
         if args.command == "option-evidence":
             return _option_evidence(args.once)
         if args.command == "option-evidence-healthcheck":

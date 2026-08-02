@@ -11,6 +11,7 @@ from uuid import uuid4
 from multitrade.audit import SqliteAuditStore
 from multitrade.config import Settings
 from multitrade.portfolio import AccountPlan
+from multitrade.parameter_optimization import BoundedParameterOptimizer
 from multitrade.research_decisions import build_research_decision
 from multitrade.strategy_lab import (
     ContinuousStrategyLabService,
@@ -346,7 +347,11 @@ class AcceleratedValidationService:
         return cls(lab_service=lab_service, store=shared_store)
 
     def run(
-        self, *, now: datetime | None = None
+        self,
+        *,
+        now: datetime | None = None,
+        optimize: bool = False,
+        max_optimization_candidates: int = 48,
     ) -> AcceleratedValidationRun:
         evaluated_at = (now or datetime.now(timezone.utc)).astimezone(
             timezone.utc
@@ -444,6 +449,30 @@ class AcceleratedValidationService:
             ),
             "automatic_parameter_changes": False,
         }
+        if optimize:
+            summary["parameter_optimization"] = (
+                BoundedParameterOptimizer(
+                    account_plan=self.lab_service.account_plan,
+                    config=self.lab_service.config,
+                    bars_by_symbol=(
+                        self.lab_service.last_bars_by_symbol
+                    ),
+                    symbols_by_strategy=(
+                        self.lab_service.last_symbols_by_strategy
+                    ),
+                    allocations=(
+                        self.lab_service.strategy_allocations
+                    ),
+                    workers=self.lab_service.evaluation_workers,
+                    max_candidates=max_optimization_candidates,
+                ).run()
+            )
+            summary["automatic_parameter_changes"] = True
+            summary["parameter_changes_scope"] = (
+                "historical_research_candidates_only"
+            )
+        else:
+            summary["parameter_optimization"] = None
         run = AcceleratedValidationRun(
             run_id=run_id,
             account_id=cycle.account_id,

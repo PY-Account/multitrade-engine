@@ -606,6 +606,19 @@
         <tbody id="accelerated-research-decisions"></tbody>
       </table>
     </div>
+    <div class="panel-head">
+      <div>
+        <h3>Nested parameter optimization</h3>
+        <p class="subcopy">Generated parameters are ranked only on the earlier development segment. One winner per strategy is then evaluated once on the later untouched holdout. A profitable development result alone is not accepted.</p>
+      </div>
+    </div>
+    <p class="subcopy" id="optimization-summary">No bounded optimization run is stored.</p>
+    <div class="table-wrap">
+      <table>
+        <thead><tr><th>Strategy</th><th>Candidate</th><th>Parameters</th><th class="number">Development score</th><th>Development gates</th><th class="number">Development return</th><th class="number">Development PF</th><th>Selected</th><th>Holdout gates</th><th class="number">Holdout return</th><th class="number">Holdout stressed</th><th class="number">Holdout PF</th><th>Result</th><th>Execution</th></tr></thead>
+        <tbody id="accelerated-optimization"></tbody>
+      </table>
+    </div>
   </section>
 
   <section class="panel workspace-view" data-primary="strategy-lab" data-secondary="validation">
@@ -1673,9 +1686,13 @@
     const decisionBody = document.getElementById(
       "accelerated-research-decisions"
     );
+    const optimizationBody = document.getElementById(
+      "accelerated-optimization"
+    );
     body.replaceChildren();
     diagnosticBody.replaceChildren();
     decisionBody.replaceChildren();
+    optimizationBody.replaceChildren();
     const run = (runs || []).find(
       item => item.account_id === selectedAccountId
     );
@@ -1703,6 +1720,8 @@
         9,
         "No research decisions are stored for this account."
       );
+      setText("optimization-summary", "No bounded optimization run is stored.");
+      emptyRow(optimizationBody, 14, "Run accelerated validation with --optimize to create parameter results.");
       return;
     }
 
@@ -1748,6 +1767,8 @@
         9,
         "The run completed without candidate research decisions."
       );
+      setText("optimization-summary", "The run contains no optimization candidates.");
+      emptyRow(optimizationBody, 14, "No generated parameter candidates were evaluated.");
       return;
     }
     for (const scorecard of scorecards) {
@@ -1905,6 +1926,48 @@
         decisionRow.appendChild(cell(value, className));
       }
       decisionBody.appendChild(decisionRow);
+    }
+
+    const optimization = run.summary?.parameter_optimization;
+    const optimizationCandidates = optimization?.candidates || [];
+    if (!optimizationCandidates.length) {
+      setText(
+        "optimization-summary",
+        "Optimization was not requested for this run. Use `multitrade accelerated-validation --workers 2 --optimize --max-candidates 48`."
+      );
+      emptyRow(
+        optimizationBody,
+        14,
+        "No generated parameter candidates are stored for this run."
+      );
+      return;
+    }
+    setText(
+      "optimization-summary",
+      `${optimization.candidate_count} candidates used an earlier ${percent(optimization.development_fraction)} development segment; ${optimization.selected_count} winners were tested once on the later ${percent(optimization.holdout_fraction)} holdout; ${optimization.holdout_pass_count} passed all holdout gates. Holdout data did not participate in selection.`
+    );
+    for (const candidate of optimizationCandidates) {
+      const development = candidate.development_metrics || {};
+      const holdout = candidate.holdout_metrics || {};
+      const values = [
+        [candidate.strategy_id, ""],
+        [candidate.candidate_id, ""],
+        [JSON.stringify(candidate.parameters || {}), ""],
+        [`${candidate.development_score}/100`, "number"],
+        [`${candidate.development_gates_passed}/${candidate.development_gates_total}`, ""],
+        [percent(development.median_return), Number(development.median_return || 0) > 0 ? "number ok" : "number bad"],
+        [development.profit_factor == null ? "--" : Number(development.profit_factor).toFixed(2), "number"],
+        [candidate.selected_for_holdout ? "Yes" : "No", candidate.selected_for_holdout ? "ok" : ""],
+        [candidate.selected_for_holdout ? `${candidate.holdout_gates_passed}/${candidate.holdout_gates_total}` : "--", ""],
+        [candidate.selected_for_holdout ? percent(holdout.median_return) : "--", Number(holdout.median_return || 0) > 0 ? "number ok" : "number bad"],
+        [candidate.selected_for_holdout ? percent(holdout.stressed_return) : "--", Number(holdout.stressed_return || 0) > 0 ? "number ok" : "number bad"],
+        [candidate.selected_for_holdout && holdout.profit_factor != null ? Number(holdout.profit_factor).toFixed(2) : "--", "number"],
+        [candidate.selected_for_holdout ? (candidate.holdout_passed ? "Holdout passed" : "Holdout rejected") : "Development only", candidate.holdout_passed ? "ok" : candidate.selected_for_holdout ? "bad" : ""],
+        ["Blocked (research only)", "ok"],
+      ];
+      const row = document.createElement("tr");
+      for (const [value, className] of values) row.appendChild(cell(value, className));
+      optimizationBody.appendChild(row);
     }
   }
 
