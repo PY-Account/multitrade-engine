@@ -298,8 +298,11 @@ semantics are documented in
 Accelerated validation operation and score semantics are documented in
 [`docs/ACCELERATED_VALIDATION.md`](docs/ACCELERATED_VALIDATION.md).
 The remaining validation expansion and read-only HTTPS Analyst API/Connector
-are recorded in
+roadmap is recorded in
 [`docs/DEVELOPMENT_ROADMAP.md`](docs/DEVELOPMENT_ROADMAP.md).
+The implemented opt-in read-only Analyst API, its redaction boundary, routes,
+token rotation, and safe enablement are documented in
+[`docs/ANALYST_API.md`](docs/ANALYST_API.md).
 
 ## Current boundary
 

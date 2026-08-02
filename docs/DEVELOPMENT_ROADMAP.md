@@ -95,9 +95,9 @@ Allow an authorized analyst or Codex session to inspect the VPS runtime and
 produce conclusions without SSH, broker credentials, dashboard-administrator
 credentials, or any ability to trade or change configuration.
 
-### Planned HTTPS API
+### Delivered HTTPS API (0.23.0)
 
-Versioned, read-only resources are expected to include:
+The opt-in `analyst.v1` resources include:
 
 - component health and deployed release;
 - effective Paper strategy configuration;
@@ -112,11 +112,15 @@ The API must not expose environment variables, Alpaca keys, dashboard
 passwords, full broker account identifiers, unrestricted logs, arbitrary SQL,
 filesystem access, or mutation endpoints.
 
-### Planned access channel
+The implementation uses a separate Bearer token, GET-only route allowlist,
+recursive secret redaction, no-store headers, rate limiting, and audit of
+successful reads. It is disabled by default. See `ANALYST_API.md`.
+
+### Remaining access channel
 
 - Provide a dedicated MCP/Connector with a small allowlist of read-only tools,
   rather than giving a model a general-purpose HTTP or server shell.
-- Store credentials in the connector's secret store, never in source code,
+- Store credentials in the future connector's secret store, never in source code,
   URLs, browser JavaScript, GitHub, or chat messages.
 - Use a separate revocable, expiring analyst credential with the narrowest
   possible scope.
@@ -155,5 +159,8 @@ filesystem access, or mutation endpoints.
 3. Add scheduled reports and explicit regime/fill diagnostics to the
    delivered scorecards and elimination explanations.
 4. Implement the sanitized Analyst API behind the existing HTTPS proxy.
-5. Implement and authorize the read-only MCP/Connector.
-6. Complete security review and Paper-only operational validation.
+   **Delivered in 0.23.0.**
+5. Implement short-lived scoped credentials, rejected-access audit, bounded
+   response schemas, and the read-only MCP/Connector.
+6. Complete an independent security review and Paper-only operational
+   validation before relying on unattended external analysis.

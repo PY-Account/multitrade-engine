@@ -1,5 +1,18 @@
 # Changelog
 
+## 0.23.0 - 2026-08-02
+
+- Added an opt-in, HTTPS-compatible Analyst API with separate Bearer-token
+  authentication and snapshot, validation, strategy, trade, and health routes.
+- Added recursive response redaction for credential, secret, password, token,
+  API-key, request-ID, and broker-order-ID fields.
+- Added per-client request limiting, no-store security headers, successful-read
+  audit events, and fail-closed behavior when the audit database is unavailable.
+- Analyst routes support GET only and contain no configuration, broker, order,
+  strategy activation, or execution mutation handlers.
+- The gateway remains disabled by default and requires a unique token of at
+  least 32 characters that differs from the dashboard password.
+
 ## 0.22.0 - 2026-08-02
 
 - Fixed the runtime package and dashboard HTTP server versions so the deployed

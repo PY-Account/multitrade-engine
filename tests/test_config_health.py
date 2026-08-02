@@ -10,6 +10,13 @@ from multitrade.health import check_health, write_health
 
 
 class EnvironmentFileTests(TestCase):
+    def test_analyst_api_is_disabled_by_default(self) -> None:
+        with patch.dict(os.environ, {}, clear=True):
+            settings = Settings.from_env()
+
+        self.assertIs(settings.analyst_api_enabled, False)
+        self.assertEqual(settings.analyst_api_token, "")
+
     def test_env_file_loads_values_without_overriding_process_env(self) -> None:
         with TemporaryDirectory() as temporary_directory:
             env_path = Path(temporary_directory) / ".env"
@@ -55,6 +62,47 @@ class EnvironmentFileTests(TestCase):
             settings = Settings.from_env()
             with self.assertRaisesRegex(ValueError, "at least 16"):
                 settings.require_dashboard_credentials()
+
+    def test_enabled_analyst_api_requires_unique_strong_token(self) -> None:
+        base = {
+            "DASHBOARD_USERNAME": "operator",
+            "DASHBOARD_PASSWORD": (
+                "dashboard-password-long-1234567890"
+            ),
+            "ANALYST_API_ENABLED": "true",
+        }
+        with patch.dict(
+            os.environ,
+            {**base, "ANALYST_API_TOKEN": "too-short"},
+            clear=True,
+        ):
+            with self.assertRaisesRegex(ValueError, "at least 32"):
+                Settings.from_env().require_dashboard_credentials()
+
+        with patch.dict(
+            os.environ,
+            {
+                **base,
+                "ANALYST_API_TOKEN": (
+                    "dashboard-password-long-1234567890"
+                ),
+            },
+            clear=True,
+        ):
+            with self.assertRaisesRegex(ValueError, "must differ"):
+                Settings.from_env().require_dashboard_credentials()
+
+        with patch.dict(
+            os.environ,
+            {
+                **base,
+                "ANALYST_API_TOKEN": (
+                    "unique-analyst-token-12345678901234567890"
+                ),
+            },
+            clear=True,
+        ):
+            Settings.from_env().require_dashboard_credentials()
 
     def test_firm_dimension_limit_cannot_exceed_total(self) -> None:
         with patch.dict(

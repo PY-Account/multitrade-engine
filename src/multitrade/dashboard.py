@@ -708,6 +708,102 @@ class DashboardData:
             ),
         }
 
+    @staticmethod
+    def _analyst_safe(value: Any) -> Any:
+        denied_fragments = (
+            "api_key",
+            "secret",
+            "password",
+            "credential",
+            "token",
+            "request_id",
+            "broker_order_id",
+        )
+        if isinstance(value, dict):
+            return {
+                str(key): DashboardData._analyst_safe(item)
+                for key, item in value.items()
+                if not any(
+                    fragment in str(key).lower()
+                    for fragment in denied_fragments
+                )
+            }
+        if isinstance(value, list):
+            return [DashboardData._analyst_safe(item) for item in value]
+        if isinstance(value, tuple):
+            return [DashboardData._analyst_safe(item) for item in value]
+        return value
+
+    def analyst_snapshot(self, event_limit: int = 100) -> dict[str, Any]:
+        """Return a redacted, versioned research and operations snapshot."""
+
+        overview = self.overview(event_limit)
+        selected = {
+            "schema_version": "analyst.v1",
+            "generated_at": datetime.now(timezone.utc).isoformat(),
+            "release": overview.get("release", {}),
+            "environment": overview.get("environment", "paper"),
+            "operating_mode": overview.get("operating_mode", {}),
+            "engine": overview.get("engine", {}),
+            "automation": overview.get("automation", {}),
+            "research": overview.get("research", {}),
+            "strategy_lab": overview.get("strategy_lab", {}),
+            "asset_universe": overview.get("asset_universe", {}),
+            "configured_accounts": overview.get(
+                "configured_accounts", []
+            ),
+            "account_views": overview.get("account_views", {}),
+            "firm_risk": overview.get("firm_risk", {}),
+            "strategy_runtime": overview.get("strategy_runtime", []),
+            "strategy_performance": overview.get(
+                "strategy_performance", []
+            ),
+            "trade_records": overview.get("trade_records", []),
+            "signals": overview.get("signals", []),
+            "research_decisions": overview.get(
+                "research_decisions", []
+            ),
+            "research_backtests": overview.get(
+                "research_backtests", []
+            ),
+            "portfolio_risk_reports": overview.get(
+                "portfolio_risk_reports", []
+            ),
+            "strategy_lab_reports": overview.get(
+                "strategy_lab_reports", []
+            ),
+            "accelerated_validation_runs": overview.get(
+                "accelerated_validation_runs", []
+            ),
+            "strategy_model_trials": overview.get(
+                "strategy_model_trials", []
+            ),
+            "strategy_experiments": overview.get(
+                "strategy_experiments", {}
+            ),
+            "asset_universe_reports": overview.get(
+                "asset_universe_reports", []
+            ),
+            "option_observations": overview.get(
+                "option_observations", []
+            ),
+            "option_package_evidence": overview.get(
+                "option_package_evidence", []
+            ),
+        }
+        return self._analyst_safe(selected)
+
+    def record_analyst_access(self, endpoint: str, client: str) -> None:
+        self.configuration_store.record_event(
+            "analyst_api_read",
+            f"analyst-{secrets.token_hex(12)}",
+            {
+                "endpoint": endpoint,
+                "client": client,
+                "access": "read_only",
+            },
+        )
+
 
 class DashboardRequestHandler(BaseHTTPRequestHandler):
     server_version = f"MultiTradeDashboard/{__version__}"
@@ -721,11 +817,19 @@ class DashboardRequestHandler(BaseHTTPRequestHandler):
     csrf_tokens: dict[str, tuple[str, float]] = {}
     config_lock = threading.Lock()
     configured_username: str
+    analyst_api_enabled: bool = False
+    analyst_api_token: str = ""
+    analyst_requests_per_minute: int = 30
+    analyst_lock = threading.Lock()
+    analyst_requests: dict[str, list[float]] = {}
 
     def do_GET(self) -> None:
         parsed = urlparse(self.path)
         if parsed.path == "/healthz":
             self._send_json(200, {"status": "ok"})
+            return
+        if parsed.path.startswith("/api/analyst/v1/"):
+            self._serve_analyst_get(parsed)
             return
         if not self._authorized():
             self.send_response(401)
@@ -783,6 +887,21 @@ class DashboardRequestHandler(BaseHTTPRequestHandler):
 
     def do_POST(self) -> None:
         parsed = urlparse(self.path)
+        if parsed.path.startswith("/api/analyst/"):
+            try:
+                length = int(self.headers.get("Content-Length", "0"))
+            except ValueError:
+                length = 0
+            if 0 < length <= 32768:
+                self.rfile.read(length)
+            self.send_response(405)
+            self._security_headers()
+            self.send_header("Allow", "GET")
+            self.send_header("Connection", "close")
+            self.send_header("Content-Length", "0")
+            self.end_headers()
+            self.close_connection = True
+            return
         if not self._authorized():
             self._send_json(401, {"error": "authentication_required"})
             return
@@ -832,6 +951,102 @@ class DashboardRequestHandler(BaseHTTPRequestHandler):
             self._send_json(503, {"error": "configuration_store_unavailable"})
             return
         self._send_json(200, {"status": "updated", "configuration": result})
+
+    def _serve_analyst_get(self, parsed: Any) -> None:
+        auth_status = self._analyst_auth_status()
+        if auth_status != 200:
+            self._send_json(
+                auth_status,
+                {
+                    "error": (
+                        "rate_limit_exceeded"
+                        if auth_status == 429
+                        else "analyst_authentication_required"
+                    )
+                },
+            )
+            return
+        routes = {
+            "/api/analyst/v1/snapshot": "snapshot",
+            "/api/analyst/v1/validation-runs": (
+                "accelerated_validation_runs"
+            ),
+            "/api/analyst/v1/strategies": "strategies",
+            "/api/analyst/v1/trades": "trade_records",
+            "/api/analyst/v1/health": "health",
+        }
+        route = routes.get(parsed.path)
+        if route is None:
+            self._send_json(404, {"error": "not_found"})
+            return
+        values = parse_qs(parsed.query).get("limit", ["100"])
+        try:
+            limit = max(1, min(int(values[0]), 200))
+        except ValueError:
+            self._send_json(400, {"error": "invalid_limit"})
+            return
+        snapshot = self.data_service.analyst_snapshot(limit)
+        if route == "snapshot":
+            payload = snapshot
+        elif route == "strategies":
+            payload = {
+                "schema_version": snapshot["schema_version"],
+                "generated_at": snapshot["generated_at"],
+                "configured_accounts": snapshot["configured_accounts"],
+                "strategy_runtime": snapshot["strategy_runtime"],
+                "strategy_performance": snapshot["strategy_performance"],
+                "strategy_experiments": snapshot["strategy_experiments"],
+                "strategy_lab_reports": snapshot["strategy_lab_reports"],
+            }
+        elif route == "health":
+            payload = {
+                "schema_version": snapshot["schema_version"],
+                "generated_at": snapshot["generated_at"],
+                "release": snapshot["release"],
+                "operating_mode": snapshot["operating_mode"],
+                "engine": snapshot["engine"],
+                "automation": snapshot["automation"],
+                "research": snapshot["research"],
+                "strategy_lab": snapshot["strategy_lab"],
+                "asset_universe": snapshot["asset_universe"],
+            }
+        else:
+            payload = {
+                "schema_version": snapshot["schema_version"],
+                "generated_at": snapshot["generated_at"],
+                route: snapshot[route],
+            }
+        try:
+            self.data_service.record_analyst_access(
+                parsed.path, self.client_address[0]
+            )
+        except sqlite3.Error:
+            self._send_json(503, {"error": "audit_store_unavailable"})
+            return
+        self._send_json(200, payload)
+
+    def _analyst_auth_status(self) -> int:
+        if not self.analyst_api_enabled or not self.analyst_api_token:
+            return 404
+        supplied = self.headers.get("Authorization", "")
+        expected = f"Bearer {self.analyst_api_token}"
+        if not compare_digest(supplied, expected):
+            return 401
+        client = self.client_address[0]
+        now = time.monotonic()
+        handler = type(self)
+        with handler.analyst_lock:
+            recent = [
+                timestamp
+                for timestamp in handler.analyst_requests.get(client, [])
+                if now - timestamp < 60
+            ]
+            if len(recent) >= self.analyst_requests_per_minute:
+                handler.analyst_requests[client] = recent
+                return 429
+            recent.append(now)
+            handler.analyst_requests[client] = recent
+        return 200
 
     def _authorized(self) -> bool:
         client = self.client_address[0]
@@ -929,6 +1144,9 @@ def create_dashboard_server(
     data_service: DashboardData,
     username: str,
     password: str,
+    analyst_api_enabled: bool = False,
+    analyst_api_token: str = "",
+    analyst_requests_per_minute: int = 30,
 ) -> ThreadingHTTPServer:
     credentials = base64.b64encode(
         f"{username}:{password}".encode("utf-8")
@@ -946,6 +1164,13 @@ def create_dashboard_server(
     ConfiguredHandler.csrf_tokens = {}
     ConfiguredHandler.config_lock = threading.Lock()
     ConfiguredHandler.configured_username = username
+    ConfiguredHandler.analyst_api_enabled = analyst_api_enabled
+    ConfiguredHandler.analyst_api_token = analyst_api_token
+    ConfiguredHandler.analyst_requests_per_minute = (
+        analyst_requests_per_minute
+    )
+    ConfiguredHandler.analyst_lock = threading.Lock()
+    ConfiguredHandler.analyst_requests = {}
     return ThreadingHTTPServer((host, port), ConfiguredHandler)
 
 

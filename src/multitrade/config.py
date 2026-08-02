@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import os
+from hmac import compare_digest
 import re
 from dataclasses import dataclass
 from decimal import Decimal, InvalidOperation
@@ -135,6 +136,9 @@ class Settings:
     dashboard_port: int
     dashboard_username: str
     dashboard_password: str
+    analyst_api_enabled: bool
+    analyst_api_token: str
+    analyst_api_requests_per_minute: int
     risk_policy: RiskPolicy
     firm_risk_policy: FirmRiskPolicy
 
@@ -457,6 +461,13 @@ class Settings:
                 "DASHBOARD_USERNAME", ""
             ).strip(),
             dashboard_password=os.getenv("DASHBOARD_PASSWORD", ""),
+            analyst_api_enabled=_bool_env(
+                "ANALYST_API_ENABLED", False
+            ),
+            analyst_api_token=os.getenv("ANALYST_API_TOKEN", ""),
+            analyst_api_requests_per_minute=_int_env(
+                "ANALYST_API_REQUESTS_PER_MINUTE", "30", 1, 120
+            ),
             risk_policy=RiskPolicy(
                 max_per_trade=_decimal_env(
                     "RISK_MAX_PER_TRADE", "0.03"
@@ -562,6 +573,17 @@ class Settings:
             raise ValueError(
                 "DASHBOARD_PASSWORD must contain at least 16 characters"
             )
+        if self.analyst_api_enabled:
+            if len(self.analyst_api_token) < 32:
+                raise ValueError(
+                    "ANALYST_API_TOKEN must contain at least 32 characters"
+                )
+            if compare_digest(
+                self.analyst_api_token, self.dashboard_password
+            ):
+                raise ValueError(
+                    "ANALYST_API_TOKEN must differ from DASHBOARD_PASSWORD"
+                )
 
     @property
     def paper_execution_enabled(self) -> bool:

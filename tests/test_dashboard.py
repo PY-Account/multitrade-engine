@@ -507,6 +507,138 @@ class DashboardTests(TestCase):
                 server.server_close()
                 thread.join(timeout=3)
 
+    def test_analyst_gateway_is_read_only_redacted_and_audited(self) -> None:
+        with TemporaryDirectory() as directory:
+            service, _, _ = self._fixture(directory)
+            service.account_plans = (
+                AccountPlan(
+                    account_id="alpaca-paper",
+                    broker="alpaca",
+                    environment="paper",
+                    enabled=True,
+                    asset_classes=(AssetClass.STOCK,),
+                    watchlist=("AAPL",),
+                    timeframe="5Min",
+                    maximum_positions=4,
+                    maximum_daily_orders=6,
+                    symbol_cooldown_minutes=60,
+                    allocations={},
+                    credential_env_prefix="ALPACA_SECRET_PREFIX",
+                    expected_broker_account_id="broker-account-private",
+                ),
+            )
+            analyst_token = "analyst-test-token-unique-1234567890"
+            server = create_dashboard_server(
+                "127.0.0.1",
+                0,
+                service,
+                username="operator",
+                password="a-long-test-password",
+                analyst_api_enabled=True,
+                analyst_api_token=analyst_token,
+                analyst_requests_per_minute=2,
+            )
+            thread = threading.Thread(
+                target=server.serve_forever, daemon=True
+            )
+            thread.start()
+            port = server.server_address[1]
+            try:
+                unauthorized = Request(
+                    f"http://127.0.0.1:{port}/api/analyst/v1/snapshot",
+                    headers={"Authorization": "Bearer wrong"},
+                )
+                with self.assertRaises(HTTPError) as error:
+                    urlopen(unauthorized, timeout=3)
+                self.assertEqual(error.exception.code, 401)
+                error.exception.close()
+
+                headers = {"Authorization": f"Bearer {analyst_token}"}
+                snapshot_request = Request(
+                    f"http://127.0.0.1:{port}/api/analyst/v1/snapshot",
+                    headers=headers,
+                )
+                with urlopen(snapshot_request, timeout=3) as response:
+                    snapshot = json.loads(response.read())
+                    self.assertEqual(
+                        response.headers["Cache-Control"], "no-store"
+                    )
+
+                encoded = json.dumps(snapshot)
+                self.assertEqual(snapshot["schema_version"], "analyst.v1")
+                self.assertIn("accelerated_validation_runs", snapshot)
+                self.assertNotIn("ALPACA_SECRET_PREFIX", encoded)
+                self.assertNotIn("test-request-id", encoded)
+                self.assertNotIn(analyst_token, encoded)
+
+                post = Request(
+                    f"http://127.0.0.1:{port}/api/analyst/v1/snapshot",
+                    data=b"{}",
+                    method="POST",
+                    headers=headers,
+                )
+                with self.assertRaises(HTTPError) as error:
+                    urlopen(post, timeout=3)
+                self.assertEqual(error.exception.code, 405)
+                error.exception.close()
+
+                health = Request(
+                    f"http://127.0.0.1:{port}/api/analyst/v1/health",
+                    headers=headers,
+                )
+                with urlopen(health, timeout=3) as response:
+                    self.assertEqual(response.status, 200)
+
+                limited = Request(
+                    f"http://127.0.0.1:{port}/api/analyst/v1/trades",
+                    headers=headers,
+                )
+                with self.assertRaises(HTTPError) as error:
+                    urlopen(limited, timeout=3)
+                self.assertEqual(error.exception.code, 429)
+                error.exception.close()
+
+                events = service.overview()["events"]
+                analyst_reads = [
+                    event
+                    for event in events
+                    if event["event_type"] == "analyst_api_read"
+                ]
+                self.assertEqual(len(analyst_reads), 2)
+            finally:
+                server.shutdown()
+                server.server_close()
+                thread.join(timeout=3)
+
+    def test_disabled_analyst_gateway_is_not_discoverable(self) -> None:
+        with TemporaryDirectory() as directory:
+            service, _, _ = self._fixture(directory)
+            server = create_dashboard_server(
+                "127.0.0.1",
+                0,
+                service,
+                username="operator",
+                password="a-long-test-password",
+            )
+            thread = threading.Thread(
+                target=server.serve_forever, daemon=True
+            )
+            thread.start()
+            port = server.server_address[1]
+            try:
+                request = Request(
+                    f"http://127.0.0.1:{port}/api/analyst/v1/health",
+                    headers={"Authorization": "Bearer any-token"},
+                )
+                with self.assertRaises(HTTPError) as error:
+                    urlopen(request, timeout=3)
+                self.assertEqual(error.exception.code, 404)
+                error.exception.close()
+            finally:
+                server.shutdown()
+                server.server_close()
+                thread.join(timeout=3)
+
     def test_health_endpoint_contains_no_account_data(self) -> None:
         with TemporaryDirectory() as directory:
             service, _, _ = self._fixture(directory)

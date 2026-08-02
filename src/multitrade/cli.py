@@ -301,6 +301,11 @@ def _doctor() -> int:
         "dashboard_password_present": bool(
             settings.dashboard_password
         ),
+        "analyst_api_enabled": settings.analyst_api_enabled,
+        "analyst_api_token_present": bool(settings.analyst_api_token),
+        "analyst_api_requests_per_minute": (
+            settings.analyst_api_requests_per_minute
+        ),
         "dashboard_credentials_valid": dashboard_credentials_valid,
         "dashboard_configuration_error": dashboard_configuration_error,
         "dashboard_listen": (
@@ -1439,6 +1444,11 @@ def _dashboard() -> int:
         data_service=data_service,
         username=settings.dashboard_username,
         password=settings.dashboard_password,
+        analyst_api_enabled=settings.analyst_api_enabled,
+        analyst_api_token=settings.analyst_api_token,
+        analyst_requests_per_minute=(
+            settings.analyst_api_requests_per_minute
+        ),
     )
     print(
         json.dumps(
