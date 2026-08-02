@@ -7,7 +7,12 @@
     "t3_range_trend": "t3_range_trend_baseline_2026q3",
     "chart_pattern_confluence": "chart_pattern_confluence_baseline_2026q3",
     "support_delta_put_income": "support_delta_put_income_baseline_2026q3",
-    "support_delta_put_income_v2": "support_delta_put_income_v2_baseline_2026q3"
+    "support_delta_put_income_v2": "support_delta_put_income_v2_baseline_2026q3",
+    "support_delta_put_income_v21": "support_delta_put_income_v21_baseline_2026q3",
+    "breakout_retest_inverse": "breakout_retest_inverse_baseline_2026q3",
+    "trend_pullback_inverse": "trend_pullback_inverse_baseline_2026q3",
+    "chart_pattern_inverse": "chart_pattern_inverse_baseline_2026q3",
+    "t3_range_trend_inverse": "t3_range_trend_inverse_baseline_2026q3"
   },
   "experiments": [
     {
@@ -660,6 +665,37 @@
         "maximum_atr_percent": "0.04"
       },
       "execution_eligible": false
+    },
+    {
+      "experiment_id": "support_delta_put_income_v21_baseline_2026q3",
+      "family_id": "defined_risk_put_income_v21",
+      "strategy_id": "support_delta_put_income_v21",
+      "strategy_version": "2.1.0",
+      "variant_id": "baseline_v21",
+      "registered_at": "2026-08-02T21:00:00+00:00",
+      "prospective_observation_start": "2026-08-03T00:00:00+00:00",
+      "review_not_before": "2026-08-24T00:00:00+00:00",
+      "status": "frozen_research",
+      "hypothesis": "Correctly scaled cumulative trend confirmation preserves support-rejection observations while excluding the V1 range loss regime.",
+      "mechanism": "V2.1 measures slow-average return across eight bars rather than an adjacent-SMA change, then retains bounded volatility and defined-risk put-spread constraints.",
+      "primary_metric": "chronological_median_fold_return",
+      "minimum_prospective_days": 21,
+      "minimum_prospective_trials": 20,
+      "final_holdout_status": "not_reserved",
+      "expected_parameters": {"strategy_id":"support_delta_put_income_v21","version":"2.1.0","bollinger_window":20,"bollinger_deviations":"2","support_lookback":40,"proximity_atr":"0.50","stop_atr_buffer":"0.50","reward_multiple":"1.50","slope_lookback":8,"minimum_sma_return":"0.001","maximum_atr_percent":"0.04"},
+      "execution_eligible": false
+    },
+    {
+      "experiment_id":"breakout_retest_inverse_baseline_2026q3","family_id":"signal_inversion_controls","strategy_id":"breakout_retest_inverse","strategy_version":"1.0.0","variant_id":"inverse_v1","registered_at":"2026-08-02T21:00:00+00:00","prospective_observation_start":"2026-08-03T00:00:00+00:00","review_not_before":"2026-08-24T00:00:00+00:00","status":"frozen_research","hypothesis":"Breakout/retest failures contain a stable opposite-direction signal after symmetric risk and costs.","mechanism":"A causal control mirrors each frozen source signal and its stop/target distances without changing timing.","primary_metric":"chronological_median_fold_return","minimum_prospective_days":21,"minimum_prospective_trials":20,"final_holdout_status":"not_reserved","expected_parameters":{"strategy_id":"breakout_retest_inverse","version":"1.0.0","source_strategy_id":"breakout_retest"},"execution_eligible":false
+    },
+    {
+      "experiment_id":"trend_pullback_inverse_baseline_2026q3","family_id":"signal_inversion_controls","strategy_id":"trend_pullback_inverse","strategy_version":"1.0.0","variant_id":"inverse_v1","registered_at":"2026-08-02T21:00:00+00:00","prospective_observation_start":"2026-08-03T00:00:00+00:00","review_not_before":"2026-08-24T00:00:00+00:00","status":"frozen_research","hypothesis":"Trend-pullback failures contain a stable opposite-direction signal after symmetric risk and costs.","mechanism":"A causal control mirrors each frozen source signal and its stop/target distances without changing timing.","primary_metric":"chronological_median_fold_return","minimum_prospective_days":21,"minimum_prospective_trials":20,"final_holdout_status":"not_reserved","expected_parameters":{"strategy_id":"trend_pullback_inverse","version":"1.0.0","source_strategy_id":"trend_pullback"},"execution_eligible":false
+    },
+    {
+      "experiment_id":"chart_pattern_inverse_baseline_2026q3","family_id":"signal_inversion_controls","strategy_id":"chart_pattern_inverse","strategy_version":"1.0.0","variant_id":"inverse_v1","registered_at":"2026-08-02T21:00:00+00:00","prospective_observation_start":"2026-08-03T00:00:00+00:00","review_not_before":"2026-08-24T00:00:00+00:00","status":"frozen_research","hypothesis":"Chart-pattern failures contain a stable opposite-direction signal after symmetric risk and costs.","mechanism":"A causal control mirrors each frozen source signal and its stop/target distances without changing timing.","primary_metric":"chronological_median_fold_return","minimum_prospective_days":21,"minimum_prospective_trials":20,"final_holdout_status":"not_reserved","expected_parameters":{"strategy_id":"chart_pattern_inverse","version":"1.0.0","source_strategy_id":"chart_pattern_confluence"},"execution_eligible":false
+    },
+    {
+      "experiment_id":"t3_range_trend_inverse_baseline_2026q3","family_id":"signal_inversion_controls","strategy_id":"t3_range_trend_inverse","strategy_version":"1.0.0","variant_id":"inverse_v1","registered_at":"2026-08-02T21:00:00+00:00","prospective_observation_start":"2026-08-03T00:00:00+00:00","review_not_before":"2026-08-24T00:00:00+00:00","status":"frozen_research","hypothesis":"Dual-filter failures contain a stable opposite-direction signal after symmetric risk and costs.","mechanism":"A causal control mirrors each frozen source signal and its stop/target distances without changing timing.","primary_metric":"chronological_median_fold_return","minimum_prospective_days":21,"minimum_prospective_trials":20,"final_holdout_status":"not_reserved","expected_parameters":{"strategy_id":"t3_range_trend_inverse","version":"1.0.0","source_strategy_id":"t3_range_trend"},"execution_eligible":false
     }
   ]
 }

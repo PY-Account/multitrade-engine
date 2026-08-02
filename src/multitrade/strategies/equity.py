@@ -747,6 +747,114 @@ class SupportDeltaPutIncomeV2Strategy(SupportDeltaPutIncomeStrategy):
         )
 
 
+@dataclass(frozen=True, slots=True)
+class SupportDeltaPutIncomeV21Strategy(SupportDeltaPutIncomeStrategy):
+    """V2.1 measures cumulative slow-average return at the correct scale."""
+
+    strategy_id: str = "support_delta_put_income_v21"
+    version: str = "2.1.0"
+    slope_lookback: int = 8
+    minimum_sma_return: Decimal = Decimal("0.001")
+    maximum_atr_percent: Decimal = Decimal("0.04")
+
+    def evaluate(self, context: StrategyContext) -> StrategySignal | None:
+        slow_window = 30
+        minimum = slow_window + self.slope_lookback
+        if len(context.bars) < max(self.support_lookback + 1, minimum):
+            return None
+        current = _mean(tuple(bar.close for bar in context.bars[-slow_window:]))
+        previous = _mean(tuple(
+            bar.close
+            for bar in context.bars[
+                -slow_window - self.slope_lookback : -self.slope_lookback
+            ]
+        ))
+        cumulative_return = current / previous - Decimal("1")
+        if (
+            context.features.regime is not MarketRegime.TREND_UP
+            or cumulative_return < self.minimum_sma_return
+            or context.features.atr_percent > self.maximum_atr_percent
+        ):
+            return None
+        signal = SupportDeltaPutIncomeStrategy.evaluate(self, context)
+        if signal is None:
+            return None
+        return create_signal(
+            context=context,
+            strategy_id=self.strategy_id,
+            version=self.version,
+            action=signal.action,
+            confidence=signal.confidence,
+            reference_price=signal.reference_price,
+            stop_price=signal.stop_price,
+            target_price=signal.target_price,
+            reason_codes=(*signal.reason_codes, "cumulative_trend_confirmed"),
+            evidence={
+                **signal.evidence,
+                "slow_average_return": cumulative_return,
+                "slope_lookback": self.slope_lookback,
+                "v21_design_basis": "corrected_slope_scale_after_zero_trade_v2",
+            },
+        )
+
+
+@dataclass(frozen=True, slots=True)
+class SignalInversionStrategy:
+    """Causal research control that mirrors a frozen source signal."""
+
+    strategy_id: str = "inverse_control"
+    version: str = "1.0.0"
+    source_strategy_id: str = "breakout_retest"
+
+    def evaluate(self, context: StrategyContext) -> StrategySignal | None:
+        sources = {
+            "breakout_retest": BreakoutRetestStrategy,
+            "trend_pullback": TrendPullbackStrategy,
+            "chart_pattern_confluence": ChartPatternConfluenceStrategy,
+            "t3_range_trend": T3RangeTrendStrategy,
+        }
+        source_type = sources.get(self.source_strategy_id)
+        if source_type is None:
+            raise ValueError("Unsupported inversion source strategy")
+        source = source_type().evaluate(context)
+        if source is None:
+            return None
+        risk_distance = abs(source.reference_price - source.stop_price)
+        reward_distance = abs(source.target_price - source.reference_price)
+        action = (
+            SignalAction.ENTER_SHORT
+            if source.action is SignalAction.ENTER_LONG
+            else SignalAction.ENTER_LONG
+        )
+        stop = (
+            source.reference_price + risk_distance
+            if action is SignalAction.ENTER_SHORT
+            else source.reference_price - risk_distance
+        )
+        target = (
+            source.reference_price - reward_distance
+            if action is SignalAction.ENTER_SHORT
+            else source.reference_price + reward_distance
+        )
+        return create_signal(
+            context=context,
+            strategy_id=self.strategy_id,
+            version=self.version,
+            action=action,
+            confidence=source.confidence,
+            reference_price=source.reference_price,
+            stop_price=stop,
+            target_price=target,
+            reason_codes=("inverse_control", f"source:{self.source_strategy_id}"),
+            evidence={
+                "source_signal_id": source.signal_id,
+                "source_strategy_id": self.source_strategy_id,
+                "source_reason_codes": source.reason_codes,
+                "inversion_role": "research_control_not_execution_authority",
+            },
+        )
+
+
 def default_equity_strategies() -> dict[str, Strategy]:
     strategies: tuple[Strategy, ...] = (
         BreakoutRetestStrategy(),
@@ -757,6 +865,11 @@ def default_equity_strategies() -> dict[str, Strategy]:
         ChartPatternConfluenceStrategy(),
         SupportDeltaPutIncomeStrategy(),
         SupportDeltaPutIncomeV2Strategy(),
+        SupportDeltaPutIncomeV21Strategy(),
+        SignalInversionStrategy("breakout_retest_inverse", "1.0.0", "breakout_retest"),
+        SignalInversionStrategy("trend_pullback_inverse", "1.0.0", "trend_pullback"),
+        SignalInversionStrategy("chart_pattern_inverse", "1.0.0", "chart_pattern_confluence"),
+        SignalInversionStrategy("t3_range_trend_inverse", "1.0.0", "t3_range_trend"),
     )
     return {
         strategy.strategy_id: strategy for strategy in strategies
@@ -778,6 +891,11 @@ def equity_strategy_from_parameters(
         "chart_pattern_confluence": ChartPatternConfluenceStrategy,
         "support_delta_put_income": SupportDeltaPutIncomeStrategy,
         "support_delta_put_income_v2": SupportDeltaPutIncomeV2Strategy,
+        "support_delta_put_income_v21": SupportDeltaPutIncomeV21Strategy,
+        "breakout_retest_inverse": SignalInversionStrategy,
+        "trend_pullback_inverse": SignalInversionStrategy,
+        "chart_pattern_inverse": SignalInversionStrategy,
+        "t3_range_trend_inverse": SignalInversionStrategy,
     }
     strategy_type = strategy_types.get(strategy_id)
     if strategy_type is None:

@@ -1,5 +1,21 @@
 # Changelog
 
+## 0.26.0 - 2026-08-02
+
+- Added a causal Signal Inversion Laboratory for breakout/retest, trend
+  pullback, chart-pattern, and T3 candidates. Mirrored candidates have separate
+  identities, symmetric stops/targets, frozen manifests, and no execution
+  authority.
+- Added Put Income V2.1 with correctly scaled cumulative slow-average return,
+  replacing the over-strict adjacent-SMA slope used by V2.
+- Enabled V2.1 observation and disabled V2 observation; all Paper submission
+  gates remain blocked.
+- Added research universes and immutable baseline experiments for every new
+  profitability-discovery candidate.
+- Bounded every dashboard table to an internal viewport with sticky headers,
+  contained overscroll, stable scrollbars, and a smaller mobile height. Long
+  evidence sets no longer create an unbounded page.
+
 ## 0.25.1 - 2026-08-02
 
 - Fixed the put-income V2 base evaluator dispatch for the server's CPython

@@ -76,6 +76,17 @@ _SEARCH_SPACES: dict[str, dict[str, tuple[object, ...]]] = {
         "minimum_sma_slope": ("0.00025", "0.0005", "0.001"),
         "maximum_atr_percent": ("0.025", "0.04"),
     },
+    "support_delta_put_income_v21": {
+        "bollinger_window": (20, 30),
+        "bollinger_deviations": ("1.75", "2", "2.25"),
+        "support_lookback": (40, 60),
+        "proximity_atr": ("0.30", "0.50", "0.75"),
+        "stop_atr_buffer": ("0.50", "0.75"),
+        "reward_multiple": ("1.25", "1.50", "2"),
+        "slope_lookback": (6, 8, 12),
+        "minimum_sma_return": ("0.0005", "0.001", "0.002"),
+        "maximum_atr_percent": ("0.025", "0.04"),
+    },
 }
 
 

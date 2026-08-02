@@ -93,6 +93,21 @@
       "policy_id": "liquid_us_breakout_candidates",
       "manual_symbols": ["SPY", "QQQ", "AAPL", "MSFT", "AMD", "NVDA"],
       "maximum_symbols": 20
+    },
+    {
+      "strategy_id":"support_delta_put_income_v21","selection_mode":"combined","policy_id":"liquid_us_breakout_candidates","manual_symbols":["SPY","QQQ","AAPL","MSFT","AMD","NVDA"],"maximum_symbols":20
+    },
+    {
+      "strategy_id":"breakout_retest_inverse","selection_mode":"combined","policy_id":"liquid_us_breakout_candidates","manual_symbols":["AMD","MU","UBER","PLTR","HOOD","DKNG"],"maximum_symbols":20
+    },
+    {
+      "strategy_id":"trend_pullback_inverse","selection_mode":"combined","policy_id":"liquid_us_breakout_candidates","manual_symbols":["AMD","UBER","BAC","GM","SHOP","COIN"],"maximum_symbols":20
+    },
+    {
+      "strategy_id":"chart_pattern_inverse","selection_mode":"combined","policy_id":"liquid_us_breakout_candidates","manual_symbols":["SPY","QQQ","AAPL","MSFT","AMD","MU"],"maximum_symbols":20
+    },
+    {
+      "strategy_id":"t3_range_trend_inverse","selection_mode":"combined","policy_id":"liquid_us_breakout_candidates","manual_symbols":["SPY","QQQ","AAPL","MSFT","GLD","SLV"],"maximum_symbols":20
     }
   ],
   "index_snapshots": [],

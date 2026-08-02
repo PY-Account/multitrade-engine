@@ -15,11 +15,12 @@ from multitrade.portfolio import (
     apply_strategy_configuration_overrides,
     load_account_plans,
 )
-from multitrade.strategies.base import StrategyContext
+from multitrade.strategies.base import SignalAction, StrategyContext
 from multitrade.strategies.equity import (
     BreakoutRetestStrategy,
     SupportDeltaPutIncomeStrategy,
     SupportDeltaPutIncomeV2Strategy,
+    SignalInversionStrategy,
     T3RangeTrendStrategy,
 )
 
@@ -288,6 +289,15 @@ class StrategyTests(TestCase):
         )
         self.assertLess(first.stop_price, first.reference_price)
         self.assertGreater(first.target_price, first.reference_price)
+
+        inverse = SignalInversionStrategy(
+            "breakout_retest_inverse", "1.0.0", "breakout_retest"
+        ).evaluate(context)
+        self.assertIsNotNone(inverse)
+        self.assertIs(inverse.action, SignalAction.ENTER_SHORT)
+        self.assertNotEqual(first.signal_id, inverse.signal_id)
+        self.assertGreater(inverse.stop_price, inverse.reference_price)
+        self.assertLess(inverse.target_price, inverse.reference_price)
 
     def test_signal_allocation_builds_protected_bracket_order(self) -> None:
         config_path = (

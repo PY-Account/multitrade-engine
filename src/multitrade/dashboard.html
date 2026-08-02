@@ -197,10 +197,27 @@
     .pill { padding: 6px 9px; border: 1px solid var(--line); border-radius: 999px; font-size: .72rem; }
     .pill.ok { background: rgb(80 216 144 / 8%); }
     .pill.bad { background: rgb(255 107 107 / 8%); }
-    .table-wrap { overflow-x: auto; }
+    .table-wrap {
+      max-height: min(62vh, 720px);
+      overflow: auto;
+      overscroll-behavior: contain;
+      scrollbar-gutter: stable both-edges;
+      border: 1px solid color-mix(in srgb, var(--line) 72%, transparent);
+      border-radius: 10px;
+    }
     table { width: 100%; border-collapse: collapse; font-size: .82rem; min-width: 760px; }
     th, td { padding: 11px 9px; border-top: 1px solid var(--line); text-align: left; vertical-align: top; }
-    th { color: var(--muted); font-size: .66rem; text-transform: uppercase; letter-spacing: .08em; }
+    th {
+      position: sticky;
+      top: 0;
+      z-index: 2;
+      color: var(--muted);
+      background: var(--panel);
+      box-shadow: 0 1px 0 var(--line);
+      font-size: .66rem;
+      text-transform: uppercase;
+      letter-spacing: .08em;
+    }
     td.number, th.number { text-align: right; }
     code { color: var(--code); white-space: pre-wrap; overflow-wrap: anywhere; font-size: .72rem; }
     details summary { color: var(--accent); cursor: pointer; margin-bottom: 6px; }
@@ -270,6 +287,7 @@
       .summary-grid { grid-template-columns: repeat(2, 1fr); }
       .facts { grid-template-columns: 1fr; }
       footer { flex-direction: column; }
+      .table-wrap { max-height: 54vh; }
     }
   </style>
 </head>

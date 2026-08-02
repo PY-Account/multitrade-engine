@@ -69,6 +69,18 @@
           "symbols": ["SPY", "QQQ", "AAPL", "MSFT"]
         },
         {
+          "strategy_id":"breakout_retest_inverse","enabled":false,"capital_weight":"0.01","risk_fraction":"0.002","minimum_confidence":"0.60","paper_execution_allowed":false,"symbols":["SPY","QQQ","AAPL","MSFT"]
+        },
+        {
+          "strategy_id":"trend_pullback_inverse","enabled":false,"capital_weight":"0.01","risk_fraction":"0.002","minimum_confidence":"0.60","paper_execution_allowed":false,"symbols":["SPY","QQQ","AAPL","MSFT"]
+        },
+        {
+          "strategy_id":"chart_pattern_inverse","enabled":false,"capital_weight":"0.01","risk_fraction":"0.002","minimum_confidence":"0.60","paper_execution_allowed":false,"symbols":["SPY","QQQ","AAPL","MSFT"]
+        },
+        {
+          "strategy_id":"t3_range_trend_inverse","enabled":false,"capital_weight":"0.01","risk_fraction":"0.002","minimum_confidence":"0.60","paper_execution_allowed":false,"symbols":["SPY","QQQ","AAPL","MSFT"]
+        },
+        {
           "strategy_id": "breakout_retest_bull_call",
           "asset_class": "option",
           "enabled": true,
@@ -173,7 +185,7 @@
         {
           "strategy_id": "support_delta_put_bull_spread_v2",
           "asset_class": "option",
-          "enabled": true,
+          "enabled": false,
           "capital_weight": "0.05",
           "risk_fraction": "0.003",
           "minimum_confidence": "0.68",
@@ -195,6 +207,19 @@
             "loss_limit_multiple": "1.50",
             "exit_before_expiry_days": 10,
             "maximum_quote_age_seconds": 120
+          }
+        },
+        {
+          "strategy_id": "support_delta_put_bull_spread_v21",
+          "asset_class": "option",
+          "enabled": true,
+          "capital_weight": "0.05",
+          "risk_fraction": "0.003",
+          "minimum_confidence": "0.68",
+          "paper_execution_allowed": false,
+          "symbols": ["SPY", "QQQ", "AAPL", "MSFT"],
+          "option_policy": {
+            "structure":"bull_put_credit_spread","source_strategy_id":"support_delta_put_income_v21","minimum_dte":30,"maximum_dte":60,"long_delta_target":"0.55","short_delta_target":"0.20","maximum_short_delta":"0.22","wing_delta_target":"0.08","maximum_strike_width":"5","minimum_modeled_theta":"0","minimum_credit_to_risk":"0.18","profit_target_fraction":"0.50","loss_limit_multiple":"1.50","exit_before_expiry_days":10,"maximum_quote_age_seconds":120
           }
         },
         {
