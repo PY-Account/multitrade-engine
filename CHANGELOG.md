@@ -1,5 +1,22 @@
 # Changelog
 
+## 0.21.0 - 2026-08-02
+
+- Added `t3_range_trend`, a transparent US-equity research adaptation of the
+  Gold strategy concept presented in YouTube video `BPFwaD0CgZ8`.
+- Implemented explicit Tillson T3 and adaptive Range Filter calculations,
+  dual-filter transition entry, ATR stop, and configurable reward multiple.
+- Added baseline, fast-filter, and slow-filter immutable experiments, all
+  research-only and execution-ineligible.
+- Added the strategy to the bounded nested parameter optimizer with explicit
+  T3, range, stop, and reward search spaces.
+- Added disabled account configuration and liquid-universe assignment covering
+  US equities plus GLD/SLV research proxies. No Gold/Forex equivalence is
+  claimed.
+- Added a source-evidence document separating transcript-stated rules and
+  publisher performance claims from the undisclosed settings and MultiTrade's
+  independently testable adaptation.
+
 ## 0.20.0 - 2026-08-02
 
 - Added opt-in bounded parameter optimization to accelerated validation via

@@ -65,6 +65,13 @@
       "selection_mode": "manual",
       "manual_symbols": ["BAC", "C", "F", "GM", "PFE", "T"],
       "maximum_symbols": 12
+    },
+    {
+      "strategy_id": "t3_range_trend",
+      "selection_mode": "combined",
+      "policy_id": "liquid_us_breakout_candidates",
+      "manual_symbols": ["SPY", "QQQ", "AAPL", "MSFT", "GLD", "SLV"],
+      "maximum_symbols": 20
     }
   ],
   "index_snapshots": [],

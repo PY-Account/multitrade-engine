@@ -15,7 +15,10 @@ from multitrade.portfolio import (
     load_account_plans,
 )
 from multitrade.strategies.base import StrategyContext
-from multitrade.strategies.equity import BreakoutRetestStrategy
+from multitrade.strategies.equity import (
+    BreakoutRetestStrategy,
+    T3RangeTrendStrategy,
+)
 
 
 def market_bar(
@@ -45,6 +48,39 @@ def market_bar(
 
 
 class StrategyTests(TestCase):
+    def test_t3_range_adaptation_emits_only_on_dual_filter_transition(
+        self,
+    ) -> None:
+        bars = [market_bar(index) for index in range(90)]
+        bars.append(
+            market_bar(
+                90,
+                open_price="100",
+                high="105",
+                low="99.5",
+                close="104",
+                volume="500",
+            )
+        )
+        ordered = tuple(bars)
+        context = StrategyContext(
+            account_id="alpaca-paper",
+            bars=ordered,
+            features=FeatureEngine().calculate(ordered),
+            evaluated_at=ordered[-1].timestamp + timedelta(minutes=5),
+        )
+
+        signal = T3RangeTrendStrategy().evaluate(context)
+
+        self.assertIsNotNone(signal)
+        self.assertIn("tillson_t3_rising", signal.reason_codes)
+        self.assertEqual(
+            signal.evidence["source"],
+            "youtube_BPFwaD0CgZ8_equity_adaptation",
+        )
+        self.assertGreater(signal.target_price, signal.reference_price)
+        self.assertLess(signal.stop_price, signal.reference_price)
+
     def test_runtime_strategy_override_is_paper_only_and_expands_watchlist(
         self,
     ) -> None:

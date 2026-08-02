@@ -3,7 +3,8 @@
     "breakout_retest": "breakout_retest_baseline_2026q3",
     "trend_pullback": "trend_pullback_baseline_2026q3",
     "volatility_contraction": "volatility_contraction_baseline_2026q3",
-    "range_mean_reversion": "range_mean_reversion_baseline_2026q3"
+    "range_mean_reversion": "range_mean_reversion_baseline_2026q3",
+    "t3_range_trend": "t3_range_trend_baseline_2026q3"
   },
   "experiments": [
     {
@@ -300,6 +301,90 @@
         "version": "1.0.0",
         "deviation_multiple": "1.5",
         "reward_multiple": "1.25"
+      },
+      "execution_eligible": false
+    },
+    {
+      "experiment_id": "t3_range_trend_baseline_2026q3",
+      "family_id": "dual_filter_trend_continuation",
+      "strategy_id": "t3_range_trend",
+      "strategy_version": "1.0.0",
+      "variant_id": "baseline_v1",
+      "registered_at": "2026-08-02T12:00:00+00:00",
+      "prospective_observation_start": "2026-08-03T00:00:00+00:00",
+      "review_not_before": "2026-08-24T00:00:00+00:00",
+      "status": "frozen_research",
+      "hypothesis": "Agreement between a rising Tillson T3 and an adaptive price range filter identifies persistent long-side trends after conservative costs.",
+      "mechanism": "Two differently constructed smoothing filters must both turn upward with price above them, reducing single-indicator false positives; exits use ATR-defined risk.",
+      "primary_metric": "chronological_median_fold_return",
+      "minimum_prospective_days": 21,
+      "minimum_prospective_trials": 20,
+      "final_holdout_status": "not_reserved",
+      "expected_parameters": {
+        "strategy_id": "t3_range_trend",
+        "version": "1.0.0",
+        "t3_length": 8,
+        "t3_factor": "0.7",
+        "range_period": 20,
+        "range_multiplier": "2.5",
+        "stop_atr_multiple": "1.4",
+        "reward_multiple": "3.8"
+      },
+      "execution_eligible": false
+    },
+    {
+      "experiment_id": "t3_range_trend_fast_2026q3",
+      "family_id": "dual_filter_trend_continuation",
+      "strategy_id": "t3_range_trend",
+      "strategy_version": "1.0.0",
+      "variant_id": "fast_filters_v1",
+      "registered_at": "2026-08-02T12:00:00+00:00",
+      "prospective_observation_start": "2026-08-03T00:00:00+00:00",
+      "review_not_before": "2026-08-24T00:00:00+00:00",
+      "status": "frozen_research",
+      "hypothesis": "A faster dual-filter configuration captures earlier trend transitions without losing its edge to additional turnover and costs.",
+      "mechanism": "Shorter filters reduce lag while the two-filter agreement and ATR risk definition remain unchanged.",
+      "primary_metric": "chronological_median_fold_return",
+      "minimum_prospective_days": 21,
+      "minimum_prospective_trials": 20,
+      "final_holdout_status": "not_reserved",
+      "expected_parameters": {
+        "strategy_id": "t3_range_trend",
+        "version": "1.0.0",
+        "t3_length": 5,
+        "t3_factor": "0.7",
+        "range_period": 14,
+        "range_multiplier": "2",
+        "stop_atr_multiple": "1.4",
+        "reward_multiple": "3.8"
+      },
+      "execution_eligible": false
+    },
+    {
+      "experiment_id": "t3_range_trend_slow_2026q3",
+      "family_id": "dual_filter_trend_continuation",
+      "strategy_id": "t3_range_trend",
+      "strategy_version": "1.0.0",
+      "variant_id": "slow_filters_v1",
+      "registered_at": "2026-08-02T12:00:00+00:00",
+      "prospective_observation_start": "2026-08-03T00:00:00+00:00",
+      "review_not_before": "2026-08-24T00:00:00+00:00",
+      "status": "frozen_research",
+      "hypothesis": "A slower dual-filter configuration reduces whipsaw enough to offset fewer and later entries.",
+      "mechanism": "Longer smoothing and a wider range threshold target more persistent moves while retaining ATR-defined loss limits.",
+      "primary_metric": "chronological_median_fold_return",
+      "minimum_prospective_days": 21,
+      "minimum_prospective_trials": 20,
+      "final_holdout_status": "not_reserved",
+      "expected_parameters": {
+        "strategy_id": "t3_range_trend",
+        "version": "1.0.0",
+        "t3_length": 13,
+        "t3_factor": "0.618",
+        "range_period": 30,
+        "range_multiplier": "3",
+        "stop_atr_multiple": "1.8",
+        "reward_multiple": "3.8"
       },
       "execution_eligible": false
     }

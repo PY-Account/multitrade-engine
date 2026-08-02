@@ -5,7 +5,12 @@ algorithmic-trading organization. It separates market analysis, strategy
 signals, portfolio allocation, central risk approval, broker execution,
 reconciliation, audit, backtesting, and monitoring.
 
-Release 0.20 adds opt-in nested parameter optimization: bounded parameter
+Release 0.21 adds a source-labeled T3 + adaptive Range Filter trend candidate,
+derived conservatively from a YouTube Gold-strategy concept. Because the video
+does not disclose complete settings and Alpaca does not provide spot Gold, the
+implementation is explicitly an equity research adaptation—not a claimed
+reproduction—and remains disabled for execution. Release 0.20 added opt-in
+nested parameter optimization: bounded parameter
 grids are ranked on an earlier development segment and only the winner of each
 strategy is tested once on a later untouched holdout. Results remain
 research-only and cannot change account configuration or execution authority.

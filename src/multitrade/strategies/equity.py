@@ -18,6 +18,70 @@ def _target(reference: Decimal, stop: Decimal, multiple: Decimal) -> Decimal:
     return reference + (reference - stop) * multiple
 
 
+def _ema(values: tuple[Decimal, ...], length: int) -> tuple[Decimal, ...]:
+    if length < 1:
+        raise ValueError("EMA length must be positive")
+    if not values:
+        return ()
+    alpha = Decimal("2") / Decimal(length + 1)
+    rows = [values[0]]
+    for value in values[1:]:
+        rows.append(alpha * value + (Decimal("1") - alpha) * rows[-1])
+    return tuple(rows)
+
+
+def _tillson_t3(
+    values: tuple[Decimal, ...], length: int, factor: Decimal
+) -> tuple[Decimal, ...]:
+    stages = values
+    emas = []
+    for _ in range(6):
+        stages = _ema(stages, length)
+        emas.append(stages)
+    e3, e4, e5, e6 = emas[2], emas[3], emas[4], emas[5]
+    c1 = -(factor**3)
+    c2 = Decimal("3") * factor**2 + Decimal("3") * factor**3
+    c3 = -(
+        Decimal("6") * factor**2
+        + Decimal("3") * factor
+        + Decimal("3") * factor**3
+    )
+    c4 = (
+        Decimal("1")
+        + Decimal("3") * factor
+        + Decimal("3") * factor**2
+        + factor**3
+    )
+    return tuple(
+        c1 * e6[index]
+        + c2 * e5[index]
+        + c3 * e4[index]
+        + c4 * e3[index]
+        for index in range(len(values))
+    )
+
+
+def _range_filter(
+    values: tuple[Decimal, ...], period: int, multiplier: Decimal
+) -> tuple[Decimal, ...]:
+    changes = (ZERO,) + tuple(
+        abs(current - previous)
+        for previous, current in zip(values, values[1:])
+    )
+    smooth = _ema(_ema(changes, period), period * 2 - 1)
+    ranges = tuple(value * multiplier for value in smooth)
+    filtered = [values[0]]
+    for price, threshold in zip(values[1:], ranges[1:]):
+        previous = filtered[-1]
+        if price > previous:
+            filtered.append(max(previous, price - threshold))
+        elif price < previous:
+            filtered.append(min(previous, price + threshold))
+        else:
+            filtered.append(previous)
+    return tuple(filtered)
+
+
 @dataclass(frozen=True, slots=True)
 class BreakoutRetestStrategy:
     strategy_id: str = "breakout_retest"
@@ -308,12 +372,87 @@ class RangeMeanReversionStrategy:
         )
 
 
+@dataclass(frozen=True, slots=True)
+class T3RangeTrendStrategy:
+    """Transparent equity adaptation of a YouTube gold strategy concept."""
+
+    strategy_id: str = "t3_range_trend"
+    version: str = "1.0.0"
+    t3_length: int = 8
+    t3_factor: Decimal = Decimal("0.7")
+    range_period: int = 20
+    range_multiplier: Decimal = Decimal("2.5")
+    stop_atr_multiple: Decimal = Decimal("1.4")
+    reward_multiple: Decimal = Decimal("3.8")
+
+    def evaluate(
+        self, context: StrategyContext
+    ) -> StrategySignal | None:
+        required = max(80, self.range_period * 3, self.t3_length * 8)
+        if len(context.bars) < required:
+            return None
+        closes = tuple(bar.close for bar in context.bars[-required:])
+        t3 = _tillson_t3(closes, self.t3_length, self.t3_factor)
+        range_line = _range_filter(
+            closes, self.range_period, self.range_multiplier
+        )
+        current_bullish = (
+            t3[-1] > t3[-2]
+            and closes[-1] > t3[-1]
+            and range_line[-1] > range_line[-2]
+            and closes[-1] > range_line[-1]
+        )
+        previous_bullish = (
+            t3[-2] > t3[-3]
+            and closes[-2] > t3[-2]
+            and range_line[-2] > range_line[-3]
+            and closes[-2] > range_line[-2]
+        )
+        if not current_bullish or previous_bullish:
+            return None
+        latest = context.bars[-1]
+        stop = latest.close - (
+            context.features.atr * self.stop_atr_multiple
+        )
+        if stop <= ZERO or stop >= latest.close:
+            return None
+        return create_signal(
+            context=context,
+            strategy_id=self.strategy_id,
+            version=self.version,
+            action=SignalAction.ENTER_LONG,
+            confidence=Decimal("0.65"),
+            reference_price=latest.close,
+            stop_price=stop,
+            target_price=_target(
+                latest.close, stop, self.reward_multiple
+            ),
+            reason_codes=(
+                "tillson_t3_rising",
+                "price_above_tillson_t3",
+                "range_filter_rising",
+                "price_above_range_filter",
+            ),
+            evidence={
+                "t3": t3[-1],
+                "range_filter": range_line[-1],
+                "atr": context.features.atr,
+                "source": "youtube_BPFwaD0CgZ8_equity_adaptation",
+                "source_limitations": (
+                    "Video gold/Asia-session settings were undisclosed; "
+                    "this is not an exact reproduction."
+                ),
+            },
+        )
+
+
 def default_equity_strategies() -> dict[str, Strategy]:
     strategies: tuple[Strategy, ...] = (
         BreakoutRetestStrategy(),
         TrendPullbackStrategy(),
         VolatilityContractionBreakoutStrategy(),
         RangeMeanReversionStrategy(),
+        T3RangeTrendStrategy(),
     )
     return {
         strategy.strategy_id: strategy for strategy in strategies
@@ -331,6 +470,7 @@ def equity_strategy_from_parameters(
             VolatilityContractionBreakoutStrategy
         ),
         "range_mean_reversion": RangeMeanReversionStrategy,
+        "t3_range_trend": T3RangeTrendStrategy,
     }
     strategy_type = strategy_types.get(strategy_id)
     if strategy_type is None:

@@ -38,6 +38,14 @@ _SEARCH_SPACES: dict[str, dict[str, tuple[object, ...]]] = {
         "deviation_multiple": ("1.75", "2", "2.25"),
         "reward_multiple": ("1.25", "1.5", "2"),
     },
+    "t3_range_trend": {
+        "t3_length": (5, 8, 13),
+        "t3_factor": ("0.618", "0.7"),
+        "range_period": (14, 20, 30),
+        "range_multiplier": ("2", "2.5", "3"),
+        "stop_atr_multiple": ("1.2", "1.4", "1.8"),
+        "reward_multiple": ("2.5", "3.8", "4.5"),
+    },
 }
 
 
