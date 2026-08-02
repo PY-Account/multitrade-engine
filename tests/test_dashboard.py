@@ -158,7 +158,7 @@ class DashboardTests(TestCase):
                         "configuration"
                     ]["experiments"]
                 ),
-                    21,
+                    24,
             )
             self.assertEqual(
                 result["strategy_experiments"]["summaries"],

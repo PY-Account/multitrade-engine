@@ -200,6 +200,40 @@ def evaluate_option_package_path(
     )
     if len(retained_path) < len(points):
         warnings.append("display_path_truncated")
+    risk_text = observation.get("estimated_risk_per_package")
+    capital_at_risk = (
+        Decimal(str(risk_text)) * quantity
+        if risk_text is not None
+        else None
+    )
+    selected_pnl = (
+        Decimal(first_exit["proxy_pnl"])
+        if first_exit is not None
+        else (pnl_values[-1] if pnl_values else None)
+    )
+    return_on_risk = (
+        selected_pnl / capital_at_risk
+        if selected_pnl is not None
+        and capital_at_risk is not None
+        and capital_at_risk > ZERO
+        else None
+    )
+    premium_capture = (
+        selected_pnl / premium_basis
+        if selected_pnl is not None and premium_basis > ZERO
+        else None
+    )
+    outcome_status = "insufficient_path"
+    if selected_pnl is not None:
+        outcome_status = (
+            f"policy_exit_{first_exit['reason']}"
+            if first_exit is not None
+            else "open_positive_proxy"
+            if selected_pnl > ZERO
+            else "open_negative_proxy"
+            if selected_pnl < ZERO
+            else "open_flat_proxy"
+        )
     return {
         "intent_id": observation["intent_id"],
         "account_id": observation["account_id"],
@@ -261,6 +295,47 @@ def evaluate_option_package_path(
                 "quantity_basis", "normalized_one_package"
             ),
             "opening_net_price": format(opening_net_price, "f"),
+            "opening_premium_amount": format(premium_basis, "f"),
+            "capital_at_risk": (
+                format(capital_at_risk, "f")
+                if capital_at_risk is not None
+                else None
+            ),
+            "selected_proxy_pnl": (
+                format(selected_pnl, "f")
+                if selected_pnl is not None
+                else None
+            ),
+            "return_on_risk": (
+                format(return_on_risk, ".6f")
+                if return_on_risk is not None
+                else None
+            ),
+            "premium_capture_fraction": (
+                format(premium_capture, ".6f")
+                if premium_capture is not None
+                else None
+            ),
+            "outcome_status": outcome_status,
+            "profitability_funnel": {
+                "premium_collected": format(premium_basis, "f"),
+                "risk_capital": (
+                    format(capital_at_risk, "f")
+                    if capital_at_risk is not None
+                    else None
+                ),
+                "path_pnl_after_slippage": (
+                    format(selected_pnl, "f")
+                    if selected_pnl is not None
+                    else None
+                ),
+                "return_on_risk": (
+                    format(return_on_risk, ".6f")
+                    if return_on_risk is not None
+                    else None
+                ),
+                "policy_exit_applied": first_exit is not None,
+            },
             "slippage_per_leg_price_points": format(
                 slippage_per_leg, "f"
             ),

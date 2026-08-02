@@ -686,6 +686,65 @@ class SupportDeltaPutIncomeStrategy:
         )
 
 
+@dataclass(frozen=True, slots=True)
+class SupportDeltaPutIncomeV2Strategy(SupportDeltaPutIncomeStrategy):
+    """Preregistered cost-aware V2; it excludes the V1 loss regime."""
+
+    strategy_id: str = "support_delta_put_income_v2"
+    version: str = "2.0.0"
+    minimum_sma_slope: Decimal = Decimal("0.0005")
+    maximum_atr_percent: Decimal = Decimal("0.04")
+
+    def evaluate(self, context: StrategyContext) -> StrategySignal | None:
+        slow_window = 30
+        if len(context.bars) < max(self.support_lookback + 1, slow_window + 1):
+            return None
+        current_slow = _mean(
+            tuple(bar.close for bar in context.bars[-slow_window:])
+        )
+        previous_slow = _mean(
+            tuple(bar.close for bar in context.bars[-slow_window - 1 : -1])
+        )
+        slope = (
+            (current_slow - previous_slow) / previous_slow
+            if previous_slow > ZERO
+            else ZERO
+        )
+        if (
+            context.features.regime is not MarketRegime.TREND_UP
+            or slope < self.minimum_sma_slope
+            or context.features.atr_percent > self.maximum_atr_percent
+        ):
+            return None
+        signal = super().evaluate(context)
+        if signal is None:
+            return None
+        return create_signal(
+            context=context,
+            strategy_id=self.strategy_id,
+            version=self.version,
+            action=signal.action,
+            confidence=signal.confidence,
+            reference_price=signal.reference_price,
+            stop_price=signal.stop_price,
+            target_price=signal.target_price,
+            reason_codes=(
+                *signal.reason_codes,
+                "uptrend_regime_required",
+                "positive_slow_average_slope",
+                "extreme_volatility_excluded",
+            ),
+            evidence={
+                **signal.evidence,
+                "slow_average_slope": slope,
+                "maximum_atr_percent": self.maximum_atr_percent,
+                "v2_design_basis": (
+                    "preregistered_after_v1_range_regime_loss_diagnostic"
+                ),
+            },
+        )
+
+
 def default_equity_strategies() -> dict[str, Strategy]:
     strategies: tuple[Strategy, ...] = (
         BreakoutRetestStrategy(),
@@ -695,6 +754,7 @@ def default_equity_strategies() -> dict[str, Strategy]:
         T3RangeTrendStrategy(),
         ChartPatternConfluenceStrategy(),
         SupportDeltaPutIncomeStrategy(),
+        SupportDeltaPutIncomeV2Strategy(),
     )
     return {
         strategy.strategy_id: strategy for strategy in strategies
@@ -715,6 +775,7 @@ def equity_strategy_from_parameters(
         "t3_range_trend": T3RangeTrendStrategy,
         "chart_pattern_confluence": ChartPatternConfluenceStrategy,
         "support_delta_put_income": SupportDeltaPutIncomeStrategy,
+        "support_delta_put_income_v2": SupportDeltaPutIncomeV2Strategy,
     }
     strategy_type = strategy_types.get(strategy_id)
     if strategy_type is None:

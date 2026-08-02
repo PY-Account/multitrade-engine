@@ -19,6 +19,7 @@ from multitrade.strategies.base import StrategyContext
 from multitrade.strategies.equity import (
     BreakoutRetestStrategy,
     SupportDeltaPutIncomeStrategy,
+    SupportDeltaPutIncomeV2Strategy,
     T3RangeTrendStrategy,
 )
 
@@ -113,6 +114,61 @@ class StrategyTests(TestCase):
         self.assertIsNone(
             SupportDeltaPutIncomeStrategy().evaluate(downtrend)
         )
+
+    def test_put_income_v2_has_new_identity_and_requires_uptrend(self) -> None:
+        bars = tuple(
+            market_bar(
+                index,
+                open_price=str(Decimal("99.9") + Decimal(index) / 10),
+                high=str(Decimal("100.2") + Decimal(index) / 10),
+                low=str(Decimal("99.7") + Decimal(index) / 10),
+                close=str(Decimal("100") + Decimal(index) / 10),
+                volume="1000",
+            )
+            for index in range(41)
+        ) + (
+            market_bar(
+                41,
+                open_price="103.5",
+                high="104.8",
+                low="101.8",
+                close="104.5",
+                volume="1300",
+            ),
+        )
+        features = FeatureSnapshot(
+            symbol="AAPL",
+            bar_timestamp=bars[-1].timestamp.isoformat(),
+            close=Decimal("104.5"),
+            sma_fast=Decimal("103.8"),
+            sma_slow=Decimal("103"),
+            atr=Decimal("2"),
+            atr_percent=Decimal("0.019"),
+            average_volume=Decimal("1000"),
+            relative_volume=Decimal("1.3"),
+            return_volatility=Decimal("0.01"),
+            relative_volatility=Decimal("1"),
+            donchian_high=Decimal("104.2"),
+            donchian_low=Decimal("99.7"),
+            trend_strength=Decimal("0.008"),
+            regime=MarketRegime.TREND_UP,
+            sample_size=len(bars),
+        )
+        context = StrategyContext(
+            account_id="alpaca-paper",
+            bars=bars,
+            features=features,
+            evaluated_at=bars[-1].timestamp + timedelta(minutes=5),
+        )
+
+        v1 = SupportDeltaPutIncomeStrategy().evaluate(context)
+        v2 = SupportDeltaPutIncomeV2Strategy().evaluate(context)
+
+        self.assertIsNotNone(v1)
+        self.assertIsNotNone(v2)
+        self.assertNotEqual(v1.signal_id, v2.signal_id)
+        self.assertEqual(v2.strategy_version, "2.0.0")
+        self.assertIn("uptrend_regime_required", v2.reason_codes)
 
     def test_t3_range_adaptation_emits_only_on_dual_filter_transition(
         self,

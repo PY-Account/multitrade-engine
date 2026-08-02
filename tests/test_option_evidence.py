@@ -185,6 +185,7 @@ class OptionPackageEvidenceTests(TestCase):
             second_side="buy",
         )
         candidate["structure"] = "bull_put_credit_spread"
+        candidate["estimated_risk_per_package"] = "420"
         bars = {
             "AAPL260918C00150000": (
                 option_bar(
@@ -210,6 +211,16 @@ class OptionPackageEvidenceTests(TestCase):
         )
 
         self.assertEqual(report["latest_proxy_pnl"], "50.00")
+        self.assertEqual(
+            report["details"]["return_on_risk"], "0.119048"
+        )
+        self.assertEqual(
+            report["details"]["premium_capture_fraction"], "0.625000"
+        )
+        self.assertEqual(
+            report["details"]["outcome_status"],
+            "policy_exit_profit_target",
+        )
         self.assertIn(
             "historical_greeks_not_reconstructed", report["warnings"]
         )

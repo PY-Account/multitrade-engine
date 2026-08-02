@@ -6,7 +6,8 @@
     "range_mean_reversion": "range_mean_reversion_baseline_2026q3",
     "t3_range_trend": "t3_range_trend_baseline_2026q3",
     "chart_pattern_confluence": "chart_pattern_confluence_baseline_2026q3",
-    "support_delta_put_income": "support_delta_put_income_baseline_2026q3"
+    "support_delta_put_income": "support_delta_put_income_baseline_2026q3",
+    "support_delta_put_income_v2": "support_delta_put_income_v2_baseline_2026q3"
   },
   "experiments": [
     {
@@ -567,6 +568,96 @@
         "proximity_atr": "0.75",
         "stop_atr_buffer": "0.75",
         "reward_multiple": "1.50"
+      },
+      "execution_eligible": false
+    },
+    {
+      "experiment_id": "support_delta_put_income_v2_baseline_2026q3",
+      "family_id": "defined_risk_put_income_v2",
+      "strategy_id": "support_delta_put_income_v2",
+      "strategy_version": "2.0.0",
+      "variant_id": "baseline_v2",
+      "registered_at": "2026-08-02T19:30:00+00:00",
+      "prospective_observation_start": "2026-08-03T00:00:00+00:00",
+      "review_not_before": "2026-08-24T00:00:00+00:00",
+      "status": "frozen_research",
+      "hypothesis": "The support-rejection put-income signal retains positive gross expectancy after costs when entries are limited to rising uptrends and extreme volatility is excluded.",
+      "mechanism": "V1 diagnostics identified range-regime losses and cost sensitivity. V2 preregisters an uptrend regime, positive slow-average slope, bounded ATR percentage, and a higher credit-to-risk requirement before receiving a fresh holdout.",
+      "primary_metric": "chronological_median_fold_return",
+      "minimum_prospective_days": 21,
+      "minimum_prospective_trials": 20,
+      "final_holdout_status": "not_reserved",
+      "expected_parameters": {
+        "strategy_id": "support_delta_put_income_v2",
+        "version": "2.0.0",
+        "bollinger_window": 20,
+        "bollinger_deviations": "2",
+        "support_lookback": 40,
+        "proximity_atr": "0.50",
+        "stop_atr_buffer": "0.50",
+        "reward_multiple": "1.50",
+        "minimum_sma_slope": "0.0005",
+        "maximum_atr_percent": "0.04"
+      },
+      "execution_eligible": false
+    },
+    {
+      "experiment_id": "support_delta_put_income_v2_selective_2026q3",
+      "family_id": "defined_risk_put_income_v2",
+      "strategy_id": "support_delta_put_income_v2",
+      "strategy_version": "2.0.0",
+      "variant_id": "selective_trend_v2",
+      "registered_at": "2026-08-02T19:30:00+00:00",
+      "prospective_observation_start": "2026-08-03T00:00:00+00:00",
+      "review_not_before": "2026-08-24T00:00:00+00:00",
+      "status": "frozen_research",
+      "hypothesis": "A steeper slow-average slope and tighter support proximity improve net expectancy enough to offset fewer observations.",
+      "mechanism": "This sensitivity candidate raises trend quality and entry-location requirements without changing the defined-risk spread or delta ceiling.",
+      "primary_metric": "chronological_median_fold_return",
+      "minimum_prospective_days": 21,
+      "minimum_prospective_trials": 20,
+      "final_holdout_status": "not_reserved",
+      "expected_parameters": {
+        "strategy_id": "support_delta_put_income_v2",
+        "version": "2.0.0",
+        "bollinger_window": 20,
+        "bollinger_deviations": "2",
+        "support_lookback": 40,
+        "proximity_atr": "0.30",
+        "stop_atr_buffer": "0.50",
+        "reward_multiple": "1.50",
+        "minimum_sma_slope": "0.001",
+        "maximum_atr_percent": "0.025"
+      },
+      "execution_eligible": false
+    },
+    {
+      "experiment_id": "support_delta_put_income_v2_responsive_2026q3",
+      "family_id": "defined_risk_put_income_v2",
+      "strategy_id": "support_delta_put_income_v2",
+      "strategy_version": "2.0.0",
+      "variant_id": "responsive_trend_v2",
+      "registered_at": "2026-08-02T19:30:00+00:00",
+      "prospective_observation_start": "2026-08-03T00:00:00+00:00",
+      "review_not_before": "2026-08-24T00:00:00+00:00",
+      "status": "frozen_research",
+      "hypothesis": "A modest positive trend slope supplies enough observations while still excluding the V1 range-regime failure mode.",
+      "mechanism": "The responsive candidate relaxes slope and support distance only within an established uptrend and preserves bounded volatility and spread risk.",
+      "primary_metric": "chronological_median_fold_return",
+      "minimum_prospective_days": 21,
+      "minimum_prospective_trials": 20,
+      "final_holdout_status": "not_reserved",
+      "expected_parameters": {
+        "strategy_id": "support_delta_put_income_v2",
+        "version": "2.0.0",
+        "bollinger_window": 20,
+        "bollinger_deviations": "2",
+        "support_lookback": 60,
+        "proximity_atr": "0.50",
+        "stop_atr_buffer": "0.75",
+        "reward_multiple": "1.50",
+        "minimum_sma_slope": "0.00025",
+        "maximum_atr_percent": "0.04"
       },
       "execution_eligible": false
     }

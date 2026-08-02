@@ -1,5 +1,18 @@
 # Changelog
 
+## 0.25.0 - 2026-08-02
+
+- Added separately identified and preregistered
+  `support_delta_put_income_v2` instead of mutating V1 after observing it.
+- V2 requires an uptrend, positive slow-average slope, bounded ATR percentage,
+  a maximum 0.22 short-put absolute delta, and at least 18% credit-to-risk.
+- Disabled V1 account observation and enabled V2 observation while keeping
+  Paper-order submission blocked.
+- Added three V2 experiments and a bounded optimization space; every candidate
+  still requires a new holdout.
+- Added option-package profitability evidence: premium, capital at risk,
+  slippage-adjusted P/L, return on risk, premium capture, and exit outcome.
+
 ## 0.24.0 - 2026-08-02
 
 - Added the research-only `support_delta_put_income` underlying signal: price

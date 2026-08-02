@@ -86,6 +86,13 @@
       "policy_id": "liquid_us_breakout_candidates",
       "manual_symbols": ["SPY", "QQQ", "AAPL", "MSFT", "AMD", "NVDA"],
       "maximum_symbols": 20
+    },
+    {
+      "strategy_id": "support_delta_put_income_v2",
+      "selection_mode": "combined",
+      "policy_id": "liquid_us_breakout_candidates",
+      "manual_symbols": ["SPY", "QQQ", "AAPL", "MSFT", "AMD", "NVDA"],
+      "maximum_symbols": 20
     }
   ],
   "index_snapshots": [],

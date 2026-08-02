@@ -41,3 +41,20 @@ executable profitability. Those claims require decision-time chain snapshots,
 exact-contract paths, conservative spread pricing, and prospective Paper
 observations. The allocation is enabled for observation but its
 `paper_execution_allowed` flag remains false.
+
+## V2 profitability loop
+
+V1 produced small positive gross results in two variants, but modeled costs
+removed the edge and the range regime was the dominant loss segment. V2 is a
+new strategy identity, not a retroactive edit. It preregisters:
+
+- an established `trend_up` regime;
+- positive 30-bar slow-average slope;
+- a maximum ATR percentage to reject extreme volatility;
+- an 18% minimum credit-to-maximum-loss ratio for the spread.
+
+Every frozen option package now reports premium, risk capital, conservative
+path P/L after configured slippage, return on risk, premium capture, and the
+first policy exit. This measures option economics rather than treating an
+underlying stock proxy as proof of Theta profitability. V2 remains blocked
+until a new holdout and prospective exact-contract Paper evidence pass.

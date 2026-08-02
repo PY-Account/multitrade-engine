@@ -503,7 +503,7 @@
     </div>
     <div class="table-wrap">
       <table>
-        <thead><tr><th>Evaluated</th><th>Strategy</th><th>Underlying</th><th>Structure</th><th>Feed / timeframe</th><th>Coverage</th><th class="number">Latest proxy P/L</th><th class="number">MFE</th><th class="number">MAE</th><th class="number">Underwater</th><th>First policy exit</th><th>Warnings</th></tr></thead>
+        <thead><tr><th>Evaluated</th><th>Strategy</th><th>Underlying</th><th>Structure</th><th>Feed / timeframe</th><th>Coverage</th><th class="number">Proxy P/L</th><th class="number">Return / risk</th><th class="number">Premium capture</th><th class="number">MFE</th><th class="number">MAE</th><th class="number">Underwater</th><th>Outcome</th><th>First policy exit</th><th>Warnings</th></tr></thead>
         <tbody id="option-package-evidence"></tbody>
       </table>
     </div>
@@ -2528,7 +2528,7 @@
     if (!rows.length) {
       emptyRow(
         body,
-        12,
+        15,
         "No exact-contract option path has been evaluated yet."
       );
       return;
@@ -2546,9 +2546,12 @@
         [`${item.data_feed} · ${item.timeframe}`, item.data_feed === "opra" ? "ok" : "warn"],
         [`${item.aligned_points}/${item.union_points} · ${percent(item.coverage_fraction)}`, Number(item.coverage_fraction) >= 0.8 ? "ok" : "warn"],
         [item.latest_proxy_pnl == null ? "--" : money(item.latest_proxy_pnl), `number ${latest >= 0 ? "ok" : "bad"}`],
+        [item.details?.return_on_risk == null ? "--" : percent(item.details.return_on_risk), `number ${Number(item.details?.return_on_risk || 0) >= 0 ? "ok" : "bad"}`],
+        [item.details?.premium_capture_fraction == null ? "--" : percent(item.details.premium_capture_fraction), "number"],
         [item.maximum_favorable_excursion == null ? "--" : money(item.maximum_favorable_excursion), "number ok"],
         [item.maximum_adverse_excursion == null ? "--" : money(item.maximum_adverse_excursion), "number bad"],
         [item.time_underwater_fraction == null ? "--" : percent(item.time_underwater_fraction), "number"],
+        [String(item.details?.outcome_status || "unknown").replaceAll("_", " "), item.details?.outcome_status?.includes("profit_target") ? "ok" : "warn"],
         [exit, ""],
         [(item.warnings || []).map(value => String(value).replaceAll("_", " ")).join("; "), "warn"],
       ];
