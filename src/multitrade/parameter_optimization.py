@@ -46,6 +46,18 @@ _SEARCH_SPACES: dict[str, dict[str, tuple[object, ...]]] = {
         "stop_atr_multiple": ("1.2", "1.4", "1.8"),
         "reward_multiple": ("2.5", "3.8", "4.5"),
     },
+    "chart_pattern_confluence": {
+        "trap_lookback": (15, 20, 30),
+        "trap_tolerance": ("0.001", "0.002", "0.004"),
+        "pole_bars": (6, 8, 12),
+        "flag_bars": (4, 5, 8),
+        "minimum_pole_return": ("0.02", "0.025", "0.04"),
+        "maximum_flag_retracement": ("0.382", "0.50", "0.618"),
+        "volume_multiplier": ("1.0", "1.10", "1.25"),
+        "minimum_pattern_score": ("0.60", "0.70", "0.85"),
+        "stop_atr_buffer": ("0.20", "0.25", "0.50"),
+        "reward_multiple": ("1.5", "2", "2.5"),
+    },
 }
 
 

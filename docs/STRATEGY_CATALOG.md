@@ -4,13 +4,16 @@ These are deterministic research candidates, not promises of profitability.
 All are disabled for Paper submission by default and require walk-forward and
 multi-week Paper evidence before approval.
 
-The frozen experiment program groups the current candidates into three
+The frozen experiment program groups the current candidates into five
 economically related research families:
 
 - `intraday_breakout_continuation`: breakout/retest and
   volatility-contraction breakout.
 - `intraday_trend_continuation`: trend pullback.
 - `intraday_range_reversion`: range mean reversion.
+- `dual_filter_trend_continuation`: Tillson T3/range-filter agreement.
+- `mathematical_chart_pattern_confluence`: causal geometric pattern evidence
+  confirmed by regime and relative volume.
 
 The comparison matrix adds two frozen sensitivity variants per baseline:
 
@@ -19,9 +22,11 @@ The comparison matrix adds two frozen sensitivity variants per baseline:
 - Trend pullback: tighter and broader fast-average touch zones.
 - Volatility contraction: stricter and broader contraction/volume filters.
 - Range reversion: deeper and more moderate displacement thresholds.
+- T3/range trend: faster and slower filter pairs.
+- Chart patterns: stricter and broader geometric/confirmation thresholds.
 
 These labels and parameters are fixed before prospective observation. The
-resulting family sizes of six, three, and three remain too small for reliable
+The resulting family sizes remain too small for reliable
 multiple-testing statistics. See `STRATEGY_EXPERIMENTS.md`.
 
 ## Breakout and retest (`breakout_retest` v1.0.0)
@@ -78,6 +83,24 @@ Long-only stock candidate:
 
 This strategy is disabled even for signal generation in the default portfolio
 because regime transitions make mean reversion especially sensitive.
+
+## Chart-pattern confluence (`chart_pattern_confluence` v1.0.0)
+
+Bidirectional stock research candidate:
+
+- Converts named visual patterns into fixed candle, slope, pivot, symmetry,
+  false-break, imbalance, and moving-average equations.
+- Uses only closed bars; swing pivots require two closed confirmation bars on
+  their right side and never inspect a future bar.
+- Aggregates same-direction evidence but rejects it unless the feature regime
+  and relative volume agree.
+- Stores each measured value and uses the structure plus an ATR buffer as the
+  invalidation stop; target is a configured multiple of initial risk.
+
+The baseline, strict, and broad variants are disabled and execution-ineligible.
+ABCD and moving-average-cross evidence are intentionally too weak to authorize
+a baseline signal alone. See `CHART_PATTERN_MATHEMATICS.md` for every formula
+and the separation between source descriptions and MultiTrade thresholds.
 
 ## Evidence-weighted daily market model (`evidence_weighted_market_model` v1.0.0)
 

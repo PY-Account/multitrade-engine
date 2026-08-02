@@ -72,6 +72,13 @@
       "policy_id": "liquid_us_breakout_candidates",
       "manual_symbols": ["SPY", "QQQ", "AAPL", "MSFT", "GLD", "SLV"],
       "maximum_symbols": 20
+    },
+    {
+      "strategy_id": "chart_pattern_confluence",
+      "selection_mode": "combined",
+      "policy_id": "liquid_us_breakout_candidates",
+      "manual_symbols": ["SPY", "QQQ", "AAPL", "MSFT", "AMD", "MU", "UBER", "PLTR"],
+      "maximum_symbols": 20
     }
   ],
   "index_snapshots": [],

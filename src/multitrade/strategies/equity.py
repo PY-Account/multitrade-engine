@@ -5,6 +5,10 @@ from decimal import Decimal
 
 from multitrade.domain import ZERO
 from multitrade.features import MarketRegime
+from multitrade.patterns import (
+    PatternDirection,
+    detect_chart_patterns,
+)
 from multitrade.strategies.base import (
     SignalAction,
     Strategy,
@@ -446,6 +450,148 @@ class T3RangeTrendStrategy:
         )
 
 
+@dataclass(frozen=True, slots=True)
+class ChartPatternConfluenceStrategy:
+    """Research-only, mathematically specified pattern confluence."""
+
+    strategy_id: str = "chart_pattern_confluence"
+    version: str = "1.0.0"
+    trap_lookback: int = 20
+    trap_tolerance: Decimal = Decimal("0.002")
+    pole_bars: int = 8
+    flag_bars: int = 5
+    minimum_pole_return: Decimal = Decimal("0.025")
+    maximum_flag_retracement: Decimal = Decimal("0.50")
+    volume_multiplier: Decimal = Decimal("1.10")
+    minimum_pattern_score: Decimal = Decimal("0.70")
+    stop_atr_buffer: Decimal = Decimal("0.25")
+    reward_multiple: Decimal = Decimal("2")
+
+    def evaluate(
+        self, context: StrategyContext
+    ) -> StrategySignal | None:
+        matches = detect_chart_patterns(
+            context.bars,
+            trap_lookback=self.trap_lookback,
+            trap_tolerance=self.trap_tolerance,
+            pole_bars=self.pole_bars,
+            flag_bars=self.flag_bars,
+            minimum_pole_return=self.minimum_pole_return,
+            maximum_flag_retracement=(
+                self.maximum_flag_retracement
+            ),
+            volume_multiplier=self.volume_multiplier,
+        )
+        features = context.features
+        latest = context.bars[-1]
+        bullish = tuple(
+            match
+            for match in matches
+            if match.direction is PatternDirection.BULLISH
+        )
+        bearish = tuple(
+            match
+            for match in matches
+            if match.direction is PatternDirection.BEARISH
+        )
+        bullish_score = sum(
+            (match.score for match in bullish), start=ZERO
+        )
+        bearish_score = sum(
+            (match.score for match in bearish), start=ZERO
+        )
+        long_confirmed = (
+            bullish
+            and bullish_score >= self.minimum_pattern_score
+            and bullish_score > bearish_score
+            and features.regime is MarketRegime.TREND_UP
+            and features.relative_volume >= self.volume_multiplier
+        )
+        short_confirmed = (
+            bearish
+            and bearish_score >= self.minimum_pattern_score
+            and bearish_score > bullish_score
+            and features.regime is MarketRegime.TREND_DOWN
+            and features.relative_volume >= self.volume_multiplier
+        )
+        if not long_confirmed and not short_confirmed:
+            return None
+
+        selected = bullish if long_confirmed else bearish
+        action = (
+            SignalAction.ENTER_LONG
+            if long_confirmed
+            else SignalAction.ENTER_SHORT
+        )
+        if long_confirmed:
+            structure = min(
+                match.invalidation_price for match in selected
+            )
+            stop = min(
+                structure,
+                latest.close
+                - features.atr * self.stop_atr_buffer,
+            )
+            target = _target(
+                latest.close, stop, self.reward_multiple
+            )
+            valid = stop > ZERO and stop < latest.close < target
+        else:
+            structure = max(
+                match.invalidation_price for match in selected
+            )
+            stop = max(
+                structure,
+                latest.close
+                + features.atr * self.stop_atr_buffer,
+            )
+            target = latest.close - (
+                stop - latest.close
+            ) * self.reward_multiple
+            valid = target > ZERO and target < latest.close < stop
+        if not valid:
+            return None
+
+        total_score = bullish_score if long_confirmed else bearish_score
+        return create_signal(
+            context=context,
+            strategy_id=self.strategy_id,
+            version=self.version,
+            action=action,
+            confidence=min(
+                Decimal("0.90"),
+                Decimal("0.50") + total_score * Decimal("0.20"),
+            ),
+            reference_price=latest.close,
+            stop_price=stop,
+            target_price=target,
+            reason_codes=(
+                "mathematical_pattern_detected",
+                "market_regime_confirmed",
+                "relative_volume_confirmed",
+                *(match.pattern_id for match in selected),
+            ),
+            evidence={
+                "pattern_direction": selected[0].direction,
+                "aggregate_pattern_score": total_score,
+                "patterns": [
+                    {
+                        "pattern_id": match.pattern_id,
+                        "score": match.score,
+                        "invalidation_price": (
+                            match.invalidation_price
+                        ),
+                        "measurements": match.evidence,
+                    }
+                    for match in selected
+                ],
+                "relative_volume": features.relative_volume,
+                "regime": features.regime,
+                "source": "tradingkit_pattern_catalog_math_spec",
+            },
+        )
+
+
 def default_equity_strategies() -> dict[str, Strategy]:
     strategies: tuple[Strategy, ...] = (
         BreakoutRetestStrategy(),
@@ -453,6 +599,7 @@ def default_equity_strategies() -> dict[str, Strategy]:
         VolatilityContractionBreakoutStrategy(),
         RangeMeanReversionStrategy(),
         T3RangeTrendStrategy(),
+        ChartPatternConfluenceStrategy(),
     )
     return {
         strategy.strategy_id: strategy for strategy in strategies
@@ -471,6 +618,7 @@ def equity_strategy_from_parameters(
         ),
         "range_mean_reversion": RangeMeanReversionStrategy,
         "t3_range_trend": T3RangeTrendStrategy,
+        "chart_pattern_confluence": ChartPatternConfluenceStrategy,
     }
     strategy_type = strategy_types.get(strategy_id)
     if strategy_type is None:

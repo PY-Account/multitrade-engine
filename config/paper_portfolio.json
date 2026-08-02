@@ -60,6 +60,15 @@
           "symbols": ["SPY", "QQQ", "AAPL", "MSFT"]
         },
         {
+          "strategy_id": "chart_pattern_confluence",
+          "enabled": false,
+          "capital_weight": "0.10",
+          "risk_fraction": "0.003",
+          "minimum_confidence": "0.60",
+          "paper_execution_allowed": false,
+          "symbols": ["SPY", "QQQ", "AAPL", "MSFT"]
+        },
+        {
           "strategy_id": "breakout_retest_bull_call",
           "asset_class": "option",
           "enabled": true,

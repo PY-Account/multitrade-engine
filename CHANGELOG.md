@@ -1,5 +1,25 @@
 # Changelog
 
+## 0.22.0 - 2026-08-02
+
+- Added deterministic, closed-bar mathematical detectors for engulfing
+  candles, bullish pin bars, dragonfly/gravestone doji, bear/bull traps, bull
+  flags, FVG retests, golden/death crosses, ABCD equality, and confirmed
+  head-and-shoulders structures.
+- Added explicit causal pivot confirmation so no current or future bar can
+  retroactively create a decision-time pattern.
+- Added the research-only `chart_pattern_confluence` strategy. A visual shape
+  cannot trade alone: aggregate evidence must agree with regime and relative
+  volume, while the measured structure defines invalidation and ATR-buffered
+  risk.
+- Added baseline, strict, and broad immutable experiments, all disabled and
+  execution-ineligible, plus liquid-universe coverage.
+- Added a bounded nested-optimization grid for geometric, confirmation, stop,
+  and reward thresholds. Optimization remains unable to mutate configuration
+  or authorize execution.
+- Added a mathematical specification documenting formulas, causal boundaries,
+  evidence weights, and the mandatory holdout/prospective validation path.
+
 ## 0.21.0 - 2026-08-02
 
 - Added `t3_range_trend`, a transparent US-equity research adaptation of the

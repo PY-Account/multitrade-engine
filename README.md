@@ -276,6 +276,9 @@ The controlled testing sequence is documented in
 [`docs/PAPER_VALIDATION_RUNBOOK.md`](docs/PAPER_VALIDATION_RUNBOOK.md).
 Strategy definitions and limitations are documented in
 [`docs/STRATEGY_CATALOG.md`](docs/STRATEGY_CATALOG.md).
+The closed-bar mathematical definitions, causal pivot rules, structural
+invalidation, and validation boundary for chart patterns are documented in
+[`docs/CHART_PATTERN_MATHEMATICS.md`](docs/CHART_PATTERN_MATHEMATICS.md).
 Evidence admission and the public-thesis boundary are documented in
 [`docs/RESEARCH_GOVERNANCE.md`](docs/RESEARCH_GOVERNANCE.md).
 Asset selection, SEC company-size evidence, index snapshots, and manual versus
