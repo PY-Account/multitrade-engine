@@ -7,6 +7,8 @@
   are evaluated, while unchanged rejected candidates are skipped.
 - Added `--force-all` for deliberate full-suite reruns. Nested parameter
   optimization is restricted to the strategies selected for the current run.
+- Synchronized the runtime dashboard version with package metadata and added
+  a regression test that prevents the two version sources from diverging.
 
 ## 0.28.0 - 2026-08-04
 

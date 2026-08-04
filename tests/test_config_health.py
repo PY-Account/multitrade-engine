@@ -1,15 +1,24 @@
 import os
+import tomllib
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from tempfile import TemporaryDirectory
 from unittest import TestCase
 from unittest.mock import patch
 
+from multitrade import __version__
 from multitrade.config import Settings, load_env_file
 from multitrade.health import check_health, write_health
 
 
 class EnvironmentFileTests(TestCase):
+    def test_runtime_version_matches_package_metadata(self) -> None:
+        project = Path(__file__).parents[1]
+        with (project / "pyproject.toml").open("rb") as handle:
+            package_version = tomllib.load(handle)["project"]["version"]
+
+        self.assertEqual(__version__, package_version)
+
     def test_analyst_api_is_disabled_by_default(self) -> None:
         with patch.dict(os.environ, {}, clear=True):
             settings = Settings.from_env()
