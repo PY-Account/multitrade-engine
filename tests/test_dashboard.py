@@ -356,6 +356,9 @@ class DashboardTests(TestCase):
                     'id="accelerated-optimization"', html
                 )
                 self.assertIn(
+                    'id="accelerated-timeframe"', html
+                )
+                self.assertIn(
                     "Trade attribution diagnostics", html
                 )
                 self.assertIn("Research decision queue", html)

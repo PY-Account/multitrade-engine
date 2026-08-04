@@ -1,5 +1,19 @@
 # Changelog
 
+## 0.29.0 - 2026-08-04
+
+- Added multi-timeframe accelerated research with independent 1Hour, 4Hour,
+  and 1Day runs, datasets, scorecards, optimization results, and audit rows.
+- Added timeframe-specific historical depth: one year for 1Hour, three years
+  for 4Hour, and five years for 1Day research.
+- Added a dashboard timeframe selector so results are compared without mixing
+  bar resolutions.
+- Incremental candidate selection is now scoped by account and timeframe;
+  `--force-all` deliberately re-baselines every candidate when bar resolution
+  changes.
+- Parameter optimization now preserves each strategy's real version instead
+  of labeling every generated candidate as version 1.0.0.
+
 ## 0.28.1 - 2026-08-04
 
 - Accelerated validation now defaults to incremental research selection:

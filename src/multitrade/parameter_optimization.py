@@ -9,7 +9,10 @@ from typing import Any
 from multitrade.domain import ZERO
 from multitrade.market import MarketBar
 from multitrade.portfolio import AccountPlan, StrategyAllocation
-from multitrade.strategies import equity_strategy_from_parameters
+from multitrade.strategies import (
+    default_equity_strategies,
+    equity_strategy_from_parameters,
+)
 from multitrade.strategy_lab import (
     StrategyLabConfig,
     StrategyLabEvaluator,
@@ -157,11 +160,12 @@ def candidate_parameters(
     space = _SEARCH_SPACES.get(strategy_id)
     if space is None:
         raise ValueError(f"No bounded search space for {strategy_id}")
+    version = default_equity_strategies()[strategy_id].version
     names = tuple(space)
     combinations = [
         {
             "strategy_id": strategy_id,
-            "version": "1.0.0",
+            "version": version,
             **dict(zip(names, values)),
         }
         for values in product(*(space[name] for name in names))

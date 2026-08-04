@@ -24,6 +24,12 @@ class ParameterOptimizationTests(TestCase):
         self.assertTrue(
             all(item["strategy_id"] == "breakout_retest" for item in first)
         )
+        retest = candidate_parameters(
+            "confirmed_breakout_retest_v3", limit=4
+        )
+        self.assertTrue(
+            all(item["version"] == "3.0.0" for item in retest)
+        )
 
     def test_optimizer_selects_on_development_then_tests_holdout(self):
         allocation = StrategyAllocation(

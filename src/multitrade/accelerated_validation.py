@@ -344,6 +344,14 @@ class AcceleratedValidationService:
         lab_service.config = replace(
             lab_service.config,
             comparison_variants_per_strategy_cycle=4,
+            lookback_days=max(
+                lab_service.config.lookback_days,
+                {
+                    "1Hour": 365,
+                    "4Hour": 1095,
+                    "1Day": 1825,
+                }.get(account_plan.timeframe, 120),
+            ),
         )
         return cls(lab_service=lab_service, store=shared_store)
 
@@ -356,6 +364,8 @@ class AcceleratedValidationService:
                 run for run in previous_runs
                 if run["account_id"]
                 == self.lab_service.account_plan.account_id
+                and run.get("timeframe")
+                == self.lab_service.account_plan.timeframe
             ),
             None,
         )

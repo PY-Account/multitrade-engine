@@ -203,6 +203,12 @@ class FakeMarketData:
 
 
 class StrategyLabTests(TestCase):
+    def test_long_horizon_research_lookback_is_supported(self) -> None:
+        self.assertEqual(
+            StrategyLabConfig(lookback_days=1825).lookback_days,
+            1825,
+        )
+
     def test_execution_vehicles_collapse_to_unique_source_models(
         self,
     ) -> None:

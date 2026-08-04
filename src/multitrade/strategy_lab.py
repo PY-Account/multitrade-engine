@@ -63,8 +63,8 @@ class StrategyLabConfig:
     comparison_rotation_seconds: int = 21600
 
     def __post_init__(self) -> None:
-        if not 30 <= self.lookback_days <= 365:
-            raise ValueError("Strategy Lab lookback must be 30-365 days")
+        if not 30 <= self.lookback_days <= 2000:
+            raise ValueError("Strategy Lab lookback must be 30-2000 days")
         if (
             self.base_slippage_bps < ZERO
             or self.stressed_slippage_bps < self.base_slippage_bps

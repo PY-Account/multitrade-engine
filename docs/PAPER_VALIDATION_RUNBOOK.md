@@ -158,11 +158,32 @@ MLeg in both Alpaca and the dashboard. Confirm that:
 - the contract symbols match the recorded decision;
 - reserved risk remains until the package closes;
 - the exit worker records a conservative liquidation price;
+
 - positive-theta trade P/L is not described as pure theta attribution; and
 - no package remains open inside its configured pre-expiration window.
 
 Protective puts require an already managed long stock position of at least
 100 shares per contract. They are not allowed as standalone bearish bets.
+
+### Multi-timeframe historical re-baseline
+
+Changing bar resolution changes the research candidate and requires a fresh
+historical baseline. Run all frozen candidates independently on hourly,
+four-hour, and daily bars with:
+
+```bash
+docker compose run --rm engine multitrade accelerated-validation \
+  --workers 2 \
+  --timeframes 1Hour,4Hour,1Day \
+  --force-all \
+  --optimize \
+  --max-candidates 48
+```
+
+The account's live/Paper automation timeframe is not changed by this command.
+Every research resolution produces a separate audited run. Intraday-only
+models such as 0DTE session logic may correctly produce insufficient evidence
+on daily bars and must not be interpreted as daily execution candidates.
 
 ## Emergency response
 

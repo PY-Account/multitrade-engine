@@ -5,7 +5,7 @@ import json
 import signal
 import sys
 import threading
-from dataclasses import asdict
+from dataclasses import asdict, replace
 from datetime import datetime, timedelta, timezone
 from decimal import Decimal
 from typing import Any
@@ -37,7 +37,11 @@ from multitrade.experiments import (
     load_strategy_experiment_program,
 )
 from multitrade.health import check_health, write_health
-from multitrade.market import AlpacaMarketDataClient, closed_bars
+from multitrade.market import (
+    AlpacaMarketDataClient,
+    closed_bars,
+    timeframe_seconds,
+)
 from multitrade.options import (
     AlpacaOptionChainClient,
     OptionLiquidityPolicy,
@@ -910,6 +914,7 @@ def _accelerated_validation(
     optimize: bool = False,
     max_candidates: int = 48,
     force_all: bool = False,
+    timeframes: tuple[str, ...] = (),
 ) -> int:
     if not 1 <= workers <= 8:
         raise ValueError(
@@ -930,7 +935,17 @@ def _accelerated_validation(
     store = SqliteAuditStore(settings.db_path)
     runs: list[dict[str, Any]] = []
     failures: list[dict[str, str]] = []
-    for plan in plans:
+    research_timeframes = timeframes or tuple(
+        dict.fromkeys(plan.timeframe for plan in plans)
+    )
+    for timeframe in research_timeframes:
+        timeframe_seconds(timeframe)
+    research_plans = tuple(
+        replace(plan, timeframe=timeframe)
+        for plan in plans
+        for timeframe in research_timeframes
+    )
+    for plan in research_plans:
         try:
             run = AcceleratedValidationService.from_account_plan(
                 settings,
@@ -947,6 +962,7 @@ def _accelerated_validation(
             failures.append(
                 {
                     "account_id": plan.account_id,
+                    "timeframe": plan.timeframe,
                     "error_type": type(exc).__name__,
                     "message": str(exc),
                 }
@@ -959,6 +975,7 @@ def _accelerated_validation(
         ),
         "component": "accelerated_validation",
         "accounts_configured": len(plans),
+        "research_runs_configured": len(research_plans),
         "accounts_succeeded": len(runs),
         "accounts_failed": len(failures),
         "workers_per_account": workers,
@@ -967,6 +984,7 @@ def _accelerated_validation(
         "prospective_trial_count_incremented": False,
         "execution_enabled": False,
         "parameter_optimization_enabled": optimize,
+        "timeframes": research_timeframes,
     }
     print(
         json.dumps(
@@ -1618,6 +1636,14 @@ def build_parser() -> argparse.ArgumentParser:
         help="Parallel candidate evaluations per account (1-8)",
     )
     accelerated_parser.add_argument(
+        "--timeframes",
+        default="",
+        help=(
+            "Comma-separated research timeframes, for example "
+            "1Hour,4Hour,1Day. Each timeframe is stored as a separate run."
+        ),
+    )
+    accelerated_parser.add_argument(
         "--optimize",
         action="store_true",
         help=(
@@ -1757,6 +1783,13 @@ def main(argv: list[str] | None = None) -> int:
                 optimize=args.optimize,
                 max_candidates=args.max_candidates,
                 force_all=args.force_all,
+                timeframes=tuple(
+                    dict.fromkeys(
+                        item.strip()
+                        for item in args.timeframes.split(",")
+                        if item.strip()
+                    )
+                ),
             )
         if args.command == "option-evidence":
             return _option_evidence(args.once)

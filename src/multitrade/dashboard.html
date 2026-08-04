@@ -590,6 +590,7 @@
         <h2>Accelerated candidate screening</h2>
         <p class="subcopy">Every frozen baseline and sensitivity variant is evaluated against one downloaded dataset in a bounded parallel cycle. Scores summarize research gates only; they do not add prospective trials, approve a strategy, or authorize execution.</p>
       </div>
+      <label>Research timeframe <select id="accelerated-timeframe"><option value="">Latest</option></select></label>
     </div>
     <div class="facts">
       <div class="fact"><span class="label">Latest run</span><strong id="accelerated-latest-run">--</strong></div>
@@ -847,6 +848,8 @@
   let activePrimary = "account";
   let activeSecondary = "overview";
   let selectedAccountId = "alpaca-paper";
+  let selectedAcceleratedTimeframe = "";
+  let latestAcceleratedRuns = [];
   let latestOverview = null;
   const csrfToken = document.querySelector('meta[name="csrf-token"]').content;
   const TERMINOLOGY = [
@@ -984,6 +987,13 @@
       event => {
         selectedAccountId = event.target.value;
         refresh();
+      }
+    );
+    document.getElementById("accelerated-timeframe").addEventListener(
+      "change",
+      event => {
+        selectedAcceleratedTimeframe = event.target.value;
+        renderAcceleratedValidation(latestAcceleratedRuns);
       }
     );
   }
@@ -1701,6 +1711,7 @@
   }
 
   function renderAcceleratedValidation(runs) {
+    latestAcceleratedRuns = runs || [];
     const body = document.getElementById("accelerated-scorecards");
     const diagnosticBody = document.getElementById(
       "accelerated-diagnostics"
@@ -1715,8 +1726,21 @@
     diagnosticBody.replaceChildren();
     decisionBody.replaceChildren();
     optimizationBody.replaceChildren();
-    const run = (runs || []).find(
+    const accountRuns = (runs || []).filter(
       item => item.account_id === selectedAccountId
+    );
+    const timeframeSelector = document.getElementById("accelerated-timeframe");
+    const timeframes = [...new Set(accountRuns.map(item => item.timeframe))];
+    timeframeSelector.replaceChildren(new Option("Latest", ""));
+    for (const timeframe of timeframes) {
+      timeframeSelector.appendChild(new Option(timeframe, timeframe));
+    }
+    if (selectedAcceleratedTimeframe && !timeframes.includes(selectedAcceleratedTimeframe)) {
+      selectedAcceleratedTimeframe = "";
+    }
+    timeframeSelector.value = selectedAcceleratedTimeframe;
+    const run = accountRuns.find(
+      item => !selectedAcceleratedTimeframe || item.timeframe === selectedAcceleratedTimeframe
     );
     if (!run) {
       setText("accelerated-latest-run", "--");
@@ -1755,7 +1779,7 @@
           - Number(left.research_score || 0)
         || String(left.strategy_id).localeCompare(String(right.strategy_id));
     });
-    setText("accelerated-latest-run", localTime(run.evaluated_at));
+    setText("accelerated-latest-run", `${localTime(run.evaluated_at)} · ${run.timeframe}`);
     setText(
       "accelerated-candidates",
       `${scorecards.length} (${run.baseline_candidates || 0} baseline / ${run.comparison_candidates || 0} variants)`

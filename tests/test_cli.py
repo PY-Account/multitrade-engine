@@ -5,7 +5,7 @@ from pathlib import Path
 from tempfile import TemporaryDirectory
 from unittest import TestCase
 
-from multitrade.cli import _run_account_services_cycle
+from multitrade.cli import _run_account_services_cycle, build_parser
 
 
 @dataclass(frozen=True, slots=True)
@@ -39,6 +39,19 @@ class StubService:
 
 
 class MultiAccountCliTests(TestCase):
+    def test_accelerated_validation_accepts_multiple_timeframes(self) -> None:
+        args = build_parser().parse_args(
+            [
+                "accelerated-validation",
+                "--timeframes",
+                "1Hour,4Hour,1Day",
+                "--force-all",
+            ]
+        )
+
+        self.assertEqual(args.timeframes, "1Hour,4Hour,1Day")
+        self.assertTrue(args.force_all)
+
     def test_aggregate_health_serializes_cycle_timestamps(self) -> None:
         with TemporaryDirectory() as directory:
             health_path = Path(directory) / "health.json"
