@@ -900,6 +900,111 @@ class StructuralTrendRetestV2Strategy:
 
 
 @dataclass(frozen=True, slots=True)
+class ConfirmedBreakoutRetestV3Strategy:
+    """Breakout, five-bar acceptance, then first controlled retest.
+
+    Unlike V2, the breakout is discovered causally inside a recent window.  The
+    confirmation bars and the later retest are separate phases, matching the
+    discretionary setup that this candidate is intended to test.
+    """
+
+    strategy_id: str = "confirmed_breakout_retest_v3"
+    version: str = "3.0.0"
+    resistance_lookback: int = 30
+    confirmation_bars: int = 5
+    maximum_retest_bars: int = 8
+    breakout_buffer: Decimal = Decimal("0.001")
+    level_tolerance: Decimal = Decimal("0.004")
+    volume_multiplier: Decimal = Decimal("1.10")
+    pullback_volume_ratio: Decimal = Decimal("0.90")
+    stop_atr_buffer: Decimal = Decimal("0.20")
+    reward_multiple: Decimal = Decimal("2")
+
+    def evaluate(self, context: StrategyContext) -> StrategySignal | None:
+        bars = context.bars
+        minimum = self.resistance_lookback + self.confirmation_bars + 2
+        if len(bars) < minimum:
+            return None
+        trend_ok = (
+            context.features.regime is MarketRegime.TREND_UP
+            and context.features.sma_fast > context.features.sma_slow
+        )
+        if not trend_ok:
+            return None
+
+        latest_index = len(bars) - 1
+        earliest_breakout = max(
+            self.resistance_lookback,
+            latest_index - self.confirmation_bars - self.maximum_retest_bars,
+        )
+        for breakout_index in range(latest_index - self.confirmation_bars, earliest_breakout - 1, -1):
+            history = bars[
+                breakout_index - self.resistance_lookback:breakout_index
+            ]
+            breakout = bars[breakout_index]
+            level = max(bar.high for bar in history)
+            average_volume = _mean(tuple(bar.volume for bar in history))
+            if not (
+                breakout.close >= level * (Decimal("1") + self.breakout_buffer)
+                and breakout.volume >= average_volume * self.volume_multiplier
+            ):
+                continue
+            confirmation_end = breakout_index + self.confirmation_bars
+            confirmation = bars[breakout_index + 1:confirmation_end + 1]
+            if len(confirmation) != self.confirmation_bars:
+                continue
+            if not all(bar.close > level for bar in confirmation):
+                continue
+            retest_window = bars[confirmation_end + 1:]
+            if not retest_window or len(retest_window) > self.maximum_retest_bars:
+                continue
+            retest = retest_window[-1]
+            lower_bound = level * (Decimal("1") - self.level_tolerance)
+            upper_bound = level * (Decimal("1") + self.level_tolerance)
+            if any(bar.close < lower_bound for bar in retest_window):
+                continue
+            touched_level = retest.low <= upper_bound and retest.high >= lower_bound
+            bullish_reclaim = retest.close > level and retest.close > retest.open
+            pullback_volume = _mean(tuple(bar.volume for bar in retest_window))
+            quieter_retest = pullback_volume <= breakout.volume * self.pullback_volume_ratio
+            if not (touched_level and bullish_reclaim and quieter_retest):
+                continue
+            structural_low = min(bar.low for bar in retest_window)
+            stop = min(structural_low, level) - context.features.atr * self.stop_atr_buffer
+            if stop <= ZERO or stop >= retest.close:
+                continue
+            return create_signal(
+                context=context,
+                strategy_id=self.strategy_id,
+                version=self.version,
+                action=SignalAction.ENTER_LONG,
+                confidence=Decimal("0.74"),
+                reference_price=retest.close,
+                stop_price=stop,
+                target_price=_target(retest.close, stop, self.reward_multiple),
+                reason_codes=(
+                    "established_uptrend",
+                    "volume_confirmed_breakout",
+                    "five_bar_acceptance_above_resistance",
+                    "first_controlled_retest",
+                    "bullish_level_reclaim",
+                    "minimum_two_to_one_reward_risk",
+                ),
+                evidence={
+                    "breakout_level": level,
+                    "breakout_timestamp": breakout.timestamp,
+                    "confirmation_bars": self.confirmation_bars,
+                    "bars_to_retest": len(retest_window),
+                    "breakout_volume": breakout.volume,
+                    "retest_average_volume": pullback_volume,
+                    "reward_multiple": self.reward_multiple,
+                    "regime": context.features.regime,
+                },
+            )
+        return None
+
+
+@dataclass(frozen=True, slots=True)
 class ZeroDteIronCondorStrategy:
     strategy_id: str = "zero_dte_iron_condor"
     version: str = "1.0.0"
@@ -955,6 +1060,7 @@ def default_equity_strategies() -> dict[str, Strategy]:
         SignalInversionStrategy("chart_pattern_inverse", "1.0.0", "chart_pattern_confluence"),
         SignalInversionStrategy("t3_range_trend_inverse", "1.0.0", "t3_range_trend"),
         StructuralTrendRetestV2Strategy(),
+        ConfirmedBreakoutRetestV3Strategy(),
         ZeroDteIronCondorStrategy(),
     )
     return {
@@ -983,6 +1089,7 @@ def equity_strategy_from_parameters(
         "chart_pattern_inverse": SignalInversionStrategy,
         "t3_range_trend_inverse": SignalInversionStrategy,
         "structural_trend_retest_v2": StructuralTrendRetestV2Strategy,
+        "confirmed_breakout_retest_v3": ConfirmedBreakoutRetestV3Strategy,
         "zero_dte_iron_condor": ZeroDteIronCondorStrategy,
     }
     strategy_type = strategy_types.get(strategy_id)

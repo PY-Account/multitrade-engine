@@ -18,6 +18,7 @@ from multitrade.portfolio import (
 from multitrade.strategies.base import SignalAction, StrategyContext
 from multitrade.strategies.equity import (
     BreakoutRetestStrategy,
+    ConfirmedBreakoutRetestV3Strategy,
     SupportDeltaPutIncomeStrategy,
     SupportDeltaPutIncomeV2Strategy,
     SignalInversionStrategy,
@@ -52,6 +53,63 @@ def market_bar(
 
 
 class StrategyTests(TestCase):
+    def test_confirmed_retest_v3_requires_five_closes_then_retest(self) -> None:
+        history = tuple(
+            market_bar(
+                index,
+                open_price=str(Decimal("97") + Decimal(index) / 20),
+                high=str(Decimal("98") + Decimal(index) / 20),
+                low=str(Decimal("96.5") + Decimal(index) / 20),
+                close=str(Decimal("97.5") + Decimal(index) / 20),
+                volume="1000",
+            )
+            for index in range(30)
+        )
+        level = max(bar.high for bar in history)
+        breakout = market_bar(
+            30, open_price=str(level), high="101.5", low="99.3",
+            close="101", volume="1400",
+        )
+        confirmation = tuple(
+            market_bar(
+                31 + index, open_price="100.8", high="102",
+                low="100.2", close="101.2", volume="1000",
+            )
+            for index in range(5)
+        )
+        retest = market_bar(
+            36, open_price="100.5", high="101.2", low=str(level),
+            close="100.8", volume="900",
+        )
+        bars = history + (breakout,) + confirmation + (retest,)
+        features = FeatureSnapshot(
+            symbol="AAPL", bar_timestamp=retest.timestamp.isoformat(),
+            close=retest.close, sma_fast=Decimal("100.5"),
+            sma_slow=Decimal("99"), atr=Decimal("1"),
+            atr_percent=Decimal("0.01"), average_volume=Decimal("1000"),
+            relative_volume=Decimal("0.9"),
+            return_volatility=Decimal("0.01"),
+            relative_volatility=Decimal("1"), donchian_high=Decimal("102"),
+            donchian_low=Decimal("96"), trend_strength=Decimal("0.01"),
+            regime=MarketRegime.TREND_UP, sample_size=len(bars),
+        )
+        context = StrategyContext(
+            account_id="alpaca-paper", bars=bars, features=features,
+            evaluated_at=retest.timestamp + timedelta(minutes=5),
+        )
+
+        signal = ConfirmedBreakoutRetestV3Strategy().evaluate(context)
+
+        self.assertIsNotNone(signal)
+        self.assertIn("five_bar_acceptance_above_resistance", signal.reason_codes)
+        risk = signal.reference_price - signal.stop_price
+        reward = signal.target_price - signal.reference_price
+        self.assertEqual(reward / risk, Decimal("2"))
+        four_bar_context = replace(context, bars=bars[:-2] + (retest,))
+        self.assertIsNone(
+            ConfirmedBreakoutRetestV3Strategy().evaluate(four_bar_context)
+        )
+
     def test_support_delta_put_signal_requires_bullish_rejection(self) -> None:
         bars = tuple(
             market_bar(

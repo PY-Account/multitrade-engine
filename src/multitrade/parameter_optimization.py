@@ -94,6 +94,17 @@ _SEARCH_SPACES: dict[str, dict[str, tuple[object, ...]]] = {
         "level_tolerance": ("0.002", "0.003", "0.005"),
         "reward_multiple": ("1.5", "2", "2.5"),
     },
+    "confirmed_breakout_retest_v3": {
+        "resistance_lookback": (20, 30, 40),
+        "confirmation_bars": (5,),
+        "maximum_retest_bars": (4, 8, 12),
+        "breakout_buffer": ("0", "0.001", "0.002"),
+        "level_tolerance": ("0.002", "0.004", "0.006"),
+        "volume_multiplier": ("1", "1.10", "1.25"),
+        "pullback_volume_ratio": ("0.75", "0.90", "1"),
+        "stop_atr_buffer": ("0.10", "0.20", "0.35"),
+        "reward_multiple": ("2", "2.5", "3"),
+    },
     "zero_dte_iron_condor": {
         "maximum_opening_gap": ("0.02", "0.03", "0.04"),
         "maximum_opening_range": ("0.01", "0.015", "0.02"),

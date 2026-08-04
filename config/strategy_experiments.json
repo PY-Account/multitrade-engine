@@ -14,6 +14,7 @@
     "chart_pattern_inverse": "chart_pattern_inverse_baseline_2026q3",
     "t3_range_trend_inverse": "t3_range_trend_inverse_baseline_2026q3",
     "structural_trend_retest_v2": "structural_trend_retest_v2_baseline_2026q3",
+    "confirmed_breakout_retest_v3": "confirmed_breakout_retest_v3_baseline_2026q3",
     "zero_dte_iron_condor": "zero_dte_iron_condor_baseline_2026q3"
   },
   "experiments": [
@@ -704,6 +705,9 @@
     },
     {
       "experiment_id":"zero_dte_iron_condor_baseline_2026q3","family_id":"zero_dte_defined_risk_income","strategy_id":"zero_dte_iron_condor","strategy_version":"1.0.0","variant_id":"baseline_v1","registered_at":"2026-08-02T22:00:00+00:00","prospective_observation_start":"2026-08-03T00:00:00+00:00","review_not_before":"2026-08-24T00:00:00+00:00","status":"frozen_research","hypothesis":"A same-day defined-risk iron condor entered after a quiet first half-hour has positive return on risk when large opening gaps, wide opening ranges, abnormal volume, and directional trend are excluded.","mechanism":"Four-leg capped risk collects intraday decay only on quiet-session conditions, with 45 percent premium capture and a 210-minute maximum holding time.","primary_metric":"chronological_median_fold_return","minimum_prospective_days":21,"minimum_prospective_trials":20,"final_holdout_status":"not_reserved","expected_parameters":{"strategy_id":"zero_dte_iron_condor","version":"1.0.0","maximum_opening_gap":"0.04","maximum_opening_range":"0.02","maximum_relative_volume":"1.50","maximum_trend_strength":"0.01"},"execution_eligible":false
+    },
+    {
+      "experiment_id":"confirmed_breakout_retest_v3_baseline_2026q3","family_id":"structural_trend_retest","strategy_id":"confirmed_breakout_retest_v3","strategy_version":"3.0.0","variant_id":"five_bar_acceptance_v3","registered_at":"2026-08-03T23:59:00+00:00","prospective_observation_start":"2026-08-04T00:00:00+00:00","review_not_before":"2026-08-25T00:00:00+00:00","status":"frozen_research","hypothesis":"A liquid US equity that breaks resistance, closes above it for five consecutive bars, and then reclaims the level on its first controlled retest has positive expectancy at reward-to-risk of at least two after costs.","mechanism":"The candidate separates breakout, five-bar acceptance, and a later retest; requires an established uptrend, breakout participation, quieter pullback, bullish reclaim, and structural invalidation below the retest.","primary_metric":"chronological_median_fold_return","minimum_prospective_days":21,"minimum_prospective_trials":20,"final_holdout_status":"not_reserved","expected_parameters":{"strategy_id":"confirmed_breakout_retest_v3","version":"3.0.0","resistance_lookback":30,"confirmation_bars":5,"maximum_retest_bars":8,"breakout_buffer":"0.001","level_tolerance":"0.004","volume_multiplier":"1.10","pullback_volume_ratio":"0.90","stop_atr_buffer":"0.20","reward_multiple":"2"},"execution_eligible":false
     }
   ]
 }

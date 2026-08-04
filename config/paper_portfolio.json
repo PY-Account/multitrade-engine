@@ -84,6 +84,9 @@
           "strategy_id":"structural_trend_retest_v2","enabled":false,"capital_weight":"0.05","risk_fraction":"0.003","minimum_confidence":"0.68","paper_execution_allowed":false,"symbols":["SPY","QQQ","AAPL","MSFT"]
         },
         {
+          "strategy_id":"confirmed_breakout_retest_v3","enabled":false,"capital_weight":"0.05","risk_fraction":"0.003","minimum_confidence":"0.70","paper_execution_allowed":false,"symbols":["SPY","QQQ","AAPL","MSFT"]
+        },
+        {
           "strategy_id": "breakout_retest_bull_call",
           "asset_class": "option",
           "enabled": true,

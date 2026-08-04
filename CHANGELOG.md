@@ -1,5 +1,17 @@
 # Changelog
 
+## 0.28.0 - 2026-08-04
+
+- Added `confirmed_breakout_retest_v3`, a separately preregistered candidate
+  that requires a volume-confirmed resistance break, five consecutive closes
+  above the broken level, and only then a controlled bullish retest.
+- Anchored the protective stop below retest structure and enforced a baseline
+  reward-to-risk multiple of 2.0; the candidate remains research-only.
+- Expanded this candidate to the liquid-US-equity universe rather than an
+  index-only watchlist, with nested optimization ranges that keep the five-bar
+  rule frozen while testing resistance, retest, volume, stop, and target
+  sensitivity on development data and an untouched holdout.
+
 ## 0.27.0 - 2026-08-02
 
 - Added `structural_trend_retest_v2`: trend regime, volume-confirmed resistance
