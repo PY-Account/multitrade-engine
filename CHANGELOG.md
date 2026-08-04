@@ -1,5 +1,13 @@
 # Changelog
 
+## 0.28.1 - 2026-08-04
+
+- Accelerated validation now defaults to incremental research selection:
+  new or changed candidate families and prior `continue research` candidates
+  are evaluated, while unchanged rejected candidates are skipped.
+- Added `--force-all` for deliberate full-suite reruns. Nested parameter
+  optimization is restricted to the strategies selected for the current run.
+
 ## 0.28.0 - 2026-08-04
 
 - Added `confirmed_breakout_retest_v3`, a separately preregistered candidate

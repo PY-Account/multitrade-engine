@@ -795,6 +795,14 @@ class StrategyLabTests(TestCase):
                 run.summary["automatic_parameter_changes"]
             )
             self.assertEqual(
+                run.summary["selection_mode"],
+                "incremental_research",
+            )
+            self.assertEqual(
+                run.summary["selected_strategy_ids"],
+                ("frequent_test",),
+            )
+            self.assertEqual(
                 len(run.dataset_fingerprints), 1
             )
             self.assertEqual(

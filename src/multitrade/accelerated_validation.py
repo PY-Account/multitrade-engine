@@ -9,6 +9,7 @@ from typing import Any
 from uuid import uuid4
 
 from multitrade.audit import SqliteAuditStore
+from multitrade.audit import SqliteAuditReader
 from multitrade.config import Settings
 from multitrade.portfolio import AccountPlan
 from multitrade.parameter_optimization import BoundedParameterOptimizer
@@ -346,20 +347,68 @@ class AcceleratedValidationService:
         )
         return cls(lab_service=lab_service, store=shared_store)
 
+    def _incremental_strategy_ids(self) -> set[str]:
+        previous_runs = SqliteAuditReader(
+            self.store.path
+        ).recent_accelerated_validation_runs(limit=50)
+        previous = next(
+            (
+                run for run in previous_runs
+                if run["account_id"]
+                == self.lab_service.account_plan.account_id
+            ),
+            None,
+        )
+        if previous is None:
+            return set(self.lab_service.strategy_allocations)
+        prior_scorecards = previous.get("scorecards", [])
+        prior_candidate_ids = {
+            str(item.get("candidate_id", ""))
+            for item in prior_scorecards
+        }
+        continuing = {
+            str(item.get("strategy_id", ""))
+            for item in prior_scorecards
+            if item.get("classification") == "continue research"
+        }
+        selected = set(continuing)
+        experiments = self.lab_service.experiment_program
+        for strategy_id in self.lab_service.strategy_allocations:
+            strategy = self.lab_service.strategies[strategy_id]
+            expected_ids = {f"{strategy_id}:{strategy.version}"}
+            if experiments is not None:
+                expected_ids.update(
+                    experiment_id
+                    for experiment_id, experiment in (
+                        experiments.comparison_experiments_by_id.items()
+                    )
+                    if experiment.strategy_id == strategy_id
+                )
+            if not expected_ids.issubset(prior_candidate_ids):
+                selected.add(strategy_id)
+        return selected
+
     def run(
         self,
         *,
         now: datetime | None = None,
         optimize: bool = False,
         max_optimization_candidates: int = 48,
+        force_all: bool = False,
     ) -> AcceleratedValidationRun:
         evaluated_at = (now or datetime.now(timezone.utc)).astimezone(
             timezone.utc
         )
         started = perf_counter()
+        selected_strategy_ids = (
+            set(self.lab_service.strategy_allocations)
+            if force_all
+            else self._incremental_strategy_ids()
+        )
         cycle = self.lab_service.run_cycle(
             now=evaluated_at,
             persist_reports=False,
+            strategy_ids=selected_strategy_ids,
         )
         duration = Decimal(str(round(perf_counter() - started, 3)))
         run_id = str(uuid4())
@@ -448,6 +497,16 @@ class AcceleratedValidationService:
                 == 1
             ),
             "automatic_parameter_changes": False,
+            "selection_mode": (
+                "force_all" if force_all else "incremental_research"
+            ),
+            "selected_strategy_ids": tuple(
+                sorted(selected_strategy_ids)
+            ),
+            "unchanged_strategy_count_skipped": (
+                len(self.lab_service.strategy_allocations)
+                - len(selected_strategy_ids)
+            ),
         }
         if optimize:
             summary["parameter_optimization"] = (
@@ -461,7 +520,14 @@ class AcceleratedValidationService:
                         self.lab_service.last_symbols_by_strategy
                     ),
                     allocations=(
-                        self.lab_service.strategy_allocations
+                        {
+                            strategy_id: allocation
+                            for strategy_id, allocation in (
+                                self.lab_service
+                                .strategy_allocations.items()
+                            )
+                            if strategy_id in selected_strategy_ids
+                        }
                     ),
                     workers=self.lab_service.evaluation_workers,
                     max_candidates=max_optimization_candidates,

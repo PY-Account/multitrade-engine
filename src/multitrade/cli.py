@@ -909,6 +909,7 @@ def _accelerated_validation(
     *,
     optimize: bool = False,
     max_candidates: int = 48,
+    force_all: bool = False,
 ) -> int:
     if not 1 <= workers <= 8:
         raise ValueError(
@@ -939,6 +940,7 @@ def _accelerated_validation(
             ).run(
                 optimize=optimize,
                 max_optimization_candidates=max_candidates,
+                force_all=force_all,
             )
             runs.append(accelerated_validation_payload(run))
         except Exception as exc:
@@ -1629,6 +1631,14 @@ def build_parser() -> argparse.ArgumentParser:
         default=48,
         help="Maximum generated research candidates across all strategies",
     )
+    accelerated_parser.add_argument(
+        "--force-all",
+        action="store_true",
+        help=(
+            "Re-evaluate unchanged rejected candidates instead of using "
+            "incremental research selection"
+        ),
+    )
     option_evidence_parser = subparsers.add_parser(
         "option-evidence",
         help=(
@@ -1746,6 +1756,7 @@ def main(argv: list[str] | None = None) -> int:
                 args.workers,
                 optimize=args.optimize,
                 max_candidates=args.max_candidates,
+                force_all=args.force_all,
             )
         if args.command == "option-evidence":
             return _option_evidence(args.once)

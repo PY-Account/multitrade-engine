@@ -836,6 +836,7 @@ class ContinuousStrategyLabService:
         *,
         now: datetime | None = None,
         persist_reports: bool = True,
+        strategy_ids: set[str] | None = None,
     ) -> StrategyLabCycleResult:
         self._refresh_account_plan()
         evaluated_at = now or datetime.now(timezone.utc)
@@ -851,7 +852,12 @@ class ContinuousStrategyLabService:
             else {}
         )
         symbols_by_strategy: dict[str, tuple[str, ...]] = {}
-        for strategy_id, allocation in self.strategy_allocations.items():
+        active_allocations = {
+            strategy_id: allocation
+            for strategy_id, allocation in self.strategy_allocations.items()
+            if strategy_ids is None or strategy_id in strategy_ids
+        }
+        for strategy_id, allocation in active_allocations.items():
             execution_symbols = tuple(
                 dict.fromkeys(
                     symbol
@@ -912,7 +918,7 @@ class ContinuousStrategyLabService:
                 StrategyExperimentBinding | None,
             ]
         ] = []
-        for strategy_id in self.strategy_allocations:
+        for strategy_id in active_allocations:
             strategy = self.strategies[strategy_id]
             experiment_binding = (
                 self.experiment_program.bind(
@@ -925,7 +931,7 @@ class ContinuousStrategyLabService:
             evaluation_jobs.append(
                 (
                     strategy,
-                    self.strategy_allocations[strategy_id],
+                    active_allocations[strategy_id],
                     symbols_by_strategy[strategy_id],
                     experiment_binding,
                 )
@@ -944,6 +950,8 @@ class ContinuousStrategyLabService:
         )
         selected_comparisons: list[tuple[str, Strategy]] = []
         for strategy_id in sorted(comparisons_by_strategy):
+            if strategy_id not in active_allocations:
+                continue
             candidates = sorted(
                 comparisons_by_strategy[strategy_id],
                 key=lambda item: item[0],
@@ -972,7 +980,7 @@ class ContinuousStrategyLabService:
             evaluation_jobs.append(
                 (
                     strategy,
-                    self.strategy_allocations[strategy.strategy_id],
+                    active_allocations[strategy.strategy_id],
                     symbols_by_strategy[strategy.strategy_id],
                     experiment_binding,
                 )
