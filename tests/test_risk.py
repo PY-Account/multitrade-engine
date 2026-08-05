@@ -128,7 +128,7 @@ class RiskEngineTests(TestCase):
             asset_class=AssetClass.OPTION,
             symbol="AAPL",
             side=Side.BUY,
-            requested_quantity=Decimal("20"),
+            requested_quantity=Decimal("100"),
             order_type=OrderType.LIMIT,
             time_in_force=TimeInForce.DAY,
             limit_price=Decimal("3"),
@@ -156,12 +156,17 @@ class RiskEngineTests(TestCase):
             ),
         )
 
-        decision = RiskEngine().evaluate(intent, snapshot())
+        decision = RiskEngine(
+            RiskPolicy(
+                max_option_per_trade=Decimal("0.10"),
+                max_notional_per_trade=Decimal("1"),
+            )
+        ).evaluate(intent, snapshot())
 
         self.assertTrue(decision.approved)
         self.assertEqual(decision.risk_per_unit, Decimal("305"))
-        self.assertEqual(decision.approved_quantity, Decimal("9"))
-        self.assertEqual(decision.reserved_risk, Decimal("2745"))
+        self.assertEqual(decision.approved_quantity, Decimal("32"))
+        self.assertEqual(decision.reserved_risk, Decimal("9760"))
 
     def test_unlimited_short_call_is_rejected(self) -> None:
         expiration = date(2027, 1, 15)

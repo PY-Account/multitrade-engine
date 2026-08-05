@@ -472,6 +472,9 @@ class Settings:
                 max_per_trade=_decimal_env(
                     "RISK_MAX_PER_TRADE", "0.03"
                 ),
+                max_option_per_trade=_decimal_env(
+                    "RISK_MAX_OPTION_PER_TRADE", "0.03"
+                ),
                 max_total_open=_decimal_env(
                     "RISK_MAX_TOTAL_OPEN", "0.10"
                 ),

@@ -36,8 +36,13 @@ class StrategyAllocation:
             raise ValueError("strategy_id is required")
         if not Decimal("0") < self.capital_weight <= Decimal("1"):
             raise ValueError("capital_weight must be in (0, 1]")
-        if not Decimal("0") < self.risk_fraction <= Decimal("0.03"):
-            raise ValueError("risk_fraction must be in (0, 0.03]")
+        maximum_risk_fraction = (
+            Decimal("0.10")
+            if self.asset_class is AssetClass.OPTION
+            else Decimal("0.03")
+        )
+        if not Decimal("0") < self.risk_fraction <= maximum_risk_fraction:
+            raise ValueError("risk_fraction exceeds the asset-class limit")
         if not Decimal("0") <= self.minimum_confidence <= Decimal("1"):
             raise ValueError("minimum_confidence must be in [0, 1]")
         if any(not symbol for symbol in self.symbols):

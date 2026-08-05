@@ -375,7 +375,7 @@ class StrategyTests(TestCase):
         self.assertEqual(
             option_allocation.option_policy.required_trading_level, 3
         )
-        self.assertFalse(
+        self.assertTrue(
             option_allocation.paper_execution_allowed
         )
         bars = [

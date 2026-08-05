@@ -22,6 +22,7 @@ CRYPTO_QUANTUM = Decimal("0.00000001")
 @dataclass(frozen=True, slots=True)
 class RiskPolicy:
     max_per_trade: Decimal = Decimal("0.03")
+    max_option_per_trade: Decimal = Decimal("0.03")
     max_total_open: Decimal = Decimal("0.10")
     max_daily_loss: Decimal = Decimal("0.03")
     max_drawdown: Decimal = Decimal("0.10")
@@ -35,6 +36,7 @@ class RiskPolicy:
     def __post_init__(self) -> None:
         fractional_fields = (
             self.max_per_trade,
+            self.max_option_per_trade,
             self.max_total_open,
             self.max_daily_loss,
             self.max_drawdown,
@@ -46,6 +48,10 @@ class RiskPolicy:
             raise ValueError("Risk fractions must be in the interval (0, 1]")
         if self.max_per_trade > self.max_total_open:
             raise ValueError("Per-trade risk cannot exceed total-open risk")
+        if self.max_option_per_trade > self.max_total_open:
+            raise ValueError(
+                "Option per-trade risk cannot exceed total-open risk"
+            )
         if (
             self.stock_slippage_bps < ZERO
             or self.crypto_slippage_bps < ZERO
@@ -111,13 +117,18 @@ class RiskEngine:
                 intent, "calculated_risk_must_be_positive", snapshot.active_risk
             )
 
+        asset_ceiling = (
+            self.policy.max_option_per_trade
+            if intent.asset_class is AssetClass.OPTION
+            else self.policy.max_per_trade
+        )
         requested_ceiling = (
             intent.risk_budget_fraction
             if intent.risk_budget_fraction is not None
-            else self.policy.max_per_trade
+            else asset_ceiling
         )
         trade_ceiling = snapshot.equity * min(
-            self.policy.max_per_trade, requested_ceiling
+            asset_ceiling, requested_ceiling
         )
         portfolio_ceiling = snapshot.equity * self.policy.max_total_open
         remaining_portfolio_risk = max(

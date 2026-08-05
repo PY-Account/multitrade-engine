@@ -160,6 +160,11 @@ TRADING_ENABLE_PAPER_ORDERS=false
 TRADING_EMERGENCY_STOP=false
 ```
 
+Stock orders retain the 3% per-trade ceiling. Defined-risk option packages
+may use a separate ceiling (`RISK_MAX_OPTION_PER_TRADE`, 10% in the Paper
+forward-test profile), while the 10% total-open ceiling still applies across
+the whole account.
+
 Each strategy also has this default in `config/paper_portfolio.json`:
 
 ```json
