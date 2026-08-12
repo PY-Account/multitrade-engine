@@ -1,5 +1,11 @@
 # Changelog
 
+## 0.32.1 - 2026-08-12
+
+- Fixed dashboard form login after repeated failed attempts: a correct
+  operator username and password now clears the temporary client lockout
+  immediately instead of waiting for the lockout window to expire.
+
 ## 0.32.0 - 2026-08-12
 
 - Added strategy-specific Paper execution timeframes so structural Retest and

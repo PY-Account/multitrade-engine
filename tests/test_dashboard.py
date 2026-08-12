@@ -498,6 +498,81 @@ class DashboardTests(TestCase):
                 server.server_close()
                 thread.join(timeout=3)
 
+    def test_correct_login_clears_previous_auth_lockout(self) -> None:
+        class NoRedirect(HTTPRedirectHandler):
+            def redirect_request(self, *args, **kwargs):
+                del args, kwargs
+                return None
+
+        def login_body(port: int, password: str) -> bytes:
+            with urlopen(
+                f"http://127.0.0.1:{port}/login", timeout=3
+            ) as response:
+                login_html = response.read().decode("utf-8")
+            csrf = re.search(
+                r'name="csrf_token" value="([^"]+)"', login_html
+            ).group(1)
+            return (
+                f"csrf_token={csrf}&username=operator&"
+                f"password={password}"
+            ).encode("ascii")
+
+        with TemporaryDirectory() as directory:
+            service, _, _ = self._fixture(directory)
+            server = create_dashboard_server(
+                "127.0.0.1",
+                0,
+                service,
+                username="operator",
+                password="a-long-test-password",
+            )
+            thread = threading.Thread(
+                target=server.serve_forever, daemon=True
+            )
+            thread.start()
+            port = server.server_address[1]
+            opener = build_opener(NoRedirect())
+            try:
+                for _ in range(5):
+                    request = Request(
+                        f"http://127.0.0.1:{port}/login",
+                        data=login_body(port, "wrong-password"),
+                        method="POST",
+                        headers={
+                            "Content-Type": (
+                                "application/x-www-form-urlencoded"
+                            )
+                        },
+                    )
+                    with self.assertRaises(HTTPError) as error:
+                        opener.open(request, timeout=3)
+                    self.assertEqual(error.exception.code, 401)
+                    error.exception.close()
+
+                request = Request(
+                    f"http://127.0.0.1:{port}/login",
+                    data=login_body(port, "a-long-test-password"),
+                    method="POST",
+                    headers={
+                        "Content-Type": (
+                            "application/x-www-form-urlencoded"
+                        )
+                    },
+                )
+                with self.assertRaises(HTTPError) as redirect:
+                    opener.open(request, timeout=3)
+
+                self.assertEqual(redirect.exception.code, 303)
+                self.assertIn(
+                    "__Host-multitrade_session",
+                    redirect.exception.headers["Set-Cookie"],
+                )
+                redirect.exception.close()
+            finally:
+                server.shutdown()
+                server.server_close()
+                thread.join(timeout=3)
+
     def test_authenticated_csrf_protected_paper_configuration_update(
         self,
     ) -> None:

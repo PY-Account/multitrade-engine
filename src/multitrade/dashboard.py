@@ -1220,19 +1220,20 @@ class DashboardRequestHandler(BaseHTTPRequestHandler):
     def _authorization_attempt(self, supplied: str) -> bool:
         client = self.client_address[0]
         now = time.monotonic()
-        with self.auth_lock:
-            blocked_until = self.auth_blocked_until.get(client, 0)
-            if blocked_until > now:
-                return False
-            if blocked_until:
-                self.auth_blocked_until.pop(client, None)
         authorized = compare_digest(
             supplied, self.expected_authorization
         )
         with self.auth_lock:
+            blocked_until = self.auth_blocked_until.get(client, 0)
             if authorized:
                 self.auth_failures.pop(client, None)
+                self.auth_blocked_until.pop(client, None)
                 return True
+            if blocked_until > now:
+                return False
+            if blocked_until:
+                self.auth_blocked_until.pop(client, None)
+        with self.auth_lock:
             recent = [
                 timestamp
                 for timestamp in self.auth_failures.get(client, [])
