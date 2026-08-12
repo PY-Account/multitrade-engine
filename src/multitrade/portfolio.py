@@ -15,6 +15,7 @@ from multitrade.domain import (
     TimeInForce,
     TradeIntent,
 )
+from multitrade.market import timeframe_seconds
 from multitrade.options import OptionExecutionPolicy, OptionStructure
 from multitrade.strategies.base import SignalAction, StrategySignal
 
@@ -30,6 +31,7 @@ class StrategyAllocation:
     symbols: tuple[str, ...] = ()
     asset_class: AssetClass = AssetClass.STOCK
     option_policy: OptionExecutionPolicy | None = None
+    timeframe: str | None = None
 
     def __post_init__(self) -> None:
         if not self.strategy_id:
@@ -47,6 +49,8 @@ class StrategyAllocation:
             raise ValueError("minimum_confidence must be in [0, 1]")
         if any(not symbol for symbol in self.symbols):
             raise ValueError("Strategy symbols cannot be empty strings")
+        if self.timeframe is not None:
+            timeframe_seconds(self.timeframe)
         if self.asset_class is AssetClass.OPTION:
             if self.option_policy is None:
                 raise ValueError(
@@ -330,6 +334,11 @@ def load_account_plans(path: str | Path) -> tuple[AccountPlan, ...]:
                     allocation_row.get(
                         "paper_execution_allowed", False
                     )
+                ),
+                timeframe=(
+                    str(allocation_row["timeframe"]).strip()
+                    if allocation_row.get("timeframe") is not None
+                    else None
                 ),
                 symbols=tuple(
                     dict.fromkeys(

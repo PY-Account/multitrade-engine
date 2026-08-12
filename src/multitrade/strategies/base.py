@@ -94,6 +94,23 @@ def create_signal(
     valid_for_bars: int = 2,
 ) -> StrategySignal:
     latest = context.bars[-1]
+    risk_distance = abs(reference_price - stop_price)
+    reward_distance = abs(target_price - reference_price)
+    enriched_evidence = {
+        **evidence,
+        "timeframe": latest.timeframe,
+        "risk_distance": risk_distance,
+        "risk_fraction_of_reference": (
+            risk_distance / reference_price
+            if reference_price > Decimal("0")
+            else Decimal("0")
+        ),
+        "reward_risk_ratio": (
+            reward_distance / risk_distance
+            if risk_distance > Decimal("0")
+            else Decimal("0")
+        ),
+    }
     identity = "|".join(
         (
             context.account_id,
@@ -124,5 +141,5 @@ def create_signal(
         stop_price=stop_price,
         target_price=target_price,
         reason_codes=reason_codes,
-        evidence=evidence,
+        evidence=enriched_evidence,
     )

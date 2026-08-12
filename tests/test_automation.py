@@ -135,10 +135,16 @@ class FakeMarketData:
     def __init__(self, bars: tuple[MarketBar, ...]) -> None:
         self.bars = bars
         self.request_ids = ["market-request-id"]
+        self.fetch_calls = []
 
     def fetch_stock_bars(self, symbols, timeframe, start, end):
-        del symbols, timeframe, start, end
-        return {"AAPL": self.bars}
+        del start, end
+        self.fetch_calls.append((tuple(symbols), timeframe))
+        return {
+            "AAPL": tuple(
+                replace(bar, timeframe=timeframe) for bar in self.bars
+            )
+        }
 
 
 class OptionFakeBroker(FakeBroker):
@@ -387,6 +393,78 @@ class AutomationTests(TestCase):
             )
             self.assertEqual(len(observations[0]["legs"]), 2)
             self.assertFalse(observations[0]["execution_proof"])
+
+    def test_strategy_specific_timeframes_are_fetched_independently(
+        self,
+    ) -> None:
+        with TemporaryDirectory() as directory:
+            now = datetime(2026, 1, 5, 18, 0, tzinfo=timezone.utc)
+            settings = replace(
+                Settings.from_env(),
+                automation_enabled=False,
+                enable_paper_orders=False,
+                db_path=Path(directory) / "trading.db",
+                strategy_health_path=Path(directory) / "strategy-health.json",
+                market_max_bar_age_seconds=900,
+            )
+            plan = AccountPlan(
+                account_id="alpaca-paper",
+                broker="alpaca",
+                environment="paper",
+                enabled=True,
+                asset_classes=(AssetClass.STOCK,),
+                watchlist=("AAPL",),
+                timeframe="5Min",
+                maximum_positions=4,
+                maximum_daily_orders=6,
+                symbol_cooldown_minutes=60,
+                allocations={
+                    "breakout_retest": StrategyAllocation(
+                        strategy_id="breakout_retest",
+                        enabled=True,
+                        capital_weight=Decimal("0.20"),
+                        risk_fraction=Decimal("0.005"),
+                        minimum_confidence=Decimal("0.60"),
+                        timeframe="1Day",
+                    ),
+                    "trend_pullback": StrategyAllocation(
+                        strategy_id="trend_pullback",
+                        enabled=True,
+                        capital_weight=Decimal("0.10"),
+                        risk_fraction=Decimal("0.004"),
+                        minimum_confidence=Decimal("0.60"),
+                        timeframe="5Min",
+                    ),
+                },
+            )
+            market_data = FakeMarketData(test_bars(now))
+            service = PaperAutomationService(
+                settings=settings,
+                broker=FakeBroker(now),
+                market_data=market_data,
+                store=SqliteAuditStore(settings.db_path),
+                account_plan=plan,
+            )
+
+            service.run_cycle(now=now)
+            runtime = SqliteAuditReader(
+                settings.db_path
+            ).strategy_runtime()
+
+            self.assertEqual(
+                [call[1] for call in market_data.fetch_calls],
+                ["5Min", "1Day"],
+            )
+            self.assertEqual(
+                {
+                    row["strategy_id"]: row["details"]["timeframe"]
+                    for row in runtime
+                },
+                {
+                    "breakout_retest": "1Day",
+                    "trend_pullback": "5Min",
+                },
+            )
 
     def test_multi_account_supervisor_isolates_account_failure(
         self,

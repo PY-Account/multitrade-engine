@@ -217,20 +217,39 @@ class PaperAutomationService:
             checked_at,
         )
 
-        start = checked_at - timedelta(
-            days=self.settings.market_lookback_days
+        timeframes = tuple(
+            dict.fromkeys(
+                (
+                    self.account_plan.timeframe,
+                    *(
+                        allocation.timeframe
+                        for allocation in self.account_plan.allocations.values()
+                        if allocation.enabled
+                        and allocation.timeframe is not None
+                    ),
+                )
+            )
         )
-        fetched = self.market_data.fetch_stock_bars(
-            self.account_plan.watchlist,
-            self.account_plan.timeframe,
-            start,
-            checked_at,
-        )
-        bars_ingested = self.store.record_market_bars(
-            bar
-            for symbol_bars in fetched.values()
-            for bar in symbol_bars
-        )
+        fetched_by_timeframe: dict[
+            str, dict[str, tuple[MarketBar, ...]]
+        ] = {}
+        bars_ingested = 0
+        for timeframe in timeframes:
+            start = checked_at - timedelta(
+                days=self._lookback_days_for_timeframe(timeframe)
+            )
+            fetched = self.market_data.fetch_stock_bars(
+                self.account_plan.watchlist,
+                timeframe,
+                start,
+                checked_at,
+            )
+            fetched_by_timeframe[timeframe] = fetched
+            bars_ingested += self.store.record_market_bars(
+                bar
+                for symbol_bars in fetched.values()
+                for bar in symbol_bars
+            )
 
         counters = {
             "symbols_evaluated": 0,
@@ -244,36 +263,11 @@ class PaperAutomationService:
             "option_exits_submitted": option_exits_submitted,
         }
         cycle_reasons: set[str] = set()
+        evaluated_symbols: set[str] = set()
+        context_cache: dict[
+            tuple[str, str], tuple[tuple[MarketBar, ...], Any]
+        ] = {}
         for symbol in self.account_plan.watchlist:
-            usable_bars = closed_bars(
-                fetched.get(symbol, ()), now=checked_at
-            )
-            if not usable_bars:
-                cycle_reasons.add(f"no_closed_bars:{symbol}")
-                self._record_all_runtime(
-                    symbol,
-                    "insufficient_data",
-                    None,
-                    {"reason": "no_closed_bars"},
-                    checked_at,
-                )
-                continue
-            counters["symbols_evaluated"] += 1
-            features = self.feature_engine.calculate(usable_bars)
-            if features.regime is MarketRegime.INSUFFICIENT_DATA:
-                cycle_reasons.add(f"insufficient_data:{symbol}")
-                self._record_all_runtime(
-                    symbol,
-                    "insufficient_data",
-                    usable_bars[-1].timestamp.isoformat(),
-                    {
-                        "sample_size": features.sample_size,
-                        "minimum_bars": self.feature_engine.minimum_bars,
-                    },
-                    checked_at,
-                )
-                continue
-
             for strategy_id, allocation in (
                 self.account_plan.allocations.items()
             ):
@@ -284,6 +278,57 @@ class PaperAutomationService:
                     and symbol not in allocation.symbols
                 ):
                     continue
+                timeframe = allocation.timeframe or self.account_plan.timeframe
+                cache_key = (symbol, timeframe)
+                if cache_key not in context_cache:
+                    usable_bars = closed_bars(
+                        fetched_by_timeframe.get(timeframe, {}).get(
+                            symbol, ()
+                        ),
+                        now=checked_at,
+                    )
+                    if not usable_bars:
+                        cycle_reasons.add(
+                            f"no_closed_bars:{symbol}:{timeframe}"
+                        )
+                        self.store.record_strategy_runtime(
+                            self.account_plan.account_id,
+                            strategy_id,
+                            symbol,
+                            "insufficient_data",
+                            None,
+                            {
+                                "reason": "no_closed_bars",
+                                "timeframe": timeframe,
+                            },
+                            checked_at,
+                        )
+                        continue
+                    features = self.feature_engine.calculate(usable_bars)
+                    context_cache[cache_key] = (usable_bars, features)
+                else:
+                    usable_bars, features = context_cache[cache_key]
+                if features.regime is MarketRegime.INSUFFICIENT_DATA:
+                    cycle_reasons.add(
+                        f"insufficient_data:{symbol}:{timeframe}"
+                    )
+                    self.store.record_strategy_runtime(
+                        self.account_plan.account_id,
+                        strategy_id,
+                        symbol,
+                        "insufficient_data",
+                        usable_bars[-1].timestamp.isoformat(),
+                        {
+                            "sample_size": features.sample_size,
+                            "minimum_bars": (
+                                self.feature_engine.minimum_bars
+                            ),
+                            "timeframe": timeframe,
+                        },
+                        checked_at,
+                    )
+                    continue
+                evaluated_symbols.add(symbol)
                 counters["strategies_evaluated"] += 1
                 strategy = self.strategies[
                     allocation.source_strategy_id
@@ -308,6 +353,7 @@ class PaperAutomationService:
                     "atr": features.atr,
                     "relative_volume": features.relative_volume,
                     "sample_size": features.sample_size,
+                    "timeframe": timeframe,
                 }
                 self.store.record_strategy_runtime(
                     self.account_plan.account_id,
@@ -489,7 +535,15 @@ class PaperAutomationService:
             bars_ingested=bars_ingested,
             execution_enabled=self.settings.paper_execution_enabled,
             reasons=tuple(sorted(cycle_reasons)),
-            **counters,
+            symbols_evaluated=len(evaluated_symbols),
+            strategies_evaluated=counters["strategies_evaluated"],
+            signals_generated=counters["signals_generated"],
+            signals_new=counters["signals_new"],
+            signals_observed=counters["signals_observed"],
+            signals_blocked=counters["signals_blocked"],
+            dry_runs=counters["dry_runs"],
+            orders_submitted=counters["orders_submitted"],
+            option_exits_submitted=counters["option_exits_submitted"],
         )
         write_health(
             self.settings.strategy_health_path,
@@ -502,6 +556,17 @@ class PaperAutomationService:
             asdict(result),
         )
         return result
+
+    def _lookback_days_for_timeframe(self, timeframe: str) -> int:
+        return max(
+            self.settings.market_lookback_days,
+            {
+                "4Hour": 1095,
+                "4H": 1095,
+                "1Day": 1825,
+                "1D": 1825,
+            }.get(timeframe, self.settings.market_lookback_days),
+        )
 
     def _refresh_account_plan(self) -> None:
         overrides = self.store.strategy_configuration_overrides(
@@ -1023,7 +1088,11 @@ class PaperAutomationService:
         bar_age = (checked_at - bar_closed_at).total_seconds()
         if bar_age < -5:
             return "bar_not_closed"
-        if bar_age > self.settings.market_max_bar_age_seconds:
+        maximum_bar_age = max(
+            self.settings.market_max_bar_age_seconds,
+            timeframe_seconds(latest_bar.timeframe) * 3,
+        )
+        if bar_age > maximum_bar_age:
             return "market_data_stale"
         position_symbols = {
             position.symbol for position in reconciliation.positions

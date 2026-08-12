@@ -1,5 +1,15 @@
 # Changelog
 
+## 0.32.0 - 2026-08-12
+
+- Added strategy-specific Paper execution timeframes so structural Retest and
+  options-income entries can evaluate 1Day/4Hour bars while 0DTE remains on
+  5Min data.
+- Runtime signals now carry timeframe, stop distance, and reward/risk evidence
+  to make fast losses such as AAPL diagnosable from the audit trail.
+- Updated the default Paper plan to run confirmed breakout/retest on 1Day bars
+  and avoid treating medium-term setups as five-minute scalps.
+
 ## 0.29.0 - 2026-08-04
 
 - Added multi-timeframe accelerated research with independent 1Hour, 4Hour,
