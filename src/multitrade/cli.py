@@ -317,8 +317,21 @@ def _doctor() -> int:
         ),
         "market_data_feed": settings.market_data_feed,
         "option_data_feed": settings.option_data_feed,
+        "allow_indicative_paper_options": (
+            settings.allow_indicative_paper_options
+        ),
         "option_allocations": option_allocations,
-        "option_execution_requires_opra": True,
+        "option_execution_requires_opra": (
+            not settings.allow_indicative_paper_options
+        ),
+        "option_execution_pricing_mode": (
+            "indicative_paper_limit_preview"
+            if settings.option_data_feed == "indicative"
+            and settings.allow_indicative_paper_options
+            else "opra_limit"
+            if settings.option_data_feed == "opra"
+            else "blocked"
+        ),
         "option_theta_is_modeled_not_realized": True,
         "option_evidence_timeframe": (
             settings.option_evidence_timeframe

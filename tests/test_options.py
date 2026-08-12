@@ -161,6 +161,11 @@ class DefinedRiskOptionFactoryTests(TestCase):
         )
 
         self.assertEqual(intent.limit_price, Decimal("1.20"))
+        preview = intent.explanation["option_order_preview"]
+        self.assertEqual(preview["natural_price"], Decimal("1.20"))
+        self.assertEqual(preview["midpoint_price"], Decimal("1.05"))
+        self.assertEqual(preview["optimistic_price"], Decimal("0.90"))
+        self.assertFalse(preview["market_order_used"])
         self.assertIs(intent.option_legs[0].side, Side.BUY)
         self.assertEqual(
             intent.option_legs[0].mark_price, Decimal("2.20")
@@ -240,6 +245,10 @@ class DefinedRiskOptionFactoryTests(TestCase):
         )
 
         self.assertEqual(intent.limit_price, Decimal("-0.80"))
+        preview = intent.explanation["option_order_preview"]
+        self.assertEqual(preview["natural_price"], Decimal("-0.80"))
+        self.assertEqual(preview["midpoint_price"], Decimal("-0.88"))
+        self.assertEqual(preview["optimistic_price"], Decimal("-0.96"))
         self.assertEqual(
             intent.explanation[
                 "modeled_theta_per_day_per_package"

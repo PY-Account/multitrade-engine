@@ -26,6 +26,22 @@ class EnvironmentFileTests(TestCase):
         self.assertIs(settings.analyst_api_enabled, False)
         self.assertEqual(settings.analyst_api_token, "")
 
+    def test_indicative_option_execution_requires_explicit_opt_in(
+        self,
+    ) -> None:
+        with patch.dict(os.environ, {}, clear=True):
+            self.assertFalse(
+                Settings.from_env().allow_indicative_paper_options
+            )
+        with patch.dict(
+            os.environ,
+            {"TRADING_ALLOW_INDICATIVE_PAPER_OPTIONS": "true"},
+            clear=True,
+        ):
+            self.assertTrue(
+                Settings.from_env().allow_indicative_paper_options
+            )
+
     def test_env_file_loads_values_without_overriding_process_env(self) -> None:
         with TemporaryDirectory() as temporary_directory:
             env_path = Path(temporary_directory) / ".env"

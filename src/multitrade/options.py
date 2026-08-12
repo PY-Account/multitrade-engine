@@ -779,6 +779,15 @@ class DefinedRiskOptionFactory:
                     "net_credit": conservative_credit,
                     "put_wing_width": put_width,
                     "call_wing_width": call_width,
+                    "option_order_preview": self._order_preview(
+                        (
+                            (long_put, Side.BUY),
+                            (short_put, Side.SELL),
+                            (short_call, Side.SELL),
+                            (long_call, Side.BUY),
+                        ),
+                        selected_limit=-conservative_credit,
+                    ),
                 },
             ),
         )
@@ -824,6 +833,10 @@ class DefinedRiskOptionFactory:
                 extra={
                     "net_debit": long_put.ask,
                     "hedge_role": "downside_floor_for_existing_long_stock",
+                    "option_order_preview": self._order_preview(
+                        ((long_put, Side.BUY),),
+                        selected_limit=long_put.ask,
+                    ),
                 },
             ),
         )
@@ -1004,6 +1017,15 @@ class DefinedRiskOptionFactory:
                     "pricing": "long_ask_minus_short_bid",
                     "net_debit": conservative_debit,
                     "strike_width": width,
+                    "option_order_preview": (
+                        DefinedRiskOptionFactory._order_preview(
+                            (
+                                (long_contract, Side.BUY),
+                                (short_contract, Side.SELL),
+                            ),
+                            selected_limit=conservative_debit,
+                        )
+                    ),
                 },
             ),
         )
@@ -1064,6 +1086,15 @@ class DefinedRiskOptionFactory:
                     "pricing": "negative_credit_per_alpaca_mleg_convention",
                     "net_credit": conservative_credit,
                     "strike_width": width,
+                    "option_order_preview": (
+                        DefinedRiskOptionFactory._order_preview(
+                            (
+                                (short_contract, Side.SELL),
+                                (long_contract, Side.BUY),
+                            ),
+                            selected_limit=-conservative_credit,
+                        )
+                    ),
                 },
             ),
         )
@@ -1085,6 +1116,51 @@ class DefinedRiskOptionFactory:
             ),
             start=ZERO,
         )
+
+    @staticmethod
+    def _order_preview(
+        contracts: tuple[tuple[OptionSnapshot, Side], ...],
+        *,
+        selected_limit: Decimal,
+    ) -> dict[str, Any]:
+        """Build a non-binding package-price range from leg quotes.
+
+        Positive values are debits and negative values are credits, matching
+        Alpaca's multi-leg limit-price convention used by TradeIntent.
+        """
+        natural = sum(
+            (
+                contract.ask if side is Side.BUY else -contract.bid
+                for contract, side in contracts
+            ),
+            start=ZERO,
+        )
+        midpoint = sum(
+            (
+                contract.midpoint
+                if side is Side.BUY
+                else -contract.midpoint
+                for contract, side in contracts
+            ),
+            start=ZERO,
+        )
+        optimistic = sum(
+            (
+                contract.bid if side is Side.BUY else -contract.ask
+                for contract, side in contracts
+            ),
+            start=ZERO,
+        )
+        return {
+            "natural_price": natural,
+            "midpoint_price": midpoint,
+            "optimistic_price": optimistic,
+            "selected_limit_price": selected_limit,
+            "binding_quote": False,
+            "market_order_used": False,
+            "policy": "limit_only_natural_initial_price",
+            "warning": "indicative_feed_is_for_paper_simulation_only",
+        }
 
     @staticmethod
     def _explanation(

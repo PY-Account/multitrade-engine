@@ -1007,8 +1007,12 @@ class PaperAutomationService:
             if (
                 allocation.paper_execution_allowed
                 and self.option_data.feed != "opra"
+                and not self.settings.allow_indicative_paper_options
             ):
-                return "option_execution_requires_opra_feed"
+                return (
+                    "option_execution_requires_opra_or_explicit_"
+                    "indicative_paper_opt_in"
+                )
         if regime is MarketRegime.HIGH_VOLATILITY:
             return "high_volatility_regime"
         if signal.expires_at <= checked_at:

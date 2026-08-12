@@ -305,7 +305,8 @@ class AutomationTests(TestCase):
                 automation_enabled=True,
                 enable_paper_orders=True,
                 emergency_stop=False,
-                option_data_feed="opra",
+                option_data_feed="indicative",
+                allow_indicative_paper_options=True,
                 db_path=Path(directory) / "trading.db",
                 strategy_health_path=(
                     Path(directory) / "strategy-health.json"

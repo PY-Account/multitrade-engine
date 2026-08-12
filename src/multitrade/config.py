@@ -104,6 +104,7 @@ class Settings:
     portfolio_config_path: Path
     market_data_feed: str
     option_data_feed: str
+    allow_indicative_paper_options: bool
     option_evidence_cycle_seconds: int
     option_evidence_health_path: Path
     option_evidence_health_max_age_seconds: int
@@ -339,6 +340,9 @@ class Settings:
             ),
             market_data_feed=market_data_feed,
             option_data_feed=option_data_feed,
+            allow_indicative_paper_options=_bool_env(
+                "TRADING_ALLOW_INDICATIVE_PAPER_OPTIONS", False
+            ),
             option_evidence_cycle_seconds=(
                 option_evidence_cycle_seconds
             ),
