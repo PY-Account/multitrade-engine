@@ -49,6 +49,12 @@ it does not claim that any strategy is profitable.
 
 The 3% and 10% figures are hard ceilings, not operating targets.
 
+## Operations runbook
+
+Common VPS commands for updating, editing `.env`, checking container status,
+running strategy validation, and inspecting logs are collected in
+[`docs/VPS_COMMANDS.md`](docs/VPS_COMMANDS.md).
+
 ## Implemented components
 
 - Alpaca Paper account, controls, positions, recent orders, and US-market
