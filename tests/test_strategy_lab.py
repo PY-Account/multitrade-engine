@@ -23,6 +23,7 @@ from multitrade.portfolio import (
     StrategyAllocation,
     load_account_plans,
 )
+from multitrade.options import OptionExecutionPolicy, OptionStructure
 from multitrade.strategies import default_equity_strategies
 from multitrade.strategies.base import (
     SignalAction,
@@ -323,6 +324,61 @@ class StrategyLabTests(TestCase):
         self.assertIn(
             "chronological_fold_coverage",
             report.gates,
+        )
+
+    def test_option_allocation_research_stress_is_capped_to_stock_limit(
+        self,
+    ) -> None:
+        allocation = StrategyAllocation(
+            strategy_id="frequent_test_bull_put",
+            enabled=True,
+            capital_weight=Decimal("0.10"),
+            risk_fraction=Decimal("0.10"),
+            minimum_confidence=Decimal("0.60"),
+            paper_execution_allowed=True,
+            asset_class=AssetClass.OPTION,
+            option_policy=OptionExecutionPolicy(
+                structure=OptionStructure.BULL_PUT_CREDIT,
+                source_strategy_id="frequent_test",
+            ),
+        )
+        plan = AccountPlan(
+            account_id="alpaca-paper",
+            broker="alpaca",
+            environment="paper",
+            enabled=True,
+            asset_classes=(AssetClass.OPTION,),
+            watchlist=("SPY", "QQQ"),
+            timeframe="5Min",
+            maximum_positions=2,
+            maximum_daily_orders=6,
+            symbol_cooldown_minutes=60,
+            allocations={allocation.strategy_id: allocation},
+        )
+
+        report = StrategyLabEvaluator(
+            config=StrategyLabConfig(
+                minimum_covered_symbols=1,
+                minimum_out_of_sample_trades=1,
+                trade_sequence_paths=100,
+            )
+        ).evaluate(
+            account_plan=plan,
+            strategy=FrequentTestStrategy(),
+            allocation=allocation,
+            symbols=("SPY",),
+            bars_by_symbol={"SPY": intraday_bars("SPY", 420)},
+            experiment_binding=None,
+            evaluated_at=datetime(
+                2026, 1, 10, 12, 0, tzinfo=timezone.utc
+            ),
+        )
+
+        self.assertEqual(
+            report.aggregate_metrics["trade_sequence_stress"][
+                "risk_fraction"
+            ],
+            Decimal("0.03"),
         )
         self.assertFalse(report.execution_eligible)
         self.assertIn(

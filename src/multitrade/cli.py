@@ -953,8 +953,21 @@ def _accelerated_validation(
     )
     for timeframe in research_timeframes:
         timeframe_seconds(timeframe)
+
+    def research_plan_for_timeframe(plan, timeframe: str):
+        return replace(
+            plan,
+            timeframe=timeframe,
+            allocations={
+                strategy_id: replace(
+                    allocation, timeframe=timeframe
+                )
+                for strategy_id, allocation in plan.allocations.items()
+            },
+        )
+
     research_plans = tuple(
-        replace(plan, timeframe=timeframe)
+        research_plan_for_timeframe(plan, timeframe)
         for plan in plans
         for timeframe in research_timeframes
     )

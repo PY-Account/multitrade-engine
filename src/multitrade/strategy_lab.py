@@ -233,6 +233,9 @@ class StrategyLabEvaluator:
         )
         if not requested_symbols:
             raise ValueError("Strategy Lab requires assigned symbols")
+        research_risk_fraction = min(
+            allocation.risk_fraction, Decimal("0.03")
+        )
         trial_definition = build_strategy_trial_definition(
             strategy=strategy,
             allocation=allocation,
@@ -254,7 +257,7 @@ class StrategyLabEvaluator:
                 base_validator = StrategyValidator(
                     strategy,
                     config=BacktestConfig(
-                        risk_fraction=allocation.risk_fraction,
+                        risk_fraction=research_risk_fraction,
                         capital_weight=allocation.capital_weight,
                         slippage_bps=self.config.base_slippage_bps,
                     ),
@@ -266,7 +269,7 @@ class StrategyLabEvaluator:
                 stressed = StrategyValidator(
                     strategy,
                     config=BacktestConfig(
-                        risk_fraction=allocation.risk_fraction,
+                        risk_fraction=research_risk_fraction,
                         capital_weight=allocation.capital_weight,
                         slippage_bps=self.config.stressed_slippage_bps,
                     ),
@@ -350,7 +353,7 @@ class StrategyLabEvaluator:
         )
         stress = TradeSequenceStressTester().evaluate(
             chronological_r_multiples,
-            risk_fraction=allocation.risk_fraction,
+            risk_fraction=research_risk_fraction,
             seed_material="|".join(
                 (
                     account_plan.account_id,

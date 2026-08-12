@@ -1,5 +1,15 @@
 # Changelog
 
+## 0.32.2 - 2026-08-12
+
+- Fixed full accelerated validation runs that include option allocations with
+  larger Paper risk budgets by capping research/backtest stress risk at 3%.
+- Multi-timeframe accelerated validation now forces each research plan's
+  allocations onto the requested timeframe so 5Min, 1Hour, 4Hour, and 1Day
+  runs do not inherit stale allocation-level timeframes.
+- Reduced 4Hour accelerated lookback depth to stay within the Alpaca stock-bar
+  pagination safety envelope.
+
 ## 0.32.1 - 2026-08-12
 
 - Fixed dashboard form login after repeated failed attempts: a correct

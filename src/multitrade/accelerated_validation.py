@@ -348,7 +348,7 @@ class AcceleratedValidationService:
                 lab_service.config.lookback_days,
                 {
                     "1Hour": 365,
-                    "4Hour": 1095,
+                    "4Hour": 730,
                     "1Day": 1825,
                 }.get(account_plan.timeframe, 120),
             ),
