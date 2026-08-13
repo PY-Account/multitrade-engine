@@ -498,6 +498,90 @@ class DashboardTests(TestCase):
                 server.server_close()
                 thread.join(timeout=3)
 
+    def test_authenticated_dashboard_can_download_analyst_snapshot(
+        self,
+    ) -> None:
+        class NoRedirect(HTTPRedirectHandler):
+            def redirect_request(self, *args, **kwargs):
+                del args, kwargs
+                return None
+
+        with TemporaryDirectory() as directory:
+            service, _, _ = self._fixture(directory)
+            server = create_dashboard_server(
+                "127.0.0.1",
+                0,
+                service,
+                username="operator",
+                password="a-long-test-password",
+                analyst_api_enabled=True,
+                analyst_api_token="analyst-test-token-unique-1234567890",
+            )
+            thread = threading.Thread(
+                target=server.serve_forever, daemon=True
+            )
+            thread.start()
+            port = server.server_address[1]
+            opener = build_opener(NoRedirect())
+            try:
+                with urlopen(
+                    f"http://127.0.0.1:{port}/login", timeout=3
+                ) as response:
+                    login_html = response.read().decode("utf-8")
+                csrf = re.search(
+                    r'name="csrf_token" value="([^"]+)"', login_html
+                ).group(1)
+                body = (
+                    f"csrf_token={csrf}&username=operator&"
+                    "password=a-long-test-password"
+                ).encode("ascii")
+                login_request = Request(
+                    f"http://127.0.0.1:{port}/login",
+                    data=body,
+                    method="POST",
+                    headers={
+                        "Content-Type": (
+                            "application/x-www-form-urlencoded"
+                        )
+                    },
+                )
+                with self.assertRaises(HTTPError) as redirect:
+                    opener.open(login_request, timeout=3)
+                self.assertEqual(redirect.exception.code, 303)
+                session_cookie = redirect.exception.headers[
+                    "Set-Cookie"
+                ].split(";", 1)[0]
+                redirect.exception.close()
+
+                download = Request(
+                    (
+                        f"http://127.0.0.1:{port}"
+                        "/api/export/analyst-snapshot.json?limit=1000"
+                    ),
+                    headers={"Cookie": session_cookie},
+                )
+                with urlopen(download, timeout=3) as response:
+                    payload = json.loads(response.read())
+                    self.assertEqual(response.status, 200)
+                    self.assertEqual(
+                        response.headers["Content-Type"],
+                        "application/json; charset=utf-8",
+                    )
+                    self.assertIn(
+                        "attachment; filename="
+                        '"multitrade-analyst-snapshot.json"',
+                        response.headers["Content-Disposition"],
+                    )
+                encoded = json.dumps(payload)
+                self.assertEqual(payload["schema_version"], "analyst.v1")
+                self.assertIn("accelerated_validation_runs", payload)
+                self.assertNotIn("analyst-test-token", encoded)
+                self.assertNotIn("ALPACA_SECRET_PREFIX", encoded)
+            finally:
+                server.shutdown()
+                server.server_close()
+                thread.join(timeout=3)
+
     def test_correct_login_clears_previous_auth_lockout(self) -> None:
         class NoRedirect(HTTPRedirectHandler):
             def redirect_request(self, *args, **kwargs):

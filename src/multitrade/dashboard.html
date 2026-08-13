@@ -161,10 +161,27 @@
     }
     input[type="text"] { width: min(520px, 100%); }
     input[type="checkbox"] { width: 18px; height: 18px; accent-color: var(--accent); }
-    button { cursor: pointer; }
+    button, a.button-link { cursor: pointer; }
     button:disabled { cursor: not-allowed; opacity: .55; }
-    button:hover { border-color: var(--accent); }
+    button:hover, a.button-link:hover { border-color: var(--accent); }
     button.primary { color: white; background: var(--accent); border-color: var(--accent); }
+    a.button-link {
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      border: 1px solid var(--line);
+      border-radius: 9px;
+      background: var(--panel);
+      color: var(--text);
+      padding: 8px 11px;
+      font: inherit;
+      text-decoration: none;
+    }
+    a.button-link.primary {
+      color: white;
+      background: var(--accent);
+      border-color: var(--accent);
+    }
     button:focus-visible, select:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
     .summary-grid {
       display: grid;
@@ -775,6 +792,28 @@
     <div class="glossary-grid" id="glossary-grid"></div>
   </section>
 
+  <section class="panel workspace-view" data-primary="management" data-secondary="export">
+    <div class="panel-head">
+      <div>
+        <h2>Data export</h2>
+        <p class="subcopy">Download a redacted analyst snapshot for Codex review, offline inspection, or archival. The file is read-only and uses your existing dashboard session.</p>
+      </div>
+    </div>
+    <div class="safety-callout">
+      The export includes strategy lab results, validation runs, trades, health, and recent audit events. Broker credentials, API tokens, dashboard passwords, and request secrets are not included.
+    </div>
+    <div class="facts facts-spaced">
+      <div class="fact"><span class="label">Format</span><strong>JSON</strong></div>
+      <div class="fact"><span class="label">Maximum event rows</span><strong>1000</strong></div>
+      <div class="fact"><span class="label">Authentication</span><strong>Current dashboard login</strong></div>
+      <div class="fact"><span class="label">Trading impact</span><strong>None, read-only</strong></div>
+    </div>
+    <p class="subcopy">
+      After downloading, upload <code>multitrade-analyst-snapshot.json</code> here so the latest strategy and Paper execution evidence can be analyzed.
+    </p>
+    <a class="button-link primary" href="/api/export/analyst-snapshot.json?limit=1000" download="multitrade-analyst-snapshot.json">Download full analyst snapshot</a>
+  </section>
+
   <footer>
     <span id="time-zone-note">All timestamps follow your browser location and use a 24-hour clock.</span>
     <span>Paper-only control plane &middot; live trading unavailable</span>
@@ -910,6 +949,7 @@
     ],
     management: [
       ["strategies", "Strategy Controls"],
+      ["export", "Data Export"],
       ["glossary", "Glossary / מילון מונחים"],
     ],
   };

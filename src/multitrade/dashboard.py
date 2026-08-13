@@ -922,6 +922,27 @@ class DashboardRequestHandler(BaseHTTPRequestHandler):
                 return
             self._send_json(200, chart)
             return
+        if parsed.path == "/api/export/analyst-snapshot.json":
+            values = parse_qs(parsed.query).get("limit", ["500"])
+            try:
+                limit = max(1, min(int(values[0]), 1000))
+            except ValueError:
+                self._send_json(400, {"error": "invalid_limit"})
+                return
+            try:
+                payload = self.data_service.analyst_snapshot(limit)
+                self.data_service.record_analyst_access(
+                    parsed.path, self.client_address[0]
+                )
+            except sqlite3.Error:
+                self._send_json(503, {"error": "audit_store_unavailable"})
+                return
+            self._send_download_json(
+                200,
+                payload,
+                "multitrade-analyst-snapshot.json",
+            )
+            return
         self._send_json(404, {"error": "not_found"})
 
     def do_POST(self) -> None:
@@ -1304,6 +1325,23 @@ class DashboardRequestHandler(BaseHTTPRequestHandler):
         self.send_response(status)
         self._security_headers()
         self.send_header("Content-Type", "application/json; charset=utf-8")
+        self.send_header("Content-Length", str(len(payload)))
+        self.end_headers()
+        self.wfile.write(payload)
+
+    def _send_download_json(
+        self, status: int, value: Any, filename: str
+    ) -> None:
+        payload = json.dumps(
+            value, sort_keys=True, separators=(",", ":")
+        ).encode("utf-8")
+        self.send_response(status)
+        self._security_headers()
+        self.send_header("Content-Type", "application/json; charset=utf-8")
+        self.send_header(
+            "Content-Disposition",
+            f'attachment; filename="{filename}"',
+        )
         self.send_header("Content-Length", str(len(payload)))
         self.end_headers()
         self.wfile.write(payload)

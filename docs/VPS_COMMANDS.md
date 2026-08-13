@@ -139,6 +139,42 @@ docker compose run --rm --no-deps engine multitrade asset-universe-healthcheck
 docker compose run --rm --no-deps engine multitrade option-evidence-healthcheck
 ```
 
+## Dashboard data export
+
+After signing in to the dashboard, open:
+
+```text
+https://trade.p-y.co.il/
+```
+
+Go to:
+
+```text
+Management -> Data Export -> Download full analyst snapshot
+```
+
+The downloaded file is named:
+
+```text
+multitrade-analyst-snapshot.json
+```
+
+Upload that file to Codex when you want a full review of the latest strategy
+validation, Paper execution, risk, health, and audit evidence.
+
+Equivalent terminal command, if needed:
+
+```bash
+cd /opt/multitrade/app
+set -a
+. ./.env
+set +a
+curl -sS \
+  -H "Authorization: Bearer $ANALYST_API_TOKEN" \
+  "https://trade.p-y.co.il/api/analyst/v1/snapshot?limit=1000" \
+  > analyst-snapshot.json
+```
+
 בדיקת הדשבורד המקומי בתוך השרת:
 
 ```bash
