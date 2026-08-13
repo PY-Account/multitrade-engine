@@ -42,6 +42,19 @@ class EnvironmentFileTests(TestCase):
                 Settings.from_env().allow_indicative_paper_options
             )
 
+    def test_strategy_lab_lookback_supports_long_daily_research(
+        self,
+    ) -> None:
+        with patch.dict(
+            os.environ,
+            {"TRADING_STRATEGY_LAB_LOOKBACK_DAYS": "1500"},
+            clear=True,
+        ):
+            self.assertEqual(
+                Settings.from_env().strategy_lab_lookback_days,
+                1500,
+            )
+
     def test_env_file_loads_values_without_overriding_process_env(self) -> None:
         with TemporaryDirectory() as temporary_directory:
             env_path = Path(temporary_directory) / ".env"

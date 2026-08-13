@@ -404,7 +404,7 @@ class Settings:
                 "TRADING_STRATEGY_LAB_LOOKBACK_DAYS",
                 "120",
                 30,
-                365,
+                2000,
             ),
             strategy_lab_base_cost_bps=strategy_lab_base_cost_bps,
             strategy_lab_stressed_cost_bps=(
