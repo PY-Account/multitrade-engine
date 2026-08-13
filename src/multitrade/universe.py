@@ -129,8 +129,8 @@ class UniversePolicy:
             or self.minimum_average_daily_dollar_volume < ZERO
         ):
             raise ValueError("Universe liquidity floors cannot be negative")
-        if not 1 <= self.maximum_recommendations <= 100:
-            raise ValueError("maximum_recommendations must be 1-100")
+        if not 1 <= self.maximum_recommendations <= 600:
+            raise ValueError("maximum_recommendations must be 1-600")
         if not 30 <= self.maximum_company_size_age_days <= 730:
             raise ValueError(
                 "maximum_company_size_age_days must be 30-730"
@@ -164,8 +164,8 @@ class StrategyUniverseAssignment:
                 raise ValueError(
                     "Recommended strategy selection requires policy_id"
                 )
-        if not 1 <= self.maximum_symbols <= 100:
-            raise ValueError("Strategy maximum_symbols must be 1-100")
+        if not 1 <= self.maximum_symbols <= 600:
+            raise ValueError("Strategy maximum_symbols must be 1-600")
 
 
 @dataclass(frozen=True, slots=True)
@@ -878,6 +878,14 @@ class ContinuousAssetUniverseService:
                 for symbol in policy.seed_symbols:
                     candidate_sources.setdefault(symbol, []).append(
                         "configured_seed"
+                    )
+            for index_id in policy.required_index_sets:
+                snapshot = self.program.index_snapshots.get(index_id)
+                if snapshot is None:
+                    continue
+                for symbol in snapshot.symbols:
+                    candidate_sources.setdefault(symbol, []).append(
+                        f"index_snapshot:{index_id}"
                     )
             if policy.candidate_source in {
                 "alpaca_most_active",

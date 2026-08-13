@@ -211,6 +211,72 @@ class AssetUniverseTests(TestCase):
             self.assertIn("GOOD", reports[0]["recommendations"])
             self.assertTrue(health_path.is_file())
 
+    def test_cycle_adds_required_index_snapshot_symbols_as_candidates(
+        self,
+    ) -> None:
+        indexed_policy = replace(
+            policy(),
+            candidate_source="manual",
+            seed_symbols=(),
+            required_index_sets=("sp500",),
+            maximum_recommendations=503,
+        )
+        program = AssetUniverseProgram(
+            policies={"sp500": indexed_policy},
+            strategy_assignments={},
+            index_snapshots={
+                "sp500": IndexSnapshot(
+                    index_id="sp500",
+                    label="S&P 500",
+                    as_of="2026-07-28",
+                    source_url=(
+                        "https://raw.githubusercontent.com/datasets/"
+                        "s-and-p-500-companies/main/data/"
+                        "constituents.csv"
+                    ),
+                    symbols=("GOOD", "ACTIVE"),
+                )
+            },
+            asset_references={},
+        )
+        with TemporaryDirectory() as directory:
+            db_path = Path(directory) / "trading.db"
+            service = ContinuousAssetUniverseService(
+                account_plan=AccountPlan(
+                    account_id="alpaca-paper",
+                    broker="alpaca",
+                    environment="paper",
+                    enabled=True,
+                    asset_classes=(AssetClass.STOCK,),
+                    watchlist=("SPY",),
+                    timeframe="5Min",
+                    maximum_positions=2,
+                    maximum_daily_orders=6,
+                    symbol_cooldown_minutes=60,
+                    allocations={},
+                ),
+                program=program,
+                broker=FakeBroker(),
+                market_data=FakeMarketData(),
+                store=SqliteAuditStore(db_path),
+                health_path=Path(directory) / "universe-health.json",
+                sec_client=FakeSec(),
+            )
+
+            service.run_cycle(
+                now=datetime(2026, 7, 28, tzinfo=timezone.utc)
+            )
+            reports = SqliteAuditReader(
+                db_path
+            ).recent_asset_universe_reports()
+
+            self.assertIn("GOOD", reports[0]["candidates_requested"])
+            self.assertIn("ACTIVE", reports[0]["candidates_requested"])
+            self.assertEqual(
+                reports[0]["evaluations"][0]["sources"],
+                ["index_snapshot:sp500"],
+            )
+
     def test_index_membership_requires_a_fresh_sourced_snapshot(
         self,
     ) -> None:

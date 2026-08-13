@@ -16,6 +16,7 @@ from multitrade.domain import AssetClass, ZERO
 
 MARKET_DATA_URL = "https://data.alpaca.markets"
 _STOCK_BAR_SYMBOL_BATCH_SIZE = 25
+_STOCK_BAR_SYMBOL_REQUEST_LIMIT = 600
 _STOCK_BAR_TIME_WINDOW_DAYS = 30
 _STOCK_BAR_TOTAL_PAGE_LIMIT = 240
 _TIMEFRAME = re.compile(
@@ -187,8 +188,12 @@ class AlpacaMarketDataClient:
         )
         if not normalized_symbols:
             raise ValueError("At least one stock symbol is required")
-        if len(normalized_symbols) > 200:
-            raise ValueError("At most 200 symbols may be requested")
+        if len(normalized_symbols) > _STOCK_BAR_SYMBOL_REQUEST_LIMIT:
+            raise ValueError(
+                "At most "
+                f"{_STOCK_BAR_SYMBOL_REQUEST_LIMIT} symbols may be "
+                "requested"
+            )
         if adjustment not in {
             "raw",
             "split",
