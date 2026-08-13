@@ -185,6 +185,7 @@ class FakeMarketData:
     def __init__(self) -> None:
         self.request_ids = ["strategy-lab-request"]
         self.adjustment = None
+        self.fetch_calls = []
 
     def fetch_stock_bars(
         self,
@@ -195,10 +196,14 @@ class FakeMarketData:
         *,
         adjustment,
     ):
-        del timeframe, start, end
+        del start, end
         self.adjustment = adjustment
+        self.fetch_calls.append((tuple(symbols), timeframe))
         return {
-            symbol: intraday_bars(symbol)
+            symbol: tuple(
+                replace(bar, timeframe=timeframe)
+                for bar in intraday_bars(symbol)
+            )
             for symbol in symbols
         }
 
@@ -946,4 +951,75 @@ class StrategyLabTests(TestCase):
 
             self.assertEqual(
                 report["symbols_requested"], ["AAPL", "AMD"]
+            )
+
+    def test_continuous_cycle_uses_allocation_specific_timeframes(
+        self,
+    ) -> None:
+        with TemporaryDirectory() as directory:
+            db_path = Path(directory) / "trading.db"
+            market_data = FakeMarketData()
+            plan = AccountPlan(
+                account_id="alpaca-paper",
+                broker="alpaca",
+                environment="paper",
+                enabled=True,
+                asset_classes=(AssetClass.STOCK,),
+                watchlist=("AAPL", "MSFT"),
+                timeframe="5Min",
+                maximum_positions=4,
+                maximum_daily_orders=6,
+                symbol_cooldown_minutes=60,
+                allocations={
+                    "daily_test": StrategyAllocation(
+                        strategy_id="daily_test",
+                        enabled=True,
+                        capital_weight=Decimal("0.10"),
+                        risk_fraction=Decimal("0.003"),
+                        minimum_confidence=Decimal("0.60"),
+                        timeframe="1Day",
+                    ),
+                    "swing_test": StrategyAllocation(
+                        strategy_id="swing_test",
+                        enabled=True,
+                        capital_weight=Decimal("0.10"),
+                        risk_fraction=Decimal("0.003"),
+                        minimum_confidence=Decimal("0.60"),
+                        timeframe="4Hour",
+                    ),
+                },
+            )
+            service = ContinuousStrategyLabService(
+                account_plan=plan,
+                strategies={
+                    "daily_test": FrequentTestStrategy(
+                        strategy_id="daily_test"
+                    ),
+                    "swing_test": FrequentTestStrategy(
+                        strategy_id="swing_test"
+                    ),
+                },
+                market_data=market_data,
+                store=SqliteAuditStore(db_path),
+                health_path=str(
+                    Path(directory) / "strategy-lab-health.json"
+                ),
+                config=StrategyLabConfig(minimum_out_of_sample_trades=5),
+            )
+
+            result = service.run_cycle(
+                now=datetime(2026, 7, 28, tzinfo=timezone.utc)
+            )
+            reports = SqliteAuditReader(
+                db_path
+            ).recent_strategy_lab_reports(limit=10)
+
+            self.assertEqual(
+                {call[1] for call in market_data.fetch_calls},
+                {"1Day", "4Hour"},
+            )
+            self.assertEqual(result.timeframe, "1Day,4Hour")
+            self.assertEqual(
+                {report["timeframe"] for report in reports},
+                {"1Day", "4Hour"},
             )

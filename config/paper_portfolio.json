@@ -8,7 +8,7 @@
       "credential_env_prefix": "ALPACA",
       "expected_broker_account_id": "",
       "asset_classes": ["stock", "option"],
-      "watchlist": ["SPY", "QQQ", "AAPL", "MSFT"],
+      "watchlist": ["SPY", "QQQ", "AAPL", "MSFT", "AMD", "NVDA"],
       "timeframe": "5Min",
       "maximum_positions": 4,
       "maximum_daily_orders": 6,
@@ -88,6 +88,9 @@
         },
         {
           "strategy_id":"confirmed_breakout_retest_v3","enabled":true,"capital_weight":"0.05","risk_fraction":"0.003","minimum_confidence":"0.70","paper_execution_allowed":true,"timeframe":"1Day","symbols":["SPY","QQQ","AAPL","MSFT"]
+        },
+        {
+          "strategy_id":"confirmed_breakout_retest_v4","enabled":true,"capital_weight":"0.05","risk_fraction":"0.003","minimum_confidence":"0.66","paper_execution_allowed":true,"timeframe":"1Day","symbols":["SPY","QQQ","AAPL","MSFT","AMD","NVDA"]
         },
         {
           "strategy_id": "breakout_retest_bull_call",

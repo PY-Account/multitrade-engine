@@ -116,6 +116,9 @@
       "strategy_id":"confirmed_breakout_retest_v3","selection_mode":"combined","policy_id":"liquid_us_breakout_candidates","manual_symbols":["AMD","MU","UBER","PLTR","HOOD","DKNG","NVDA","AAPL"],"maximum_symbols":30
     },
     {
+      "strategy_id":"confirmed_breakout_retest_v4","selection_mode":"combined","policy_id":"liquid_us_breakout_candidates","manual_symbols":["AMD","MU","UBER","PLTR","HOOD","DKNG","NVDA","AAPL","MSFT","QQQ"],"maximum_symbols":30
+    },
+    {
       "strategy_id":"zero_dte_iron_condor","selection_mode":"manual","manual_symbols":["SPY","QQQ"],"maximum_symbols":2
     }
   ],

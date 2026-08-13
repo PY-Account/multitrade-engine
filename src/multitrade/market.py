@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import json
 import re
+import time
 from dataclasses import dataclass
 from datetime import datetime, timedelta, timezone
 from decimal import Decimal
@@ -132,6 +133,7 @@ class AlpacaMarketDataClient:
             "Accept": "application/json",
         }
         self.request_ids: list[str] = []
+        self._last_request_monotonic: float = 0.0
 
     def fetch_most_active_stocks(
         self,
@@ -349,12 +351,35 @@ class AlpacaMarketDataClient:
     ) -> dict[str, Any]:
         url = f"{self.base_url}{path}?{urlencode(query)}"
         request = Request(url, headers=self._headers, method="GET")
+        attempts = 0
         try:
-            with urlopen(request, timeout=self.timeout_seconds) as response:
-                request_id = response.headers.get("X-Request-ID")
-                if request_id:
-                    self.request_ids.append(request_id)
-                body = response.read().decode("utf-8")
+            while True:
+                elapsed = time.monotonic() - self._last_request_monotonic
+                if elapsed < 0.20:
+                    time.sleep(0.20 - elapsed)
+                try:
+                    with urlopen(
+                        request, timeout=self.timeout_seconds
+                    ) as response:
+                        self._last_request_monotonic = time.monotonic()
+                        request_id = response.headers.get("X-Request-ID")
+                        if request_id:
+                            self.request_ids.append(request_id)
+                        body = response.read().decode("utf-8")
+                    break
+                except HTTPError as exc:
+                    self._last_request_monotonic = time.monotonic()
+                    if exc.code != 429 or attempts >= 3:
+                        raise
+                    attempts += 1
+                    retry_after = exc.headers.get("Retry-After")
+                    try:
+                        delay = float(retry_after) if retry_after else 0.0
+                    except ValueError:
+                        delay = 0.0
+                    if delay <= 0:
+                        delay = min(8.0, 1.5 * attempts)
+                    time.sleep(delay)
         except HTTPError as exc:
             request_id = (
                 exc.headers.get("X-Request-ID")

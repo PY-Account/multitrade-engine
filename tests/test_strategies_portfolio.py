@@ -19,6 +19,7 @@ from multitrade.strategies.base import SignalAction, StrategyContext
 from multitrade.strategies.equity import (
     BreakoutRetestStrategy,
     ConfirmedBreakoutRetestV3Strategy,
+    ConfirmedBreakoutRetestV4Strategy,
     SupportDeltaPutIncomeStrategy,
     SupportDeltaPutIncomeV2Strategy,
     SignalInversionStrategy,
@@ -34,13 +35,17 @@ def market_bar(
     low: str = "99",
     close: str = "100",
     volume: str = "100",
+    timeframe: str = "5Min",
 ) -> MarketBar:
+    step = timedelta(days=index) if timeframe == "1Day" else timedelta(
+        minutes=index * 5
+    )
     return MarketBar(
         symbol="AAPL",
         asset_class=AssetClass.STOCK,
-        timeframe="5Min",
+        timeframe=timeframe,
         timestamp=datetime(2026, 1, 5, 14, 30, tzinfo=timezone.utc)
-        + timedelta(minutes=index * 5),
+        + step,
         open=Decimal(open_price),
         high=Decimal(high),
         low=Decimal(low),
@@ -109,6 +114,101 @@ class StrategyTests(TestCase):
         self.assertIsNone(
             ConfirmedBreakoutRetestV3Strategy().evaluate(four_bar_context)
         )
+
+    def test_confirmed_retest_v4_accepts_delayed_daily_retest(self) -> None:
+        history = tuple(
+            market_bar(
+                index,
+                open_price=str(Decimal("80") + Decimal(index) / 4),
+                high=str(Decimal("81") + Decimal(index) / 4),
+                low=str(Decimal("79") + Decimal(index) / 4),
+                close=str(Decimal("80.5") + Decimal(index) / 4),
+                volume="1000",
+                timeframe="1Day",
+            )
+            for index in range(45)
+        )
+        level = max(bar.high for bar in history)
+        breakout = market_bar(
+            45,
+            open_price=str(level),
+            high=str(level + Decimal("3")),
+            low=str(level - Decimal("0.5")),
+            close=str(level + Decimal("2")),
+            volume="1300",
+            timeframe="1Day",
+        )
+        confirmation = tuple(
+            market_bar(
+                46 + index,
+                open_price=str(level + Decimal("1.0")),
+                high=str(level + Decimal("2.0")),
+                low=str(level + Decimal("0.4")),
+                close=str(level + Decimal("1.2")),
+                volume="1050",
+                timeframe="1Day",
+            )
+            for index in range(5)
+        )
+        drift = tuple(
+            market_bar(
+                51 + index,
+                open_price=str(level + Decimal("1.5")),
+                high=str(level + Decimal("2.2")),
+                low=str(level + Decimal("0.6")),
+                close=str(level + Decimal("1.4")),
+                volume="900",
+                timeframe="1Day",
+            )
+            for index in range(6)
+        )
+        retest = market_bar(
+            57,
+            open_price=str(level + Decimal("0.15")),
+            high=str(level + Decimal("1.0")),
+            low=str(level - Decimal("0.2")),
+            close=str(level + Decimal("0.65")),
+            volume="850",
+            timeframe="1Day",
+        )
+        bars = history + (breakout,) + confirmation + drift + (retest,)
+        features = FeatureSnapshot(
+            symbol="AAPL",
+            bar_timestamp=retest.timestamp.isoformat(),
+            close=retest.close,
+            sma_fast=level + Decimal("0.4"),
+            sma_slow=level - Decimal("2"),
+            atr=Decimal("2"),
+            atr_percent=Decimal("0.018"),
+            average_volume=Decimal("1000"),
+            relative_volume=Decimal("0.85"),
+            return_volatility=Decimal("0.01"),
+            relative_volatility=Decimal("1"),
+            donchian_high=level + Decimal("3"),
+            donchian_low=level - Decimal("5"),
+            trend_strength=Decimal("0.004"),
+            regime=MarketRegime.TREND_UP,
+            sample_size=len(bars),
+        )
+        context = StrategyContext(
+            account_id="alpaca-paper",
+            bars=bars,
+            features=features,
+            evaluated_at=retest.timestamp + timedelta(days=1),
+        )
+
+        signal = ConfirmedBreakoutRetestV4Strategy().evaluate(context)
+
+        self.assertIsNotNone(signal)
+        self.assertIn(
+            "delayed_retest_of_breakout_zone",
+            signal.reason_codes,
+        )
+        self.assertEqual(signal.evidence["timeframe"], "1Day")
+        risk = signal.reference_price - signal.stop_price
+        reward = signal.target_price - signal.reference_price
+        self.assertEqual(reward / risk, Decimal("2"))
+        self.assertGreaterEqual(risk, features.atr * Decimal("0.75"))
 
     def test_support_delta_put_signal_requires_bullish_rejection(self) -> None:
         bars = tuple(

@@ -39,7 +39,7 @@ class StrategyExperimentProgramTests(TestCase):
             len(program.comparison_experiments_by_id),
             16,
         )
-        self.assertEqual(len(program.all_experiments), 32)
+        self.assertEqual(len(program.all_experiments), 33)
         self.assertEqual(
             len(
                 {
@@ -105,7 +105,7 @@ class StrategyExperimentProgramTests(TestCase):
                 "defined_risk_put_income_v2": 3,
                 "defined_risk_put_income_v21": 1,
                 "signal_inversion_controls": 4,
-                "structural_trend_retest": 2,
+                "structural_trend_retest": 3,
                 "zero_dte_defined_risk_income": 1,
             },
         )
@@ -150,7 +150,7 @@ class StrategyExperimentProgramTests(TestCase):
         self.assertIn(
             "breakout_retest_baseline_2026q3", encoded
         )
-        self.assertEqual(len(payload["experiments"]), 32)
+        self.assertEqual(len(payload["experiments"]), 33)
         self.assertFalse(payload["execution_enabled"])
         self.assertTrue(
             all(

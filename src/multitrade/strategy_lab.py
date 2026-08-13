@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 from concurrent.futures import ThreadPoolExecutor
-from dataclasses import asdict, dataclass
+from dataclasses import asdict, dataclass, replace
 from datetime import datetime, timedelta, timezone
 from decimal import Decimal
 from statistics import median
@@ -889,6 +889,23 @@ class ContinuousStrategyLabService:
                     )
                 )
             )
+        timeframe_by_strategy = {
+            strategy_id: (
+                allocation.timeframe or self.account_plan.timeframe
+            )
+            for strategy_id, allocation in active_allocations.items()
+        }
+        symbols_by_timeframe: dict[str, tuple[str, ...]] = {}
+        for strategy_id, symbols in symbols_by_strategy.items():
+            timeframe = timeframe_by_strategy[strategy_id]
+            symbols_by_timeframe[timeframe] = tuple(
+                dict.fromkeys(
+                    (
+                        *symbols_by_timeframe.get(timeframe, ()),
+                        *symbols,
+                    )
+                )
+            )
         requested_symbols = tuple(
             dict.fromkeys(
                 symbol
@@ -896,21 +913,32 @@ class ContinuousStrategyLabService:
                 for symbol in rows
             )
         )
-        fetched = self.market_data.fetch_stock_bars(
-            requested_symbols,
-            self.account_plan.timeframe,
-            start,
-            evaluated_at,
-            adjustment="raw",
-        )
-        usable = {
-            symbol: closed_bars(rows, now=evaluated_at)
-            for symbol, rows in fetched.items()
+        usable_by_timeframe: dict[str, dict[str, tuple[MarketBar, ...]]] = {}
+        request_ids: list[str] = []
+        for timeframe, symbols in symbols_by_timeframe.items():
+            fetched = self.market_data.fetch_stock_bars(
+                symbols,
+                timeframe,
+                start,
+                evaluated_at,
+                adjustment="raw",
+            )
+            request_ids.extend(self.market_data.request_ids)
+            usable_by_timeframe[timeframe] = {
+                symbol: closed_bars(rows, now=evaluated_at)
+                for symbol, rows in fetched.items()
+            }
+        self.last_bars_by_symbol = {
+            f"{symbol}:{timeframe}": rows
+            for timeframe, rows_by_symbol in usable_by_timeframe.items()
+            for symbol, rows in rows_by_symbol.items()
         }
-        self.last_bars_by_symbol = usable
         self.last_symbols_by_strategy = symbols_by_strategy
         self.store.record_market_bars(
-            bar for rows in usable.values() for bar in rows
+            bar
+            for rows_by_symbol in usable_by_timeframe.values()
+            for rows in rows_by_symbol.values()
+            for bar in rows
         )
         evaluator = StrategyLabEvaluator(config=self.config)
         evaluation_jobs: list[
@@ -918,6 +946,7 @@ class ContinuousStrategyLabService:
                 Strategy,
                 StrategyAllocation,
                 tuple[str, ...],
+                str,
                 StrategyExperimentBinding | None,
             ]
         ] = []
@@ -936,6 +965,7 @@ class ContinuousStrategyLabService:
                     strategy,
                     active_allocations[strategy_id],
                     symbols_by_strategy[strategy_id],
+                    timeframe_by_strategy[strategy_id],
                     experiment_binding,
                 )
             )
@@ -985,6 +1015,7 @@ class ContinuousStrategyLabService:
                     strategy,
                     active_allocations[strategy.strategy_id],
                     symbols_by_strategy[strategy.strategy_id],
+                    timeframe_by_strategy[strategy.strategy_id],
                     experiment_binding,
                 )
             )
@@ -995,14 +1026,16 @@ class ContinuousStrategyLabService:
                 Strategy,
                 StrategyAllocation,
                 tuple[str, ...],
+                str,
                 StrategyExperimentBinding | None,
             ],
         ) -> StrategyLabReport:
-            strategy, allocation, symbols, binding = job
+            strategy, allocation, symbols, timeframe, binding = job
+            research_plan = replace(self.account_plan, timeframe=timeframe)
             return evaluator.evaluate(
-                account_plan=self.account_plan,
+                account_plan=research_plan,
                 strategy=strategy,
-                bars_by_symbol=usable,
+                bars_by_symbol=usable_by_timeframe.get(timeframe, {}),
                 symbols=symbols,
                 allocation=allocation,
                 experiment_binding=binding,
@@ -1029,27 +1062,35 @@ class ContinuousStrategyLabService:
                 "strategy_lab_cycle_completed",
                 self.account_plan.account_id,
                 {
-                    "timeframe": self.account_plan.timeframe,
+                    "timeframe": ",".join(sorted(symbols_by_timeframe)),
+                    "timeframes": sorted(symbols_by_timeframe),
                     "strategies_evaluated": len(reports),
                     "baseline_strategies_evaluated": baseline_count,
                     "comparison_variants_evaluated": comparison_count,
                     "immutable_trials_registered": len(reports),
                     "symbols_requested": len(requested_symbols),
                     "symbols_with_bars": sum(
-                        bool(rows) for rows in usable.values()
+                        bool(rows)
+                        for rows_by_symbol in usable_by_timeframe.values()
+                        for rows in rows_by_symbol.values()
                     ),
                     "execution_enabled": False,
                 },
             )
         health_details = {
             "account_id": self.account_plan.account_id,
-            "timeframe": self.account_plan.timeframe,
+            "timeframe": ",".join(sorted(symbols_by_timeframe)),
+            "timeframes": sorted(symbols_by_timeframe),
             "strategies_evaluated": len(reports),
             "baseline_strategies_evaluated": baseline_count,
             "comparison_variants_evaluated": comparison_count,
             "immutable_trials_registered": len(reports),
             "symbols_requested": len(requested_symbols),
-            "symbols_with_bars": sum(bool(rows) for rows in usable.values()),
+            "symbols_with_bars": sum(
+                bool(rows)
+                for rows_by_symbol in usable_by_timeframe.values()
+                for rows in rows_by_symbol.values()
+            ),
             "execution_enabled": False,
         }
         if persist_reports:
@@ -1057,12 +1098,16 @@ class ContinuousStrategyLabService:
         return StrategyLabCycleResult(
             account_id=self.account_plan.account_id,
             evaluated_at=evaluated_at,
-            timeframe=self.account_plan.timeframe,
+            timeframe=",".join(sorted(symbols_by_timeframe)),
             strategies_evaluated=len(reports),
             reports_completed=len(reports),
             trials_registered=len(reports) if persist_reports else 0,
             symbols_requested=len(requested_symbols),
-            symbols_with_bars=sum(bool(rows) for rows in usable.values()),
-            request_ids=tuple(self.market_data.request_ids),
+            symbols_with_bars=sum(
+                bool(rows)
+                for rows_by_symbol in usable_by_timeframe.values()
+                for rows in rows_by_symbol.values()
+            ),
+            request_ids=tuple(request_ids),
             execution_enabled=False,
         )
