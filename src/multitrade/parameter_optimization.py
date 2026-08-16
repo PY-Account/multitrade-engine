@@ -127,6 +127,11 @@ _SEARCH_SPACES: dict[str, dict[str, tuple[object, ...]]] = {
         "maximum_relative_volume": ("1.20", "1.50"),
         "maximum_trend_strength": ("0.005", "0.01"),
     },
+    "index_put_credit_14dte": {
+        "maximum_atr_percent": ("0.020", "0.030", "0.040"),
+        "maximum_trend_strength": ("0.010", "0.020", "0.030"),
+        "minimum_confidence": ("0.68", "0.70", "0.72"),
+    },
 }
 
 

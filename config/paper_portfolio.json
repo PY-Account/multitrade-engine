@@ -8,7 +8,7 @@
       "credential_env_prefix": "ALPACA",
       "expected_broker_account_id": "",
       "asset_classes": ["stock", "option"],
-      "watchlist": ["SPY", "QQQ", "AAPL", "MSFT", "AMD", "NVDA"],
+      "watchlist": ["SPY", "QQQ", "AAPL", "MSFT", "AMD", "NVDA", "SPX", "RUT"],
       "timeframe": "5Min",
       "maximum_positions": 4,
       "maximum_daily_orders": 6,
@@ -240,6 +240,10 @@
         {
           "strategy_id":"zero_dte_iron_condor_theta","asset_class":"option","enabled":true,"capital_weight":"0.04","risk_fraction":"0.10","minimum_confidence":"0.68","paper_execution_allowed":true,"timeframe":"5Min","symbols":["SPY","QQQ"],
           "option_policy":{"structure":"iron_condor","source_strategy_id":"zero_dte_iron_condor","minimum_dte":0,"maximum_dte":0,"long_delta_target":"0.55","short_delta_target":"0.15","maximum_short_delta":"0.20","wing_delta_target":"0.05","maximum_strike_width":"5","minimum_modeled_theta":"0","minimum_credit_to_risk":"0.15","profit_target_fraction":"0.45","loss_limit_multiple":"1.50","exit_before_expiry_days":0,"maximum_holding_minutes":210,"maximum_quote_age_seconds":60}
+        },
+        {
+          "strategy_id":"spx_rut_put_credit_14dte","asset_class":"option","enabled":true,"capital_weight":"0.04","risk_fraction":"0.03","minimum_confidence":"0.70","paper_execution_allowed":false,"timeframe":"1Day","symbols":["SPX","RUT"],
+          "option_policy":{"structure":"bull_put_credit_spread","source_strategy_id":"index_put_credit_14dte","minimum_dte":14,"maximum_dte":14,"long_delta_target":"0.55","short_delta_target":"0.12","maximum_short_delta":"0.13","wing_delta_target":"0.05","target_strike_width":"25","maximum_strike_width":"25","minimum_modeled_theta":"0","minimum_credit_to_risk":"0.05","profit_target_fraction":"0.75","loss_limit_multiple":"1.50","exit_before_expiry_days":1,"maximum_quote_age_seconds":60}
         },
         {
           "strategy_id": "managed_protective_put",

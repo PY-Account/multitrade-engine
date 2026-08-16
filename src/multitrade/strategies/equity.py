@@ -1215,6 +1215,65 @@ class ZeroDteIronCondorStrategy:
             evidence={"prior_close":prior_close,"opening_gap":gap,"opening_range_fraction":opening_range,"execution_vehicle":"iron_condor","entry_window_et":"10:00-10:10"})
 
 
+@dataclass(frozen=True, slots=True)
+class IndexPutCredit14DteStrategy:
+    strategy_id: str = "index_put_credit_14dte"
+    version: str = "1.0.0"
+    maximum_atr_percent: Decimal = Decimal("0.030")
+    maximum_trend_strength: Decimal = Decimal("0.020")
+    minimum_confidence: Decimal = Decimal("0.70")
+
+    def evaluate(self, context: StrategyContext) -> StrategySignal | None:
+        latest = context.bars[-1]
+        if latest.symbol not in {"SPX", "RUT"}:
+            return None
+        if context.features.regime in {
+            MarketRegime.TREND_DOWN,
+            MarketRegime.HIGH_VOLATILITY,
+        }:
+            return None
+        if context.features.atr_percent > self.maximum_atr_percent:
+            return None
+        if abs(context.features.trend_strength) > self.maximum_trend_strength:
+            return None
+        reference = latest.close
+        stop = reference - max(
+            context.features.atr * Decimal("2"),
+            reference * Decimal("0.01"),
+        )
+        if stop <= ZERO or stop >= reference:
+            return None
+        return create_signal(
+            context=context,
+            strategy_id=self.strategy_id,
+            version=self.version,
+            action=SignalAction.ENTER_LONG,
+            confidence=self.minimum_confidence,
+            reference_price=reference,
+            stop_price=stop,
+            target_price=_target(reference, stop, Decimal("1")),
+            reason_codes=(
+                "index_put_credit_14dte",
+                "defined_risk_25_point_width",
+                "short_put_delta_target_012",
+                "premium_capture_target_75_percent",
+                "quiet_non_bearish_index_filter",
+            ),
+            evidence={
+                "option_underlyings": ("SPX", "RUT"),
+                "execution_vehicle": "bull_put_credit_spread",
+                "minimum_dte": 14,
+                "maximum_dte": 14,
+                "short_delta_target": Decimal("0.12"),
+                "target_strike_width": Decimal("25"),
+                "profit_target_fraction": Decimal("0.75"),
+                "exit_on_short_strike_touch": True,
+                "atr_percent": context.features.atr_percent,
+                "trend_strength": context.features.trend_strength,
+            },
+        )
+
+
 def default_equity_strategies() -> dict[str, Strategy]:
     strategies: tuple[Strategy, ...] = (
         BreakoutRetestStrategy(),
@@ -1234,6 +1293,7 @@ def default_equity_strategies() -> dict[str, Strategy]:
         ConfirmedBreakoutRetestV3Strategy(),
         ConfirmedBreakoutRetestV4Strategy(),
         ZeroDteIronCondorStrategy(),
+        IndexPutCredit14DteStrategy(),
     )
     return {
         strategy.strategy_id: strategy for strategy in strategies
@@ -1264,6 +1324,7 @@ def equity_strategy_from_parameters(
         "confirmed_breakout_retest_v3": ConfirmedBreakoutRetestV3Strategy,
         "confirmed_breakout_retest_v4": ConfirmedBreakoutRetestV4Strategy,
         "zero_dte_iron_condor": ZeroDteIronCondorStrategy,
+        "index_put_credit_14dte": IndexPutCredit14DteStrategy,
     }
     strategy_type = strategy_types.get(strategy_id)
     if strategy_type is None:

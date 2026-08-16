@@ -208,6 +208,27 @@ class FakeMarketData:
         }
 
 
+class ChunkLimitedMarketData(FakeMarketData):
+    def fetch_stock_bars(
+        self,
+        symbols,
+        timeframe,
+        start,
+        end,
+        *,
+        adjustment,
+    ):
+        if len(symbols) > 75:
+            raise AssertionError("Strategy Lab did not chunk symbol fetches")
+        return super().fetch_stock_bars(
+            symbols,
+            timeframe,
+            start,
+            end,
+            adjustment=adjustment,
+        )
+
+
 class StrategyLabTests(TestCase):
     def test_long_horizon_research_lookback_is_supported(self) -> None:
         self.assertEqual(
@@ -245,6 +266,50 @@ class StrategyLabTests(TestCase):
                 "breakout_retest"
             ].strategy_id,
             "breakout_retest",
+        )
+
+    def test_market_data_requests_are_chunked_for_large_universe(
+        self,
+    ) -> None:
+        source_plan = load_account_plans(
+            Path(__file__).parents[1]
+            / "config"
+            / "paper_portfolio.json"
+        )[0]
+        plan = replace(
+            source_plan,
+            watchlist=tuple(f"SYM{index:03d}" for index in range(181)),
+            allocations={
+                "breakout_retest": replace(
+                    source_plan.allocations["breakout_retest"],
+                    symbols=tuple(
+                        f"SYM{index:03d}" for index in range(181)
+                    ),
+                    timeframe="4Hour",
+                )
+            },
+        )
+        market_data = ChunkLimitedMarketData()
+        with TemporaryDirectory() as directory:
+            service = ContinuousStrategyLabService(
+                account_plan=plan,
+                strategies=default_equity_strategies(),
+                market_data=market_data,
+                store=SqliteAuditStore(
+                    Path(directory) / "trading.db"
+                ),
+                health_path=str(
+                    Path(directory) / "strategy-lab-health.json"
+                ),
+            )
+            service.run_cycle(
+                now=intraday_bars("SPY")[-1].timestamp
+            )
+
+        self.assertEqual(len(market_data.fetch_calls), 3)
+        self.assertLessEqual(
+            max(len(symbols) for symbols, _ in market_data.fetch_calls),
+            75,
         )
 
     def test_chronological_folds_are_non_overlapping(self) -> None:

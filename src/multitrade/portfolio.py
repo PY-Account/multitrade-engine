@@ -271,6 +271,14 @@ def load_account_plans(path: str | Path) -> tuple[AccountPlan, ...]:
                         ),
                         "wing_delta_target",
                     ),
+                    target_strike_width=(
+                        _decimal(
+                            option_payload.get("target_strike_width"),
+                            "target_strike_width",
+                        )
+                        if "target_strike_width" in option_payload
+                        else None
+                    ),
                     maximum_strike_width=_decimal(
                         option_payload.get(
                             "maximum_strike_width", "10"

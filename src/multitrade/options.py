@@ -514,6 +514,7 @@ class OptionExecutionPolicy:
     short_delta_target: Decimal = Decimal("0.30")
     maximum_short_delta: Decimal = Decimal("0.35")
     wing_delta_target: Decimal = Decimal("0.10")
+    target_strike_width: Decimal | None = None
     maximum_strike_width: Decimal = Decimal("10")
     minimum_modeled_theta: Decimal = ZERO
     minimum_credit_to_risk: Decimal = ZERO
@@ -538,6 +539,13 @@ class OptionExecutionPolicy:
                 raise ValueError("Option delta targets must be in (0, 1)")
         if self.maximum_strike_width <= ZERO:
             raise ValueError("maximum_strike_width must be positive")
+        if self.target_strike_width is not None:
+            if self.target_strike_width <= ZERO:
+                raise ValueError("target_strike_width must be positive")
+            if self.target_strike_width > self.maximum_strike_width:
+                raise ValueError(
+                    "target_strike_width exceeds maximum_strike_width"
+                )
         if self.short_delta_target > self.maximum_short_delta:
             raise ValueError("short_delta_target exceeds maximum_short_delta")
         if not ZERO <= self.minimum_credit_to_risk < Decimal("1"):
@@ -1302,13 +1310,22 @@ class DefinedRiskOptionSelector:
                 strike_max=underlying_price,
                 maximum_absolute_delta=self.policy.maximum_short_delta,
             )
-            long_put = self._nearest_delta(
-                contracts,
-                OptionRight.PUT,
-                self.policy.wing_delta_target,
-                strike_max=short_put.strike,
-                exclude_strike=short_put.strike,
-            )
+            if self.policy.target_strike_width is None:
+                long_put = self._nearest_delta(
+                    contracts,
+                    OptionRight.PUT,
+                    self.policy.wing_delta_target,
+                    strike_max=short_put.strike,
+                    exclude_strike=short_put.strike,
+                )
+            else:
+                long_put = self._nearest_strike(
+                    contracts,
+                    OptionRight.PUT,
+                    short_put.strike - self.policy.target_strike_width,
+                    strike_max=short_put.strike,
+                    exclude_strike=short_put.strike,
+                )
             intent = self.factory.bull_put_credit_spread(
                 account_id=account_id,
                 strategy_id=strategy_id,
@@ -1460,6 +1477,7 @@ class DefinedRiskOptionSelector:
                     self.policy.source_strategy_id
                 ),
                 "maximum_short_delta": self.policy.maximum_short_delta,
+                "target_strike_width": self.policy.target_strike_width,
                 "minimum_credit_to_risk": self.policy.minimum_credit_to_risk,
                 "expiration": expiration.isoformat(),
                 "days_to_expiration": (
@@ -1571,6 +1589,45 @@ class DefinedRiskOptionSelector:
                 abs(abs(contract.delta or ZERO) - target),
                 contract.relative_spread or Decimal("999"),
                 abs(contract.strike),
+                contract.symbol,
+            ),
+        )
+
+    def _nearest_strike(
+        self,
+        contracts: tuple[OptionSnapshot, ...],
+        right: OptionRight,
+        target: Decimal,
+        *,
+        strike_min: Decimal | None = None,
+        strike_max: Decimal | None = None,
+        exclude_strike: Decimal | None = None,
+    ) -> OptionSnapshot:
+        candidates = [
+            contract
+            for contract in contracts
+            if contract.right is right
+            and (
+                strike_min is None
+                or contract.strike >= strike_min
+            )
+            and (
+                strike_max is None
+                or contract.strike <= strike_max
+            )
+            and (
+                exclude_strike is None
+                or contract.strike != exclude_strike
+            )
+        ]
+        if not candidates:
+            raise ValueError("Option strike selection has no candidate")
+        return min(
+            candidates,
+            key=lambda contract: (
+                abs(contract.strike - target),
+                contract.relative_spread or Decimal("999"),
+                abs(abs(contract.delta or ZERO) - self.policy.wing_delta_target),
                 contract.symbol,
             ),
         )

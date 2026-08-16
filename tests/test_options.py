@@ -331,3 +331,67 @@ class DefinedRiskOptionFactoryTests(TestCase):
         self.assertFalse(
             intent.explanation["historical_bar_greeks_available"]
         )
+
+    def test_bull_put_selector_can_target_fixed_strike_width(
+        self,
+    ) -> None:
+        chain = (
+            snapshot(
+                "AAPL260918P00640000",
+                strike="640",
+                right=OptionRight.PUT,
+                bid="12.00",
+                ask="12.50",
+                delta="-0.12",
+                theta="-0.60",
+            ),
+            snapshot(
+                "AAPL260918P00630000",
+                strike="630",
+                right=OptionRight.PUT,
+                bid="8.00",
+                ask="8.40",
+                delta="-0.08",
+                theta="-0.35",
+            ),
+            snapshot(
+                "AAPL260918P00615000",
+                strike="615",
+                right=OptionRight.PUT,
+                bid="4.10",
+                ask="4.40",
+                delta="-0.05",
+                theta="-0.20",
+            ),
+        )
+        policy = OptionExecutionPolicy(
+            structure=OptionStructure.BULL_PUT_CREDIT,
+            source_strategy_id="index_put_credit_14dte",
+            minimum_dte=30,
+            maximum_dte=60,
+            short_delta_target=Decimal("0.12"),
+            maximum_short_delta=Decimal("0.13"),
+            wing_delta_target=Decimal("0.05"),
+            target_strike_width=Decimal("25"),
+            maximum_strike_width=Decimal("25"),
+        )
+
+        intent = DefinedRiskOptionSelector(policy).build_intent(
+            account_id="alpaca-paper",
+            strategy_id="spx_rut_put_credit_14dte",
+            underlying="AAPL",
+            underlying_price=Decimal("660"),
+            direction="bullish",
+            chain=chain,
+            requested_quantity=Decimal("1"),
+            risk_budget_fraction=Decimal("0.003"),
+            signal_id="index-credit",
+            as_of=date(2026, 7, 28),
+        )
+
+        put_strikes = sorted(leg.strike for leg in intent.option_legs)
+        self.assertEqual(put_strikes, [Decimal("615"), Decimal("640")])
+        self.assertEqual(
+            intent.explanation["target_strike_width"],
+            Decimal("25"),
+        )

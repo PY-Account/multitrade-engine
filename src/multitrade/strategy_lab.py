@@ -663,6 +663,8 @@ class StrategyLabEvaluator:
 class ContinuousStrategyLabService:
     """Fetches raw intraday data and persists non-executable model reviews."""
 
+    _market_data_symbol_chunk_size = 75
+
     def __init__(
         self,
         *,
@@ -745,6 +747,28 @@ class ContinuousStrategyLabService:
                 self.comparison_strategies[
                     experiment_id
                 ] = candidate
+
+    def _fetch_stock_bars_in_chunks(
+        self,
+        symbols: tuple[str, ...],
+        timeframe: str,
+        start: datetime,
+        end: datetime,
+    ) -> dict[str, tuple[MarketBar, ...]]:
+        fetched: dict[str, tuple[MarketBar, ...]] = {}
+        chunk_size = self._market_data_symbol_chunk_size
+        for index in range(0, len(symbols), chunk_size):
+            chunk = symbols[index : index + chunk_size]
+            fetched.update(
+                self.market_data.fetch_stock_bars(
+                    chunk,
+                    timeframe,
+                    start,
+                    end,
+                    adjustment="raw",
+                )
+            )
+        return fetched
 
     @classmethod
     def from_settings(
@@ -916,12 +940,11 @@ class ContinuousStrategyLabService:
         usable_by_timeframe: dict[str, dict[str, tuple[MarketBar, ...]]] = {}
         request_ids: list[str] = []
         for timeframe, symbols in symbols_by_timeframe.items():
-            fetched = self.market_data.fetch_stock_bars(
+            fetched = self._fetch_stock_bars_in_chunks(
                 symbols,
                 timeframe,
                 start,
                 evaluated_at,
-                adjustment="raw",
             )
             request_ids.extend(self.market_data.request_ids)
             usable_by_timeframe[timeframe] = {
