@@ -19,6 +19,8 @@ _STOCK_BAR_SYMBOL_BATCH_SIZE = 25
 _STOCK_BAR_SYMBOL_REQUEST_LIMIT = 600
 _STOCK_BAR_TIME_WINDOW_DAYS = 30
 _STOCK_BAR_TOTAL_PAGE_LIMIT = 240
+_MARKET_DATA_MIN_REQUEST_INTERVAL_SECONDS = 0.20
+_MARKET_DATA_RATE_LIMIT_ATTEMPTS = 8
 _TIMEFRAME = re.compile(
     r"^(?P<count>[1-9][0-9]*)(?P<unit>Min|T|Hour|H|Day|D)$"
 )
@@ -360,8 +362,11 @@ class AlpacaMarketDataClient:
         try:
             while True:
                 elapsed = time.monotonic() - self._last_request_monotonic
-                if elapsed < 0.20:
-                    time.sleep(0.20 - elapsed)
+                if elapsed < _MARKET_DATA_MIN_REQUEST_INTERVAL_SECONDS:
+                    time.sleep(
+                        _MARKET_DATA_MIN_REQUEST_INTERVAL_SECONDS
+                        - elapsed
+                    )
                 try:
                     with urlopen(
                         request, timeout=self.timeout_seconds
@@ -374,7 +379,10 @@ class AlpacaMarketDataClient:
                     break
                 except HTTPError as exc:
                     self._last_request_monotonic = time.monotonic()
-                    if exc.code != 429 or attempts >= 3:
+                    if (
+                        exc.code != 429
+                        or attempts >= _MARKET_DATA_RATE_LIMIT_ATTEMPTS
+                    ):
                         raise
                     attempts += 1
                     retry_after = exc.headers.get("Retry-After")
@@ -383,7 +391,7 @@ class AlpacaMarketDataClient:
                     except ValueError:
                         delay = 0.0
                     if delay <= 0:
-                        delay = min(8.0, 1.5 * attempts)
+                        delay = min(60.0, 2.0**attempts)
                     time.sleep(delay)
         except HTTPError as exc:
             request_id = (

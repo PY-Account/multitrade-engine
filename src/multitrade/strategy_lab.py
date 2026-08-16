@@ -5,6 +5,7 @@ from dataclasses import asdict, dataclass, replace
 from datetime import datetime, timedelta, timezone
 from decimal import Decimal
 from statistics import median
+import time
 from typing import Any, Callable, Iterable
 from uuid import uuid4
 
@@ -21,6 +22,7 @@ from multitrade.experiments import (
 from multitrade.health import write_health
 from multitrade.market import (
     AlpacaMarketDataClient,
+    MarketDataError,
     MarketBar,
     closed_bars,
 )
@@ -663,7 +665,9 @@ class StrategyLabEvaluator:
 class ContinuousStrategyLabService:
     """Fetches raw intraday data and persists non-executable model reviews."""
 
-    _market_data_symbol_chunk_size = 75
+    _market_data_symbol_chunk_size = 50
+    _market_data_chunk_pause_seconds = 0.50
+    _market_data_rate_limit_retries = 3
 
     def __init__(
         self,
@@ -757,17 +761,35 @@ class ContinuousStrategyLabService:
     ) -> dict[str, tuple[MarketBar, ...]]:
         fetched: dict[str, tuple[MarketBar, ...]] = {}
         chunk_size = self._market_data_symbol_chunk_size
+        throttle = isinstance(self.market_data, AlpacaMarketDataClient)
         for index in range(0, len(symbols), chunk_size):
             chunk = symbols[index : index + chunk_size]
-            fetched.update(
-                self.market_data.fetch_stock_bars(
-                    chunk,
-                    timeframe,
-                    start,
-                    end,
-                    adjustment="raw",
-                )
-            )
+            if index and throttle:
+                time.sleep(self._market_data_chunk_pause_seconds)
+            for attempt in range(self._market_data_rate_limit_retries + 1):
+                try:
+                    fetched.update(
+                        self.market_data.fetch_stock_bars(
+                            chunk,
+                            timeframe,
+                            start,
+                            end,
+                            adjustment="raw",
+                        )
+                    )
+                    break
+                except MarketDataError as exc:
+                    is_rate_limit = (
+                        "HTTP 429" in str(exc)
+                        or "too many requests" in str(exc).lower()
+                    )
+                    if (
+                        not is_rate_limit
+                        or attempt >= self._market_data_rate_limit_retries
+                    ):
+                        raise
+                    if throttle:
+                        time.sleep(min(120.0, 15.0 * (attempt + 1)))
         return fetched
 
     @classmethod

@@ -218,7 +218,7 @@ class ChunkLimitedMarketData(FakeMarketData):
         *,
         adjustment,
     ):
-        if len(symbols) > 75:
+        if len(symbols) > 50:
             raise AssertionError("Strategy Lab did not chunk symbol fetches")
         return super().fetch_stock_bars(
             symbols,
@@ -302,14 +302,15 @@ class StrategyLabTests(TestCase):
                     Path(directory) / "strategy-lab-health.json"
                 ),
             )
+            service._market_data_chunk_pause_seconds = 0
             service.run_cycle(
                 now=intraday_bars("SPY")[-1].timestamp
             )
 
-        self.assertEqual(len(market_data.fetch_calls), 3)
+        self.assertEqual(len(market_data.fetch_calls), 4)
         self.assertLessEqual(
             max(len(symbols) for symbols, _ in market_data.fetch_calls),
-            75,
+            50,
         )
 
     def test_chronological_folds_are_non_overlapping(self) -> None:
