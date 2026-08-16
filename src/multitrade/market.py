@@ -176,11 +176,14 @@ class AlpacaMarketDataClient:
         end: datetime,
         *,
         max_pages: int = 60,
+        max_total_pages: int = _STOCK_BAR_TOTAL_PAGE_LIMIT,
         adjustment: str = "raw",
     ) -> dict[str, tuple[MarketBar, ...]]:
         timeframe_seconds(timeframe)
         if not 1 <= max_pages <= 100:
             raise ValueError("max_pages must be between 1 and 100")
+        if not 1 <= max_total_pages <= 5000:
+            raise ValueError("max_total_pages must be between 1 and 5000")
         normalized_symbols = tuple(
             dict.fromkeys(
                 symbol.strip().upper()
@@ -237,10 +240,10 @@ class AlpacaMarketDataClient:
                 seen_page_tokens: set[str] = set()
                 for _ in range(max_pages):
                     total_pages += 1
-                    if total_pages > _STOCK_BAR_TOTAL_PAGE_LIMIT:
+                    if total_pages > max_total_pages:
                         raise MarketDataError(
                             "Alpaca stock-bars pagination exceeded "
-                            f"the {_STOCK_BAR_TOTAL_PAGE_LIMIT}-page "
+                            f"the {max_total_pages}-page "
                             "total safety limit"
                         )
                     query = {

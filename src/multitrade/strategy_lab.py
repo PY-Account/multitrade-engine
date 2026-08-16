@@ -668,6 +668,7 @@ class ContinuousStrategyLabService:
     _market_data_symbol_chunk_size = 50
     _market_data_chunk_pause_seconds = 0.50
     _market_data_rate_limit_retries = 3
+    _market_data_chunk_total_page_limit = 1500
 
     def __init__(
         self,
@@ -768,13 +769,20 @@ class ContinuousStrategyLabService:
                 time.sleep(self._market_data_chunk_pause_seconds)
             for attempt in range(self._market_data_rate_limit_retries + 1):
                 try:
+                    fetch_kwargs: dict[str, object] = {
+                        "adjustment": "raw",
+                    }
+                    if throttle:
+                        fetch_kwargs["max_total_pages"] = (
+                            self._market_data_chunk_total_page_limit
+                        )
                     fetched.update(
                         self.market_data.fetch_stock_bars(
                             chunk,
                             timeframe,
                             start,
                             end,
-                            adjustment="raw",
+                            **fetch_kwargs,
                         )
                     )
                     break
