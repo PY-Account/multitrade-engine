@@ -136,6 +136,8 @@ class AccountPlan:
 def apply_strategy_configuration_overrides(
     plans: tuple[AccountPlan, ...],
     overrides: list[dict[str, Any]] | tuple[dict[str, Any], ...],
+    *,
+    strict: bool = True,
 ) -> tuple[AccountPlan, ...]:
     """Apply audited Paper-only runtime controls to immutable base plans."""
 
@@ -150,11 +152,14 @@ def apply_strategy_configuration_overrides(
     }
     unknown = set(rows) - known
     if unknown:
-        account_id, strategy_id = sorted(unknown)[0]
-        raise ValueError(
-            "Unknown strategy configuration override: "
-            f"{account_id}/{strategy_id}"
-        )
+        if strict:
+            account_id, strategy_id = sorted(unknown)[0]
+            raise ValueError(
+                "Unknown strategy configuration override: "
+                f"{account_id}/{strategy_id}"
+            )
+        for key in unknown:
+            rows.pop(key, None)
 
     effective: list[AccountPlan] = []
     for plan in plans:

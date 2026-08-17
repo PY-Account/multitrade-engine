@@ -737,10 +737,7 @@ class ContinuousStrategyLabService:
                 if experiment.strategy_id not in (
                     self.strategy_allocations
                 ):
-                    raise ValueError(
-                        "Comparison experiment has no account "
-                        f"allocation: {experiment.strategy_id}"
-                    )
+                    continue
                 candidate = self.comparison_strategy_factory(
                     experiment.expected_parameters
                 )
@@ -884,7 +881,7 @@ class ContinuousStrategyLabService:
             self.base_account_plan.account_id
         )
         self.account_plan = apply_strategy_configuration_overrides(
-            (self.base_account_plan,), overrides
+            (self.base_account_plan,), overrides, strict=False
         )[0]
         self._configure_strategy_allocations()
 

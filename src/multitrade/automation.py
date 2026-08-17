@@ -573,7 +573,7 @@ class PaperAutomationService:
             self.base_account_plan.account_id
         )
         self.account_plan = apply_strategy_configuration_overrides(
-            (self.base_account_plan,), overrides
+            (self.base_account_plan,), overrides, strict=False
         )[0]
 
     def _validate_broker_identity(

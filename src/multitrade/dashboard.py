@@ -165,6 +165,7 @@ class DashboardData:
         return apply_strategy_configuration_overrides(
             self.account_plans,
             self.configuration_store.strategy_configuration_overrides(),
+            strict=False,
         )
 
     def update_strategy_configuration(

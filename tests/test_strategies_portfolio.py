@@ -394,6 +394,34 @@ class StrategyTests(TestCase):
             ("SPY", "QQQ", "AAPL", "MSFT"),
         )
 
+    def test_stale_runtime_override_can_be_ignored_for_service_startup(
+        self,
+    ) -> None:
+        plans = load_account_plans(
+            Path(__file__).parents[1]
+            / "config"
+            / "paper_portfolio.json"
+        )
+
+        effective = apply_strategy_configuration_overrides(
+            plans,
+            [
+                {
+                    "account_id": "alpaca-paper",
+                    "strategy_id": "breakout_retest_bull_call",
+                    "enabled": True,
+                    "paper_execution_allowed": True,
+                    "symbols": ["SPY"],
+                }
+            ],
+            strict=False,
+        )
+
+        self.assertEqual(effective[0].account_id, "alpaca-paper")
+        self.assertNotIn(
+            "breakout_retest_bull_call", effective[0].allocations
+        )
+
     def test_breakout_retest_signal_is_deterministic_and_explainable(
         self,
     ) -> None:
