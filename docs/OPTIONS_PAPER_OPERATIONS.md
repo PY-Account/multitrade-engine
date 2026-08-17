@@ -34,8 +34,9 @@ capital weight, risk budget, confidence floor, symbols, Paper permission, and
 - mandatory days-before-expiration exit; and
 - maximum quote age.
 
-The tracked option allocations are enabled for observation but have
-`paper_execution_allowed: false`. Protective puts are disabled by default.
+The income-oriented option allocations may be enabled for guarded Paper
+submission. Protective puts remain disabled by default because they require an
+existing managed stock position.
 
 ## Entry gates
 
@@ -43,7 +44,8 @@ An option Paper order requires all ordinary controls plus:
 
 1. Alpaca Paper account status active.
 2. Options trading level 2 for a protective put or level 3 for a spread.
-3. OPRA data for a submission; indicative data remains observation-only.
+3. OPRA data for a production-quality submission, or an explicit Paper-only
+   opt-in to Alpaca's indicative feed for engineering tests.
 4. Fresh decision-time quotes for every selected leg.
 5. Bid and ask on every leg, bounded relative spread, and quote size.
 6. One underlying and one expiration.
@@ -108,9 +110,27 @@ TRADING_EMERGENCY_STOP=false
 TRADING_OPTION_DATA_FEED=opra
 ```
 
+If OPRA is unavailable and the run is strictly Paper Trading, the engine can be
+allowed to submit from Alpaca's indicative option feed:
+
+```dotenv
+TRADING_OPTION_DATA_FEED=indicative
+TRADING_ALLOW_INDICATIVE_PAPER_OPTIONS=true
+```
+
+This is intentionally not a live-trading setting. Alpaca describes the
+indicative feed as useful for testing/debugging, not for production trading
+decisions.
+
 The specific allocation must also set `paper_execution_allowed` to `true`
 through a reviewed release. Follow `docs/PAPER_VALIDATION_RUNBOOK.md`; do not
 activate multiple new strategies together.
+
+Release 0.35.3 separates Paper option submission into the dedicated
+`alpaca-paper-options` account. The default `alpaca-paper` account is
+stock-only. The firm and account risk controls still apply, so large packages
+such as 25-point SPX/RUT credit spreads may be selected but then rejected when
+one contract exceeds the option account's configured risk capacity.
 
 ## Broker references
 

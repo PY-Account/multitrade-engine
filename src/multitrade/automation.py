@@ -561,10 +561,10 @@ class PaperAutomationService:
         return max(
             self.settings.market_lookback_days,
             {
-                "4Hour": 1095,
-                "4H": 1095,
-                "1Day": 1825,
-                "1D": 1825,
+                "4Hour": 365,
+                "4H": 365,
+                "1Day": 365,
+                "1D": 365,
             }.get(timeframe, self.settings.market_lookback_days),
         )
 

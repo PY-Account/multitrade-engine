@@ -52,6 +52,37 @@ ALPACA_GROWTH_BASE_URL=https://paper-api.alpaca.markets
 The original single account continues to use `ALPACA_API_KEY_ID`,
 `ALPACA_API_SECRET_KEY`, and `ALPACA_BASE_URL`.
 
+## Dedicated options account
+
+For the planned split between stock bots and option-income bots, use the same
+model with an options-specific credential namespace:
+
+```json
+{
+  "account_id": "alpaca-paper-options",
+  "broker": "alpaca",
+  "environment": "paper",
+  "enabled": true,
+  "credential_env_prefix": "ALPACA_OPTIONS",
+  "expected_broker_account_id": "the-options-paper-account-uuid",
+  "asset_classes": ["option"]
+}
+```
+
+Then move only the option allocations into that account object and leave the
+stock allocations in `alpaca-paper`. Add the matching VPS secrets:
+
+```dotenv
+ALPACA_OPTIONS_API_KEY_ID=
+ALPACA_OPTIONS_API_SECRET_KEY=
+ALPACA_OPTIONS_BASE_URL=https://paper-api.alpaca.markets
+```
+
+Do not enable two account objects with the same Alpaca API keys. The system
+requires unique credential prefixes and broker account IDs so that an option
+strategy cannot accidentally duplicate risk in the same broker account while
+appearing isolated in the dashboard.
+
 Obtain the expected account UUID from the authenticated Alpaca Paper account
 response or the Alpaca Paper account interface. Do not guess it and do not use
 a live-account identifier.

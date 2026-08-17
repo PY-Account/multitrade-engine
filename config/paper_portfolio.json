@@ -6,97 +6,48 @@
       "environment": "paper",
       "enabled": true,
       "credential_env_prefix": "ALPACA",
-      "expected_broker_account_id": "",
-      "asset_classes": ["stock", "option"],
-      "watchlist": ["SPY", "QQQ", "AAPL", "MSFT", "AMD", "NVDA", "SPX", "RUT"],
+      "expected_broker_account_id": "89bb0a39-6435-46bf-a935-740105852e33",
+      "asset_classes": ["stock"],
+      "watchlist": ["SPY", "QQQ", "AAPL", "MSFT", "AMD", "NVDA"],
+      "timeframe": "5Min",
+      "maximum_positions": 4,
+      "maximum_daily_orders": 6,
+      "symbol_cooldown_minutes": 60,
+      "strategies": [
+        {"strategy_id":"breakout_retest","enabled":true,"capital_weight":"0.20","risk_fraction":"0.005","minimum_confidence":"0.60","paper_execution_allowed":true,"timeframe":"1Day","symbols":["SPY","QQQ","AAPL","MSFT"]},
+        {"strategy_id":"trend_pullback","enabled":true,"capital_weight":"0.15","risk_fraction":"0.004","minimum_confidence":"0.60","paper_execution_allowed":true,"timeframe":"1Day","symbols":["SPY","QQQ","AAPL","MSFT"]},
+        {"strategy_id":"volatility_contraction","enabled":true,"capital_weight":"0.15","risk_fraction":"0.004","minimum_confidence":"0.65","paper_execution_allowed":true,"timeframe":"4Hour","symbols":["SPY","QQQ","AAPL","MSFT"]},
+        {"strategy_id":"range_mean_reversion","enabled":false,"capital_weight":"0.10","risk_fraction":"0.003","minimum_confidence":"0.55","paper_execution_allowed":false,"symbols":["SPY","QQQ","AAPL","MSFT"]},
+        {"strategy_id":"t3_range_trend","enabled":false,"capital_weight":"0.10","risk_fraction":"0.003","minimum_confidence":"0.60","paper_execution_allowed":false,"symbols":["SPY","QQQ","AAPL","MSFT"]},
+        {"strategy_id":"chart_pattern_confluence","enabled":false,"capital_weight":"0.10","risk_fraction":"0.003","minimum_confidence":"0.60","paper_execution_allowed":false,"symbols":["SPY","QQQ","AAPL","MSFT"]},
+        {"strategy_id":"breakout_retest_inverse","enabled":false,"capital_weight":"0.01","risk_fraction":"0.002","minimum_confidence":"0.60","paper_execution_allowed":false,"symbols":["SPY","QQQ","AAPL","MSFT"]},
+        {"strategy_id":"trend_pullback_inverse","enabled":false,"capital_weight":"0.01","risk_fraction":"0.002","minimum_confidence":"0.60","paper_execution_allowed":false,"symbols":["SPY","QQQ","AAPL","MSFT"]},
+        {"strategy_id":"chart_pattern_inverse","enabled":false,"capital_weight":"0.01","risk_fraction":"0.002","minimum_confidence":"0.60","paper_execution_allowed":false,"symbols":["SPY","QQQ","AAPL","MSFT"]},
+        {"strategy_id":"t3_range_trend_inverse","enabled":false,"capital_weight":"0.01","risk_fraction":"0.002","minimum_confidence":"0.60","paper_execution_allowed":false,"symbols":["SPY","QQQ","AAPL","MSFT"]},
+        {"strategy_id":"structural_trend_retest_v2","enabled":false,"capital_weight":"0.05","risk_fraction":"0.003","minimum_confidence":"0.68","paper_execution_allowed":false,"symbols":["SPY","QQQ","AAPL","MSFT"]},
+        {"strategy_id":"confirmed_breakout_retest_v3","enabled":true,"capital_weight":"0.05","risk_fraction":"0.003","minimum_confidence":"0.70","paper_execution_allowed":true,"timeframe":"1Day","symbols":["SPY","QQQ","AAPL","MSFT"]},
+        {"strategy_id":"confirmed_breakout_retest_v4","enabled":true,"capital_weight":"0.05","risk_fraction":"0.003","minimum_confidence":"0.66","paper_execution_allowed":true,"timeframe":"1Day","symbols":["SPY","QQQ","AAPL","MSFT","AMD","NVDA"]}
+      ]
+    },
+    {
+      "account_id": "alpaca-paper-options",
+      "broker": "alpaca",
+      "environment": "paper",
+      "enabled": true,
+      "credential_env_prefix": "ALPACA_OPTIONS",
+      "expected_broker_account_id": "REPLACE_WITH_ALPACA_OPTIONS_ACCOUNT_UUID",
+      "asset_classes": ["option"],
+      "watchlist": ["SPY", "QQQ", "AAPL", "MSFT", "SPX", "RUT"],
       "timeframe": "5Min",
       "maximum_positions": 4,
       "maximum_daily_orders": 6,
       "symbol_cooldown_minutes": 60,
       "strategies": [
         {
-          "strategy_id": "breakout_retest",
-          "enabled": true,
-          "capital_weight": "0.20",
-          "risk_fraction": "0.005",
-          "minimum_confidence": "0.60",
-          "paper_execution_allowed": true,
-          "timeframe": "1Day",
-          "symbols": ["SPY", "QQQ", "AAPL", "MSFT"]
-        },
-        {
-          "strategy_id": "trend_pullback",
-          "enabled": true,
-          "capital_weight": "0.15",
-          "risk_fraction": "0.004",
-          "minimum_confidence": "0.60",
-          "paper_execution_allowed": true,
-          "timeframe": "1Day",
-          "symbols": ["SPY", "QQQ", "AAPL", "MSFT"]
-        },
-        {
-          "strategy_id": "volatility_contraction",
-          "enabled": true,
-          "capital_weight": "0.15",
-          "risk_fraction": "0.004",
-          "minimum_confidence": "0.65",
-          "paper_execution_allowed": true,
-          "timeframe": "4Hour",
-          "symbols": ["SPY", "QQQ", "AAPL", "MSFT"]
-        },
-        {
-          "strategy_id": "range_mean_reversion",
-          "enabled": false,
-          "capital_weight": "0.10",
-          "risk_fraction": "0.003",
-          "minimum_confidence": "0.55",
-          "paper_execution_allowed": false,
-          "symbols": ["SPY", "QQQ", "AAPL", "MSFT"]
-        },
-        {
-          "strategy_id": "t3_range_trend",
-          "enabled": false,
-          "capital_weight": "0.10",
-          "risk_fraction": "0.003",
-          "minimum_confidence": "0.60",
-          "paper_execution_allowed": false,
-          "symbols": ["SPY", "QQQ", "AAPL", "MSFT"]
-        },
-        {
-          "strategy_id": "chart_pattern_confluence",
-          "enabled": false,
-          "capital_weight": "0.10",
-          "risk_fraction": "0.003",
-          "minimum_confidence": "0.60",
-          "paper_execution_allowed": false,
-          "symbols": ["SPY", "QQQ", "AAPL", "MSFT"]
-        },
-        {
-          "strategy_id":"breakout_retest_inverse","enabled":false,"capital_weight":"0.01","risk_fraction":"0.002","minimum_confidence":"0.60","paper_execution_allowed":false,"symbols":["SPY","QQQ","AAPL","MSFT"]
-        },
-        {
-          "strategy_id":"trend_pullback_inverse","enabled":false,"capital_weight":"0.01","risk_fraction":"0.002","minimum_confidence":"0.60","paper_execution_allowed":false,"symbols":["SPY","QQQ","AAPL","MSFT"]
-        },
-        {
-          "strategy_id":"chart_pattern_inverse","enabled":false,"capital_weight":"0.01","risk_fraction":"0.002","minimum_confidence":"0.60","paper_execution_allowed":false,"symbols":["SPY","QQQ","AAPL","MSFT"]
-        },
-        {
-          "strategy_id":"t3_range_trend_inverse","enabled":false,"capital_weight":"0.01","risk_fraction":"0.002","minimum_confidence":"0.60","paper_execution_allowed":false,"symbols":["SPY","QQQ","AAPL","MSFT"]
-        },
-        {
-          "strategy_id":"structural_trend_retest_v2","enabled":false,"capital_weight":"0.05","risk_fraction":"0.003","minimum_confidence":"0.68","paper_execution_allowed":false,"symbols":["SPY","QQQ","AAPL","MSFT"]
-        },
-        {
-          "strategy_id":"confirmed_breakout_retest_v3","enabled":true,"capital_weight":"0.05","risk_fraction":"0.003","minimum_confidence":"0.70","paper_execution_allowed":true,"timeframe":"1Day","symbols":["SPY","QQQ","AAPL","MSFT"]
-        },
-        {
-          "strategy_id":"confirmed_breakout_retest_v4","enabled":true,"capital_weight":"0.05","risk_fraction":"0.003","minimum_confidence":"0.66","paper_execution_allowed":true,"timeframe":"1Day","symbols":["SPY","QQQ","AAPL","MSFT","AMD","NVDA"]
-        },
-        {
           "strategy_id": "breakout_retest_bull_call",
           "asset_class": "option",
           "enabled": true,
-          "capital_weight": "0.04",
+          "capital_weight": "0.10",
           "risk_fraction": "0.10",
           "minimum_confidence": "0.65",
           "paper_execution_allowed": true,
@@ -122,7 +73,7 @@
           "strategy_id": "trend_pullback_bull_put_theta",
           "asset_class": "option",
           "enabled": true,
-          "capital_weight": "0.04",
+          "capital_weight": "0.10",
           "risk_fraction": "0.10",
           "minimum_confidence": "0.65",
           "paper_execution_allowed": true,
@@ -148,7 +99,7 @@
           "strategy_id": "range_iron_condor_theta",
           "asset_class": "option",
           "enabled": true,
-          "capital_weight": "0.04",
+          "capital_weight": "0.10",
           "risk_fraction": "0.10",
           "minimum_confidence": "0.55",
           "paper_execution_allowed": true,
@@ -161,7 +112,7 @@
             "long_delta_target": "0.55",
             "short_delta_target": "0.20",
             "wing_delta_target": "0.08",
-            "maximum_strike_width": "10",
+            "maximum_strike_width": "15",
             "minimum_modeled_theta": "0",
             "profit_target_fraction": "0.50",
             "loss_limit_multiple": "1.50",
@@ -172,11 +123,11 @@
         {
           "strategy_id": "support_delta_put_bull_spread",
           "asset_class": "option",
-          "enabled": false,
-          "capital_weight": "0.05",
-          "risk_fraction": "0.003",
+          "enabled": true,
+          "capital_weight": "0.10",
+          "risk_fraction": "0.10",
           "minimum_confidence": "0.65",
-          "paper_execution_allowed": false,
+          "paper_execution_allowed": true,
           "symbols": ["SPY", "QQQ", "AAPL", "MSFT"],
           "option_policy": {
             "structure": "bull_put_credit_spread",
@@ -199,11 +150,11 @@
         {
           "strategy_id": "support_delta_put_bull_spread_v2",
           "asset_class": "option",
-          "enabled": false,
-          "capital_weight": "0.05",
-          "risk_fraction": "0.003",
+          "enabled": true,
+          "capital_weight": "0.10",
+          "risk_fraction": "0.10",
           "minimum_confidence": "0.68",
-          "paper_execution_allowed": false,
+          "paper_execution_allowed": true,
           "symbols": ["SPY", "QQQ", "AAPL", "MSFT"],
           "option_policy": {
             "structure": "bull_put_credit_spread",
@@ -227,23 +178,87 @@
           "strategy_id": "support_delta_put_bull_spread_v21",
           "asset_class": "option",
           "enabled": true,
-          "capital_weight": "0.04",
+          "capital_weight": "0.10",
           "risk_fraction": "0.10",
           "minimum_confidence": "0.68",
           "paper_execution_allowed": true,
           "timeframe": "1Day",
           "symbols": ["SPY", "QQQ", "AAPL", "MSFT"],
           "option_policy": {
-            "structure":"bull_put_credit_spread","source_strategy_id":"support_delta_put_income_v21","minimum_dte":30,"maximum_dte":60,"long_delta_target":"0.55","short_delta_target":"0.20","maximum_short_delta":"0.22","wing_delta_target":"0.08","maximum_strike_width":"5","minimum_modeled_theta":"0","minimum_credit_to_risk":"0.18","profit_target_fraction":"0.50","loss_limit_multiple":"1.50","exit_before_expiry_days":10,"maximum_quote_age_seconds":120
+            "structure": "bull_put_credit_spread",
+            "source_strategy_id": "support_delta_put_income_v21",
+            "minimum_dte": 30,
+            "maximum_dte": 60,
+            "long_delta_target": "0.55",
+            "short_delta_target": "0.20",
+            "maximum_short_delta": "0.22",
+            "wing_delta_target": "0.08",
+            "maximum_strike_width": "5",
+            "minimum_modeled_theta": "0",
+            "minimum_credit_to_risk": "0.18",
+            "profit_target_fraction": "0.50",
+            "loss_limit_multiple": "1.50",
+            "exit_before_expiry_days": 10,
+            "maximum_quote_age_seconds": 120
           }
         },
         {
-          "strategy_id":"zero_dte_iron_condor_theta","asset_class":"option","enabled":true,"capital_weight":"0.04","risk_fraction":"0.10","minimum_confidence":"0.68","paper_execution_allowed":true,"timeframe":"5Min","symbols":["SPY","QQQ"],
-          "option_policy":{"structure":"iron_condor","source_strategy_id":"zero_dte_iron_condor","minimum_dte":0,"maximum_dte":0,"long_delta_target":"0.55","short_delta_target":"0.15","maximum_short_delta":"0.20","wing_delta_target":"0.05","maximum_strike_width":"5","minimum_modeled_theta":"0","minimum_credit_to_risk":"0.15","profit_target_fraction":"0.45","loss_limit_multiple":"1.50","exit_before_expiry_days":0,"maximum_holding_minutes":210,"maximum_quote_age_seconds":60}
+          "strategy_id": "zero_dte_iron_condor_theta",
+          "asset_class": "option",
+          "enabled": true,
+          "capital_weight": "0.10",
+          "risk_fraction": "0.10",
+          "minimum_confidence": "0.68",
+          "paper_execution_allowed": true,
+          "timeframe": "5Min",
+          "symbols": ["SPY", "QQQ"],
+          "option_policy": {
+            "structure": "iron_condor",
+            "source_strategy_id": "zero_dte_iron_condor",
+            "minimum_dte": 0,
+            "maximum_dte": 0,
+            "long_delta_target": "0.55",
+            "short_delta_target": "0.15",
+            "maximum_short_delta": "0.20",
+            "wing_delta_target": "0.05",
+            "maximum_strike_width": "5",
+            "minimum_modeled_theta": "0",
+            "minimum_credit_to_risk": "0.15",
+            "profit_target_fraction": "0.45",
+            "loss_limit_multiple": "1.50",
+            "exit_before_expiry_days": 0,
+            "maximum_holding_minutes": 210,
+            "maximum_quote_age_seconds": 60
+          }
         },
         {
-          "strategy_id":"spx_rut_put_credit_14dte","asset_class":"option","enabled":true,"capital_weight":"0.04","risk_fraction":"0.03","minimum_confidence":"0.70","paper_execution_allowed":false,"timeframe":"1Day","symbols":["SPX","RUT"],
-          "option_policy":{"structure":"bull_put_credit_spread","source_strategy_id":"index_put_credit_14dte","minimum_dte":14,"maximum_dte":14,"long_delta_target":"0.55","short_delta_target":"0.12","maximum_short_delta":"0.13","wing_delta_target":"0.05","target_strike_width":"25","maximum_strike_width":"25","minimum_modeled_theta":"0","minimum_credit_to_risk":"0.05","profit_target_fraction":"0.75","loss_limit_multiple":"1.50","exit_before_expiry_days":1,"maximum_quote_age_seconds":60}
+          "strategy_id": "spx_rut_put_credit_14dte",
+          "asset_class": "option",
+          "enabled": true,
+          "capital_weight": "0.20",
+          "risk_fraction": "0.10",
+          "minimum_confidence": "0.70",
+          "paper_execution_allowed": true,
+          "timeframe": "1Day",
+          "symbols": ["SPX", "RUT"],
+          "option_policy": {
+            "structure": "bull_put_credit_spread",
+            "source_strategy_id": "index_put_credit_14dte",
+            "minimum_dte": 14,
+            "maximum_dte": 14,
+            "long_delta_target": "0.55",
+            "short_delta_target": "0.12",
+            "maximum_short_delta": "0.13",
+            "wing_delta_target": "0.05",
+            "target_strike_width": "25",
+            "maximum_strike_width": "25",
+            "minimum_modeled_theta": "0",
+            "minimum_credit_to_risk": "0.05",
+            "profit_target_fraction": "0.75",
+            "loss_limit_multiple": "1.50",
+            "exit_before_expiry_days": 1,
+            "maximum_quote_age_seconds": 60
+          }
         },
         {
           "strategy_id": "managed_protective_put",

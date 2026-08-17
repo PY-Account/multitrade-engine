@@ -239,33 +239,51 @@ class StrategyLabTests(TestCase):
     def test_execution_vehicles_collapse_to_unique_source_models(
         self,
     ) -> None:
-        plan = load_account_plans(
+        stock_plan, option_plan = load_account_plans(
             Path(__file__).parents[1]
             / "config"
             / "paper_portfolio.json"
-        )[0]
+        )
         with TemporaryDirectory() as directory:
-            service = ContinuousStrategyLabService(
-                account_plan=plan,
+            stock_service = ContinuousStrategyLabService(
+                account_plan=stock_plan,
                 strategies=default_equity_strategies(),
                 market_data=FakeMarketData(),
                 store=SqliteAuditStore(
-                    Path(directory) / "trading.db"
+                    Path(directory) / "stock-trading.db"
                 ),
                 health_path=str(
-                    Path(directory) / "strategy-lab-health.json"
+                    Path(directory) / "stock-strategy-lab-health.json"
+                ),
+            )
+            option_service = ContinuousStrategyLabService(
+                account_plan=option_plan,
+                strategies=default_equity_strategies(),
+                market_data=FakeMarketData(),
+                store=SqliteAuditStore(
+                    Path(directory) / "option-trading.db"
+                ),
+                health_path=str(
+                    Path(directory) / "option-strategy-lab-health.json"
                 ),
             )
 
         self.assertEqual(
-            set(service.strategy_allocations),
+            set(stock_service.strategy_allocations)
+            | set(option_service.strategy_allocations),
             set(default_equity_strategies()),
         )
         self.assertEqual(
-            service.strategy_allocations[
+            stock_service.strategy_allocations[
                 "breakout_retest"
             ].strategy_id,
             "breakout_retest",
+        )
+        self.assertEqual(
+            option_service.strategy_allocations[
+                "trend_pullback"
+            ].strategy_id,
+            "trend_pullback_bull_put_theta",
         )
 
     def test_market_data_requests_are_chunked_for_large_universe(

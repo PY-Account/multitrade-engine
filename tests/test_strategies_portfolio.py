@@ -463,9 +463,15 @@ class StrategyTests(TestCase):
             / "config"
             / "paper_portfolio.json"
         )
-        plan = load_account_plans(config_path)[0]
-        allocation = plan.allocations["breakout_retest"]
-        option_allocation = plan.allocations[
+        stock_plan, option_plan = load_account_plans(config_path)
+        self.assertEqual(stock_plan.asset_classes, (AssetClass.STOCK,))
+        self.assertEqual(option_plan.asset_classes, (AssetClass.OPTION,))
+        self.assertNotIn(
+            "trend_pullback_bull_put_theta",
+            stock_plan.allocations,
+        )
+        allocation = stock_plan.allocations["breakout_retest"]
+        option_allocation = option_plan.allocations[
             "trend_pullback_bull_put_theta"
         ]
         self.assertEqual(
@@ -510,7 +516,7 @@ class StrategyTests(TestCase):
         )
         ordered = tuple(bars)
         context = StrategyContext(
-            account_id=plan.account_id,
+            account_id=stock_plan.account_id,
             bars=ordered,
             features=FeatureEngine().calculate(ordered),
             evaluated_at=ordered[-1].timestamp + timedelta(minutes=5),
@@ -548,6 +554,7 @@ class StrategyTests(TestCase):
         second = json.loads(json.dumps(first))
         second["account_id"] = "alpaca-paper-b"
         second["expected_broker_account_id"] = "broker-account-b"
+        payload["accounts"] = [first]
         payload["accounts"].append(second)
 
         with TemporaryDirectory() as directory:
