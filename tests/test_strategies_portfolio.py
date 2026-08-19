@@ -21,6 +21,7 @@ from multitrade.strategies.equity import (
     ConfirmedBreakoutRetestV3Strategy,
     ConfirmedBreakoutRetestV4Strategy,
     BearishFvgPutDebitStrategy,
+    IndexPutCredit14DteStrategy,
     SupportDeltaPutIncomeStrategy,
     SupportDeltaPutIncomeV2Strategy,
     SignalInversionStrategy,
@@ -122,6 +123,61 @@ class StrategyTests(TestCase):
             signal.evidence["execution_vehicle"],
             "bear_put_debit_spread",
         )
+
+    def test_index_put_credit_uses_etf_proxy_for_rut_execution(
+        self,
+    ) -> None:
+        bars = tuple(
+            MarketBar(
+                symbol="IWM",
+                asset_class=AssetClass.STOCK,
+                timeframe="5Min",
+                timestamp=datetime(
+                    2026, 1, 5, 14, 30, tzinfo=timezone.utc
+                )
+                + timedelta(minutes=index * 5),
+                open=Decimal("200"),
+                high=Decimal("201"),
+                low=Decimal("199"),
+                close=Decimal("200"),
+                volume=Decimal("1000000"),
+                trade_count=10,
+                vwap=Decimal("200"),
+                feed="iex",
+            )
+            for index in range(40)
+        )
+        features = FeatureSnapshot(
+            symbol="IWM",
+            bar_timestamp=bars[-1].timestamp.isoformat(),
+            close=bars[-1].close,
+            sma_fast=Decimal("200"),
+            sma_slow=Decimal("199"),
+            atr=Decimal("2"),
+            atr_percent=Decimal("0.010"),
+            average_volume=Decimal("1000000"),
+            relative_volume=Decimal("1"),
+            return_volatility=Decimal("0.01"),
+            relative_volatility=Decimal("1"),
+            donchian_high=Decimal("202"),
+            donchian_low=Decimal("198"),
+            trend_strength=Decimal("0.005"),
+            regime=MarketRegime.RANGE,
+            sample_size=len(bars),
+        )
+        signal = IndexPutCredit14DteStrategy().evaluate(
+            StrategyContext(
+                account_id="alpaca-paper-options",
+                bars=bars,
+                features=features,
+                evaluated_at=bars[-1].timestamp,
+            )
+        )
+
+        self.assertIsNotNone(signal)
+        self.assertEqual(signal.symbol, "IWM")
+        self.assertEqual(signal.evidence["execution_underlying"], "RUT")
+        self.assertEqual(signal.evidence["signal_proxy_symbol"], "IWM")
 
     def test_zero_dte_iron_condor_vetoes_directional_fvg(
         self,

@@ -884,6 +884,9 @@ class PaperAutomationService:
             raise ValueError("option_policy_missing")
         if self.option_data is None:
             raise ValueError("option_data_client_missing")
+        execution_underlying = str(
+            signal.evidence.get("execution_underlying") or signal.symbol
+        ).strip().upper()
         expiration_gte = (
             checked_at.date()
             + timedelta(days=allocation.option_policy.minimum_dte)
@@ -893,9 +896,14 @@ class PaperAutomationService:
             + timedelta(days=allocation.option_policy.maximum_dte)
         )
         chain = self.option_data.fetch_chain(
-            signal.symbol,
+            execution_underlying,
             expiration_gte=expiration_gte,
             expiration_lte=expiration_lte,
+        )
+        execution_underlying_price = (
+            signal.reference_price
+            if execution_underlying == signal.symbol
+            else self._estimate_underlying_price_from_chain(chain)
         )
         structure = allocation.option_policy.structure
         if structure is OptionStructure.IRON_CONDOR:
@@ -926,8 +934,8 @@ class PaperAutomationService:
         ).build_intent(
             account_id=self.account_plan.account_id,
             strategy_id=allocation.strategy_id,
-            underlying=signal.symbol,
-            underlying_price=signal.reference_price,
+            underlying=execution_underlying,
+            underlying_price=execution_underlying_price,
             direction=direction,
             chain=chain,
             requested_quantity=requested_quantity,
@@ -975,8 +983,30 @@ class PaperAutomationService:
                 "capital_weight": allocation.capital_weight,
                 "capital_risk_capacity": capital_capacity,
                 "estimated_risk_per_package": per_package_risk,
+                "signal_proxy_symbol": signal.symbol,
+                "execution_underlying": execution_underlying,
+                "execution_underlying_price": execution_underlying_price,
             },
         )
+
+    @staticmethod
+    def _estimate_underlying_price_from_chain(chain: tuple) -> Decimal:
+        near_atm = sorted(
+            (
+                contract
+                for contract in chain
+                if contract.delta is not None
+            ),
+            key=lambda contract: abs(
+                abs(contract.delta) - Decimal("0.50")
+            ),
+        )
+        if near_atm:
+            return near_atm[0].strike
+        strikes = sorted(contract.strike for contract in chain)
+        if not strikes:
+            raise ValueError("option_chain_empty")
+        return strikes[len(strikes) // 2]
 
     @staticmethod
     def _validate_option_quote_freshness(

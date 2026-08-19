@@ -2313,8 +2313,8 @@
       "strategy_id": "index_put_credit_14dte",
       "selection_mode": "manual",
       "manual_symbols": [
-        "SPX",
-        "RUT"
+        "SPY",
+        "IWM"
       ],
       "maximum_symbols": 2
     }

@@ -3,6 +3,7 @@ from __future__ import annotations
 from dataclasses import dataclass, fields
 from datetime import timedelta, timezone
 from decimal import Decimal
+from typing import ClassVar
 from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 
 from multitrade.domain import ZERO
@@ -1315,14 +1316,20 @@ class BearishFvgPutDebitStrategy:
 @dataclass(frozen=True, slots=True)
 class IndexPutCredit14DteStrategy:
     strategy_id: str = "index_put_credit_14dte"
-    version: str = "1.0.0"
+    version: str = "1.1.0"
+    execution_underlying_by_proxy: ClassVar[dict[str, str]] = {
+        "SPY": "SPX",
+        "IWM": "RUT",
+    }
     maximum_atr_percent: Decimal = Decimal("0.030")
     maximum_trend_strength: Decimal = Decimal("0.020")
     minimum_confidence: Decimal = Decimal("0.70")
 
     def evaluate(self, context: StrategyContext) -> StrategySignal | None:
         latest = context.bars[-1]
-        if latest.symbol not in {"SPX", "RUT"}:
+        proxy_map = self.execution_underlying_by_proxy
+        execution_underlying = proxy_map.get(latest.symbol)
+        if execution_underlying is None:
             return None
         if context.features.regime in {
             MarketRegime.TREND_DOWN,
@@ -1357,8 +1364,11 @@ class IndexPutCredit14DteStrategy:
                 "quiet_non_bearish_index_filter",
             ),
             evidence={
+                "signal_proxy_symbol": latest.symbol,
+                "execution_underlying": execution_underlying,
                 "option_underlyings": ("SPX", "RUT"),
                 "execution_vehicle": "bull_put_credit_spread",
+                "proxy_mapping": proxy_map,
                 "minimum_dte": 14,
                 "maximum_dte": 14,
                 "short_delta_target": Decimal("0.12"),
