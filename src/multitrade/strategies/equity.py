@@ -1,8 +1,9 @@
 from __future__ import annotations
 
 from dataclasses import dataclass, fields
+from datetime import timedelta, timezone
 from decimal import Decimal
-from zoneinfo import ZoneInfo
+from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 
 from multitrade.domain import ZERO
 from multitrade.features import MarketRegime
@@ -31,6 +32,13 @@ def _standard_deviation(values: tuple[Decimal, ...]) -> Decimal:
     average = _mean(values)
     variance = _mean(tuple((value - average) ** 2 for value in values))
     return variance.sqrt()
+
+
+def _new_york_timezone():
+    try:
+        return ZoneInfo("America/New_York")
+    except ZoneInfoNotFoundError:
+        return timezone(timedelta(hours=-5), "America/New_York")
 
 
 def _ema(values: tuple[Decimal, ...], length: int) -> tuple[Decimal, ...]:
@@ -1178,14 +1186,14 @@ class ConfirmedBreakoutRetestV4Strategy:
 @dataclass(frozen=True, slots=True)
 class ZeroDteIronCondorStrategy:
     strategy_id: str = "zero_dte_iron_condor"
-    version: str = "1.0.0"
+    version: str = "1.1.0"
     maximum_opening_gap: Decimal = Decimal("0.04")
     maximum_opening_range: Decimal = Decimal("0.02")
     maximum_relative_volume: Decimal = Decimal("1.50")
     maximum_trend_strength: Decimal = Decimal("0.01")
 
     def evaluate(self, context: StrategyContext) -> StrategySignal | None:
-        eastern = ZoneInfo("America/New_York")
+        eastern = _new_york_timezone()
         latest_et = context.bars[-1].timestamp.astimezone(eastern)
         if not (latest_et.hour == 10 and latest_et.minute < 10):
             return None
@@ -1197,6 +1205,16 @@ class ZeroDteIronCondorStrategy:
         prior_close = earlier[-1].close
         gap = abs(opening[0].open / prior_close - Decimal("1"))
         opening_range = (max(bar.high for bar in opening) - min(bar.low for bar in opening)) / opening[0].open
+        directional_fvg = tuple(
+            match
+            for match in detect_chart_patterns(context.bars)
+            if match.pattern_id in {
+                "bearish_fvg_retest",
+                "bullish_fvg_retest",
+            }
+        )
+        if directional_fvg:
+            return None
         quiet = (
             gap <= self.maximum_opening_gap
             and opening_range <= self.maximum_opening_range
@@ -1213,6 +1231,85 @@ class ZeroDteIronCondorStrategy:
             stop_price=stop, target_price=_target(reference, stop, Decimal("1")),
             reason_codes=("zero_dte_research_window","opening_gap_bounded","opening_range_bounded","non_trending_session_filter"),
             evidence={"prior_close":prior_close,"opening_gap":gap,"opening_range_fraction":opening_range,"execution_vehicle":"iron_condor","entry_window_et":"10:00-10:10"})
+
+
+@dataclass(frozen=True, slots=True)
+class BearishFvgPutDebitStrategy:
+    """Directional option source for bearish fair-value-gap retests."""
+
+    strategy_id: str = "bearish_fvg_put_debit"
+    version: str = "1.0.0"
+    minimum_relative_volume: Decimal = Decimal("0.80")
+    maximum_atr_percent: Decimal = Decimal("0.06")
+    stop_atr_buffer: Decimal = Decimal("0.35")
+    reward_multiple: Decimal = Decimal("1.50")
+    minimum_confidence: Decimal = Decimal("0.68")
+
+    def evaluate(self, context: StrategyContext) -> StrategySignal | None:
+        latest = context.bars[-1]
+        features = context.features
+        if features.regime is MarketRegime.HIGH_VOLATILITY:
+            return None
+        if features.atr_percent > self.maximum_atr_percent:
+            return None
+        if features.relative_volume < self.minimum_relative_volume:
+            return None
+        matches = tuple(
+            match
+            for match in detect_chart_patterns(context.bars)
+            if (
+                match.pattern_id == "bearish_fvg_retest"
+                and match.direction is PatternDirection.BEARISH
+            )
+        )
+        if not matches:
+            return None
+        if latest.close >= features.sma_fast:
+            return None
+        selected = matches[-1]
+        stop = max(
+            selected.invalidation_price,
+            latest.close + features.atr * self.stop_atr_buffer,
+        )
+        target = latest.close - (
+            stop - latest.close
+        ) * self.reward_multiple
+        if not (target > ZERO and target < latest.close < stop):
+            return None
+        return create_signal(
+            context=context,
+            strategy_id=self.strategy_id,
+            version=self.version,
+            action=SignalAction.ENTER_SHORT,
+            confidence=min(
+                Decimal("0.86"),
+                self.minimum_confidence
+                + min(
+                    Decimal("0.06"),
+                    max(ZERO, features.sma_fast - latest.close)
+                    / max(latest.close, Decimal("0.01")),
+                ),
+            ),
+            reference_price=latest.close,
+            stop_price=stop,
+            target_price=target,
+            reason_codes=(
+                "bearish_fvg_retest",
+                "close_below_fast_average",
+                "directional_put_debit_vehicle",
+                "iron_condor_veto_context",
+            ),
+            evidence={
+                "execution_vehicle": "bear_put_debit_spread",
+                "fvg": selected.evidence,
+                "fvg_invalidation_price": selected.invalidation_price,
+                "sma_fast": features.sma_fast,
+                "atr": features.atr,
+                "atr_percent": features.atr_percent,
+                "relative_volume": features.relative_volume,
+                "reward_multiple": self.reward_multiple,
+            },
+        )
 
 
 @dataclass(frozen=True, slots=True)
@@ -1293,6 +1390,7 @@ def default_equity_strategies() -> dict[str, Strategy]:
         ConfirmedBreakoutRetestV3Strategy(),
         ConfirmedBreakoutRetestV4Strategy(),
         ZeroDteIronCondorStrategy(),
+        BearishFvgPutDebitStrategy(),
         IndexPutCredit14DteStrategy(),
     )
     return {
@@ -1324,6 +1422,7 @@ def equity_strategy_from_parameters(
         "confirmed_breakout_retest_v3": ConfirmedBreakoutRetestV3Strategy,
         "confirmed_breakout_retest_v4": ConfirmedBreakoutRetestV4Strategy,
         "zero_dte_iron_condor": ZeroDteIronCondorStrategy,
+        "bearish_fvg_put_debit": BearishFvgPutDebitStrategy,
         "index_put_credit_14dte": IndexPutCredit14DteStrategy,
     }
     strategy_type = strategy_types.get(strategy_id)

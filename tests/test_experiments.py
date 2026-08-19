@@ -39,7 +39,7 @@ class StrategyExperimentProgramTests(TestCase):
             len(program.comparison_experiments_by_id),
             16,
         )
-        self.assertEqual(len(program.all_experiments), 34)
+        self.assertEqual(len(program.all_experiments), 35)
         self.assertEqual(
             len(
                 {
@@ -49,7 +49,7 @@ class StrategyExperimentProgramTests(TestCase):
                     )
                 }
             ),
-            12,
+            13,
         )
         for strategy in strategies.values():
             binding = program.bind(
@@ -107,6 +107,7 @@ class StrategyExperimentProgramTests(TestCase):
                 "signal_inversion_controls": 4,
                 "structural_trend_retest": 3,
                 "zero_dte_defined_risk_income": 1,
+                "directional_fvg_options": 1,
                 "index_defined_risk_put_credit": 1,
             },
         )
@@ -151,7 +152,7 @@ class StrategyExperimentProgramTests(TestCase):
         self.assertIn(
             "breakout_retest_baseline_2026q3", encoded
         )
-        self.assertEqual(len(payload["experiments"]), 34)
+        self.assertEqual(len(payload["experiments"]), 35)
         self.assertFalse(payload["execution_enabled"])
         self.assertTrue(
             all(

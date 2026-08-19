@@ -2297,6 +2297,19 @@
       "maximum_symbols": 2
     },
     {
+      "strategy_id": "bearish_fvg_put_debit",
+      "selection_mode": "manual",
+      "manual_symbols": [
+        "AAPL",
+        "MSFT",
+        "NVDA",
+        "AMD",
+        "SPY",
+        "QQQ"
+      ],
+      "maximum_symbols": 6
+    },
+    {
       "strategy_id": "index_put_credit_14dte",
       "selection_mode": "manual",
       "manual_symbols": [

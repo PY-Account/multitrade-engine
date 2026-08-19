@@ -20,10 +20,12 @@ from multitrade.strategies.equity import (
     BreakoutRetestStrategy,
     ConfirmedBreakoutRetestV3Strategy,
     ConfirmedBreakoutRetestV4Strategy,
+    BearishFvgPutDebitStrategy,
     SupportDeltaPutIncomeStrategy,
     SupportDeltaPutIncomeV2Strategy,
     SignalInversionStrategy,
     T3RangeTrendStrategy,
+    ZeroDteIronCondorStrategy,
 )
 
 
@@ -58,6 +60,144 @@ def market_bar(
 
 
 class StrategyTests(TestCase):
+    def bearish_fvg_context(self) -> StrategyContext:
+        bars = [
+            market_bar(
+                index,
+                open_price="104",
+                high="105",
+                low="103",
+                close="104",
+                volume="1000",
+            )
+            for index in range(24)
+        ]
+        bars.extend(
+            (
+                market_bar(24, open_price="103", high="103", low="101", close="102", volume="1100"),
+                market_bar(25, open_price="100", high="100", low="99", close="99.5", volume="1200"),
+                market_bar(26, open_price="98", high="98", low="96", close="97", volume="1300"),
+                market_bar(27, open_price="97.5", high="98.5", low="96.5", close="97.2", volume="1200"),
+                market_bar(28, open_price="97.4", high="98.8", low="96.8", close="97.1", volume="1250"),
+                market_bar(29, open_price="97.3", high="99", low="96.7", close="97.0", volume="1250"),
+                market_bar(30, open_price="100", high="100.2", low="98", close="98.6", volume="1400"),
+            )
+        )
+        features = FeatureSnapshot(
+            symbol="AAPL",
+            bar_timestamp=bars[-1].timestamp.isoformat(),
+            close=bars[-1].close,
+            sma_fast=Decimal("99.20"),
+            sma_slow=Decimal("101.00"),
+            atr=Decimal("1.50"),
+            atr_percent=Decimal("0.015"),
+            average_volume=Decimal("1200"),
+            relative_volume=Decimal("1.10"),
+            return_volatility=Decimal("0.01"),
+            relative_volatility=Decimal("1.00"),
+            donchian_high=Decimal("105"),
+            donchian_low=Decimal("96"),
+            trend_strength=Decimal("-0.012"),
+            regime=MarketRegime.TREND_DOWN,
+            sample_size=len(bars),
+        )
+        return StrategyContext(
+            account_id="alpaca-paper-options",
+            bars=tuple(bars),
+            features=features,
+            evaluated_at=bars[-1].timestamp,
+        )
+
+    def test_bearish_fvg_generates_directional_put_debit_signal(
+        self,
+    ) -> None:
+        signal = BearishFvgPutDebitStrategy().evaluate(
+            self.bearish_fvg_context()
+        )
+
+        self.assertIsNotNone(signal)
+        self.assertEqual(signal.action, SignalAction.ENTER_SHORT)
+        self.assertIn("bearish_fvg_retest", signal.reason_codes)
+        self.assertEqual(
+            signal.evidence["execution_vehicle"],
+            "bear_put_debit_spread",
+        )
+
+    def test_zero_dte_iron_condor_vetoes_directional_fvg(
+        self,
+    ) -> None:
+        prior = [
+            market_bar(
+                index,
+                open_price="100",
+                high="101",
+                low="99",
+                close="100",
+                volume="1000",
+            )
+            for index in range(24)
+        ]
+        today_start = datetime(
+            2026, 1, 6, 14, 30, tzinfo=timezone.utc
+        )
+        today = [
+            MarketBar(
+                symbol="AAPL",
+                asset_class=AssetClass.STOCK,
+                timeframe="5Min",
+                timestamp=today_start + timedelta(minutes=index * 5),
+                open=Decimal(open_price),
+                high=Decimal(high),
+                low=Decimal(low),
+                close=Decimal(close),
+                volume=Decimal("1000"),
+                trade_count=10,
+                vwap=Decimal(close),
+                feed="iex",
+            )
+            for index, (open_price, high, low, close) in enumerate(
+                (
+                    ("100", "100.8", "99.8", "100.2"),
+                    ("100.1", "101", "100", "100.8"),
+                    ("99", "99", "98", "98.5"),
+                    ("98.6", "99", "98.1", "98.4"),
+                    ("98.5", "99.2", "98.3", "98.7"),
+                    ("99.4", "99.6", "98.4", "98.8"),
+                    ("100", "100.1", "98.5", "98.7"),
+                )
+            )
+        ]
+        bars = tuple(prior + today)
+        features = FeatureSnapshot(
+            symbol="AAPL",
+            bar_timestamp=bars[-1].timestamp.isoformat(),
+            close=bars[-1].close,
+            sma_fast=Decimal("99"),
+            sma_slow=Decimal("100"),
+            atr=Decimal("1"),
+            atr_percent=Decimal("0.01"),
+            average_volume=Decimal("1000"),
+            relative_volume=Decimal("1"),
+            return_volatility=Decimal("0.01"),
+            relative_volatility=Decimal("1"),
+            donchian_high=Decimal("101"),
+            donchian_low=Decimal("98"),
+            trend_strength=Decimal("0.001"),
+            regime=MarketRegime.RANGE,
+            sample_size=len(bars),
+        )
+
+        signal = ZeroDteIronCondorStrategy().evaluate(
+            StrategyContext(
+                account_id="alpaca-paper-options",
+                bars=bars,
+                features=features,
+                evaluated_at=bars[-1].timestamp,
+            )
+        )
+
+        self.assertIsNone(signal)
+
     def test_confirmed_retest_v3_requires_five_closes_then_retest(self) -> None:
         history = tuple(
             market_bar(
