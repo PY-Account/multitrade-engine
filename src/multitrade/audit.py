@@ -708,6 +708,12 @@ class SqliteAuditStore:
                 "TEXT NOT NULL DEFAULT 'raw'",
             )
             self._ensure_column(
+                connection,
+                "strategy_configuration_overrides",
+                "timeframe",
+                "TEXT",
+            )
+            self._ensure_column(
                 connection, "trade_records", "entry_price", "TEXT"
             )
             self._ensure_column(
@@ -1828,7 +1834,7 @@ class SqliteAuditStore:
                 rows = connection.execute(
                     """
                     SELECT account_id, strategy_id, enabled,
-                           paper_execution_allowed, symbols_json,
+                           paper_execution_allowed, symbols_json, timeframe,
                            revision, updated_by, updated_at
                     FROM strategy_configuration_overrides
                     ORDER BY account_id, strategy_id
@@ -1838,7 +1844,7 @@ class SqliteAuditStore:
                 rows = connection.execute(
                     """
                     SELECT account_id, strategy_id, enabled,
-                           paper_execution_allowed, symbols_json,
+                           paper_execution_allowed, symbols_json, timeframe,
                            revision, updated_by, updated_at
                     FROM strategy_configuration_overrides
                     WHERE account_id = ?
@@ -1860,6 +1866,7 @@ class SqliteAuditStore:
         enabled: bool,
         paper_execution_allowed: bool,
         symbols: tuple[str, ...],
+        timeframe: str | None = None,
         expected_revision: int,
         updated_by: str,
     ) -> dict[str, Any]:
@@ -1885,14 +1892,15 @@ class SqliteAuditStore:
                 """
                 INSERT INTO strategy_configuration_overrides (
                     account_id, strategy_id, enabled,
-                    paper_execution_allowed, symbols_json,
+                    paper_execution_allowed, symbols_json, timeframe,
                     revision, updated_by, updated_at
-                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
                 ON CONFLICT(account_id, strategy_id) DO UPDATE SET
                     enabled = excluded.enabled,
                     paper_execution_allowed =
                         excluded.paper_execution_allowed,
                     symbols_json = excluded.symbols_json,
+                    timeframe = excluded.timeframe,
                     revision = excluded.revision,
                     updated_by = excluded.updated_by,
                     updated_at = excluded.updated_at
@@ -1903,6 +1911,7 @@ class SqliteAuditStore:
                     int(enabled),
                     int(paper_execution_allowed),
                     _json(symbols),
+                    timeframe,
                     revision,
                     updated_by,
                     updated_at,
@@ -1914,6 +1923,7 @@ class SqliteAuditStore:
                 "enabled": enabled,
                 "paper_execution_allowed": paper_execution_allowed,
                 "symbols": list(symbols),
+                "timeframe": timeframe,
                 "previous_revision": current_revision,
                 "revision": revision,
                 "updated_by": updated_by,
@@ -1949,6 +1959,7 @@ class SqliteAuditStore:
                 row["paper_execution_allowed"]
             ),
             "symbols": json.loads(row["symbols_json"]),
+            "timeframe": row["timeframe"],
             "revision": int(row["revision"]),
             "updated_by": row["updated_by"],
             "updated_at": row["updated_at"],
@@ -3458,7 +3469,7 @@ class SqliteAuditReader:
                 rows = connection.execute(
                     """
                     SELECT account_id, strategy_id, enabled,
-                           paper_execution_allowed, symbols_json,
+                           paper_execution_allowed, symbols_json, timeframe,
                            revision, updated_by, updated_at
                     FROM strategy_configuration_overrides
                     ORDER BY account_id, strategy_id
@@ -3468,7 +3479,7 @@ class SqliteAuditReader:
                 rows = connection.execute(
                     """
                     SELECT account_id, strategy_id, enabled,
-                           paper_execution_allowed, symbols_json,
+                           paper_execution_allowed, symbols_json, timeframe,
                            revision, updated_by, updated_at
                     FROM strategy_configuration_overrides
                     WHERE account_id = ?

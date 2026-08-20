@@ -1,5 +1,14 @@
 # Changelog
 
+## 0.35.15 - 2026-08-20
+
+- Strategy Controls can now edit the effective timeframe per strategy
+  allocation, including option strategies that need forward Paper observation
+  instead of historical option backtests.
+- Strategy configuration overrides now persist `timeframe`, and the effective
+  account plans apply it to both Automation and Strategy Lab cycles.
+- Added database migration and regression coverage for timeframe overrides.
+
 ## 0.35.14 - 2026-08-20
 
 - Added an internal Admin Agent service that can run the guarded

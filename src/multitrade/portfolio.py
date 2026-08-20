@@ -190,6 +190,12 @@ def apply_strategy_configuration_overrides(
                     row["paper_execution_allowed"]
                 ),
                 symbols=symbols,
+                timeframe=(
+                    str(row["timeframe"]).strip()
+                    if row.get("timeframe") is not None
+                    and str(row["timeframe"]).strip()
+                    else allocation.timeframe
+                ),
             )
             allocations[strategy_id] = updated
             added_symbols.extend(symbols)

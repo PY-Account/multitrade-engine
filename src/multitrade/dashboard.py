@@ -237,6 +237,14 @@ class DashboardData:
             for symbol in symbols
         ):
             raise ValueError("invalid_symbol")
+        raw_timeframe = payload.get("timeframe")
+        timeframe = (
+            str(raw_timeframe).strip()
+            if raw_timeframe is not None and str(raw_timeframe).strip()
+            else None
+        )
+        if timeframe is not None:
+            timeframe_seconds(timeframe)
 
         account = next(
             (
@@ -268,6 +276,7 @@ class DashboardData:
                 "enabled": enabled,
                 "paper_execution_allowed": paper_allowed,
                 "symbols": list(symbols),
+                "timeframe": timeframe,
             }
         )
         apply_strategy_configuration_overrides(
@@ -279,6 +288,7 @@ class DashboardData:
             enabled=enabled,
             paper_execution_allowed=paper_allowed,
             symbols=symbols,
+            timeframe=timeframe,
             expected_revision=expected_revision,
             updated_by=updated_by,
         )
@@ -825,6 +835,7 @@ class DashboardData:
                         "minimum_entry_interval_minutes": (
                             allocation.minimum_entry_interval_minutes
                         ),
+                        "timeframe": allocation.timeframe or plan.timeframe,
                         "paper_execution_allowed": (
                             allocation.paper_execution_allowed
                         ),

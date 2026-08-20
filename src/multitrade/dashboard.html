@@ -823,7 +823,7 @@
     <p class="configuration-message" id="configuration-message" role="status" aria-live="polite"></p>
     <div class="table-wrap">
       <table class="configuration-table">
-        <thead><tr><th>Strategy</th><th>Class</th><th>Entry interval</th><th>Enabled</th><th>Paper permission</th><th>Execution symbols</th><th>Revision</th><th>Last change</th><th>Action</th></tr></thead>
+        <thead><tr><th>Strategy</th><th>Class</th><th>Timeframe</th><th>Entry interval</th><th>Enabled</th><th>Paper permission</th><th>Execution symbols</th><th>Revision</th><th>Last change</th><th>Action</th></tr></thead>
         <tbody id="strategy-controls"></tbody>
       </table>
     </div>
@@ -1708,7 +1708,7 @@
     );
     const allocations = account?.allocations || [];
     if (!allocations.length) {
-      emptyRow(body, 9, "No strategy configuration is available for this account.");
+      emptyRow(body, 10, "No strategy configuration is available for this account.");
       return;
     }
     for (const allocation of allocations) {
@@ -1716,6 +1716,21 @@
       const row = document.createElement("tr");
       row.appendChild(cell(allocation.strategy_id));
       row.appendChild(cell(allocation.asset_class || "stock"));
+
+      const timeframeCell = document.createElement("td");
+      const timeframe = document.createElement("select");
+      timeframe.setAttribute("aria-label", `Timeframe for ${allocation.strategy_id}`);
+      const timeframeOptions = ["5Min", "15Min", "1Hour", "2Hour", "4Hour", "1Day"];
+      for (const optionValue of timeframeOptions) {
+        timeframe.appendChild(new Option(optionValue, optionValue));
+      }
+      if (!timeframeOptions.includes(allocation.timeframe)) {
+        timeframe.appendChild(new Option(allocation.timeframe || "Account default", allocation.timeframe || ""));
+      }
+      timeframe.value = allocation.timeframe || "";
+      timeframeCell.appendChild(timeframe);
+      row.appendChild(timeframeCell);
+
       row.appendChild(cell(entryIntervalLabel(allocation.minimum_entry_interval_minutes)));
 
       const enabledCell = document.createElement("td");
@@ -1783,6 +1798,7 @@
               enabled: enabled.checked,
               paper_execution_allowed: grantsPaper,
               symbols: normalizedSymbols,
+              timeframe: timeframe.value,
               expected_revision: Number(override?.revision || 0),
               confirmation: "APPLY PAPER CONFIG",
             }),

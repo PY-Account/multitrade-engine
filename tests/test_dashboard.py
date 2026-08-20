@@ -849,6 +849,7 @@ class DashboardTests(TestCase):
                         "enabled": True,
                         "paper_execution_allowed": True,
                         "symbols": ["NVDA", "AMD"],
+                        "timeframe": "4Hour",
                         "expected_revision": 0,
                         "confirmation": "APPLY PAPER CONFIG",
                     }
@@ -891,6 +892,7 @@ class DashboardTests(TestCase):
                     allocation["paper_execution_allowed"]
                 )
                 self.assertEqual(allocation["symbols"], ["NVDA", "AMD"])
+                self.assertEqual(allocation["timeframe"], "4Hour")
                 self.assertIn(
                     "NVDA",
                     overview["configured_accounts"][0]["watchlist"],
