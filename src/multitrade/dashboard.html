@@ -101,10 +101,7 @@
       white-space: nowrap;
     }
     .workspace-nav {
-      display: flex;
-      align-items: center;
-      justify-content: space-between;
-      gap: 14px;
+      display: block;
       margin-top: 26px;
       border-bottom: 1px solid var(--line);
     }
@@ -141,6 +138,21 @@
       border-color: var(--line);
       font-weight: 700;
     }
+    .context-bar {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 16px;
+      margin-top: 12px;
+      padding: 12px 14px;
+      border: 1px solid var(--line);
+      border-radius: 12px;
+      background: color-mix(in srgb, var(--panel-2) 86%, transparent);
+    }
+    .context-bar[hidden] { display: none !important; }
+    .context-copy { min-width: 0; }
+    .context-copy strong { display: block; font-size: .84rem; }
+    .context-copy span { display: block; margin-top: 3px; color: var(--muted); font-size: .74rem; }
     .account-switcher {
       display: flex;
       align-items: center;
@@ -148,7 +160,6 @@
       color: var(--muted);
       font-size: .76rem;
       white-space: nowrap;
-      padding-bottom: 7px;
     }
     .workspace-view[hidden] { display: none !important; }
     button, select, input {
@@ -340,8 +351,8 @@
       .preference-grid { grid-template-columns: 1fr; }
       .control-grid { grid-template-columns: 1fr; }
       .glossary-grid { grid-template-columns: 1fr; }
-      .workspace-nav { align-items: stretch; flex-direction: column; }
-      .account-switcher { padding-bottom: 10px; }
+      .context-bar { align-items: stretch; flex-direction: column; }
+      .account-switcher { padding-bottom: 0; }
     }
     @media (max-width: 560px) {
       .summary-grid { grid-template-columns: repeat(2, 1fr); }
@@ -357,7 +368,7 @@
     <div>
       <div class="eyebrow">PAPER ENVIRONMENT</div>
       <h1>MultiTrade Operations</h1>
-      <p class="muted">Broker monitoring, research, risk, and audited Paper strategy controls.</p>
+      <p class="muted">Strategy research, backtesting, deployment, account monitoring, and audited Paper controls.</p>
     </div>
     <div class="header-tools">
       <div class="header-actions">
@@ -381,13 +392,19 @@
       <button type="button" data-primary-tab="operations" aria-selected="false">Operations</button>
       <button type="button" data-primary-tab="management" aria-selected="false">Management</button>
     </div>
+  </nav>
+  <nav class="secondary-tabs" id="secondary-tabs" aria-label="Workspace section" role="tablist"></nav>
+  <div class="context-bar" id="account-context" hidden>
+    <div class="context-copy">
+      <strong id="account-context-title">Account context</strong>
+      <span id="account-context-copy">Choose the Paper account used by this workspace.</span>
+    </div>
     <label class="account-switcher">Account
       <select id="account-select" aria-label="Selected account">
         <option value="alpaca-paper">alpaca-paper</option>
       </select>
     </label>
-  </nav>
-  <nav class="secondary-tabs" id="secondary-tabs" aria-label="Workspace section" role="tablist"></nav>
+  </div>
 
   <section class="summary-grid workspace-view" data-primary="strategies" data-secondary="overview" aria-label="Strategy operating model">
     <article class="card"><div class="label">Strategy pipeline</div><div class="value">Research → Trial → Deploy</div><div class="status-detail">Find edge first, then assign it to accounts.</div></article>
@@ -1145,6 +1162,7 @@
         && view.dataset.secondary === activeSecondary
       );
     }
+    renderAccountContext();
     try {
       sessionStorage.setItem(
         "multitrade-workspace-v1",
@@ -1156,6 +1174,31 @@
     } catch (error) {
       // Navigation state remains valid for this page.
     }
+  }
+
+  function renderAccountContext() {
+    const context = document.getElementById("account-context");
+    const title = document.getElementById("account-context-title");
+    const copy = document.getElementById("account-context-copy");
+    const contexts = {
+      backtesting: [
+        "BackTesting account scope",
+        "Choose the account whose assigned strategies and universe are used for research runs and lab reports.",
+      ],
+      deployment: [
+        "Deployment account scope",
+        "Choose the account where strategy permissions, allocations, symbols, and risk settings are managed.",
+      ],
+      accounts: [
+        "Account monitor",
+        "Choose the Paper account whose equity, positions, orders, trades, and P/L are displayed.",
+      ],
+    };
+    const details = contexts[activePrimary];
+    context.hidden = !details;
+    if (!details) return;
+    title.textContent = details[0];
+    copy.textContent = details[1];
   }
 
   function initializeNavigation() {

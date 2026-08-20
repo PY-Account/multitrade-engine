@@ -1,5 +1,15 @@
 # Changelog
 
+## 0.35.19 - 2026-08-20
+
+- Moved the account selector out of the top-level workspace navigation into a
+  contextual account bar that appears only in BackTesting, Deployment, and
+  Accounts.
+- Updated dashboard framing so the top-level navigation stays strategy-first
+  while account selection is scoped to account-dependent workflows.
+- Refined header copy to match the strategy research -> deployment -> account
+  monitoring operating model.
+
 ## 0.35.18 - 2026-08-20
 
 - Mounted only the dedicated GitHub deploy key and known-hosts file read-only

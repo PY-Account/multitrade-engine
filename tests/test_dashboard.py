@@ -464,6 +464,8 @@ class DashboardTests(TestCase):
                 self.assertIn("Trading and research glossary", html)
                 self.assertIn("Awaiting registration", html)
                 self.assertNotIn("{{CSRF_TOKEN}}", html)
+                self.assertIn('id="account-context"', html)
+                self.assertIn("Deployment account scope", html)
                 self.assertIn('id="account-select"', html)
                 self.assertIn("Continuous Strategy Lab", html)
                 self.assertIn(
@@ -590,7 +592,7 @@ class DashboardTests(TestCase):
                 )
                 with urlopen(root, timeout=3) as response:
                     dashboard_html = response.read().decode("utf-8")
-                self.assertIn("Broker monitoring", dashboard_html)
+                self.assertIn("Strategy research", dashboard_html)
                 logout_csrf = re.search(
                     r'name="csrf-token" content="([^"]+)"',
                     dashboard_html,
