@@ -2,7 +2,7 @@ import base64
 import json
 import re
 import threading
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 from decimal import Decimal
 from pathlib import Path
 from tempfile import TemporaryDirectory
@@ -22,6 +22,7 @@ from multitrade.experiments import (
     load_strategy_experiment_program,
 )
 from multitrade.health import write_health
+from multitrade.market import MarketBar
 from multitrade.portfolio import AccountPlan, StrategyAllocation
 from multitrade.universe import load_asset_universe_program
 
@@ -134,9 +135,9 @@ class DashboardTests(TestCase):
             self.assertEqual(result["account"]["equity"], "100000")
             self.assertTrue(result["market"]["is_open"])
             self.assertEqual(len(result["positions"]), 1)
-            self.assertEqual(result["connection"]["request_ids"], [
-                "test-request-id"
-            ])
+            self.assertEqual(
+                result["connection"]["request_ids"], ["test-request-id"]
+            )
             self.assertEqual(result["risk"]["active_amount"], "0")
             self.assertEqual(
                 result["risk"]["per_trade_capacity_amount"], "3000.00"
@@ -158,7 +159,7 @@ class DashboardTests(TestCase):
                         "configuration"
                     ]["experiments"]
                 ),
-                    34,
+                35,
             )
             self.assertEqual(
                 result["strategy_experiments"]["summaries"],
@@ -181,6 +182,54 @@ class DashboardTests(TestCase):
             )
             self.assertFalse(
                 result["strategy_lab"]["execution_enabled"]
+            )
+
+    def test_chart_can_center_bars_around_trade_timestamp(self) -> None:
+        with TemporaryDirectory() as directory:
+            service, db_path, _ = self._fixture(directory)
+            store = SqliteAuditStore(db_path)
+            start = datetime(
+                2026, 8, 19, 14, 30, tzinfo=timezone.utc
+            )
+            bars = [
+                MarketBar(
+                    symbol="MSFT",
+                    asset_class=AssetClass.STOCK,
+                    timeframe="5Min",
+                    timestamp=start + timedelta(minutes=5 * index),
+                    open=Decimal("480") + Decimal(index),
+                    high=Decimal("481") + Decimal(index),
+                    low=Decimal("479") + Decimal(index),
+                    close=Decimal("480.5") + Decimal(index),
+                    volume=Decimal("100000"),
+                    trade_count=100,
+                    vwap=Decimal("480.25") + Decimal(index),
+                    feed="iex",
+                )
+                for index in range(12)
+            ]
+            store.record_market_bars(bars)
+
+            result = service.chart(
+                "MSFT",
+                "5Min",
+                limit=10,
+                center_at=bars[5].timestamp.isoformat(),
+            )
+
+            self.assertEqual(result["center_at"], bars[5].timestamp.isoformat())
+            self.assertEqual(len(result["bars"]), 10)
+            self.assertEqual(
+                result["bars"][4]["timestamp"],
+                bars[5].timestamp.isoformat(),
+            )
+            self.assertEqual(
+                result["bars"][0]["timestamp"],
+                bars[1].timestamp.isoformat(),
+            )
+            self.assertEqual(
+                result["bars"][-1]["timestamp"],
+                bars[10].timestamp.isoformat(),
             )
 
     def test_overview_exposes_isolated_views_for_each_account(

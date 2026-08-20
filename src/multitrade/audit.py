@@ -4805,20 +4805,51 @@ class SqliteAuditReader:
         timeframe: str,
         *,
         limit: int = 200,
+        center_at: str | None = None,
     ) -> list[dict[str, Any]]:
         safe_limit = max(10, min(limit, 1000))
         with closing(self._connect()) as connection:
-            rows = connection.execute(
-                """
-                SELECT symbol, timeframe, feed, adjustment, bar_timestamp,
-                       open_price, high_price, low_price, close_price,
-                       volume, trade_count, vwap
-                FROM market_bars
-                WHERE symbol = ? AND timeframe = ?
-                ORDER BY bar_timestamp DESC LIMIT ?
-                """,
-                (symbol, timeframe, safe_limit),
-            ).fetchall()
+            if center_at is None:
+                rows = connection.execute(
+                    """
+                    SELECT symbol, timeframe, feed, adjustment, bar_timestamp,
+                           open_price, high_price, low_price, close_price,
+                           volume, trade_count, vwap
+                    FROM market_bars
+                    WHERE symbol = ? AND timeframe = ?
+                    ORDER BY bar_timestamp DESC LIMIT ?
+                    """,
+                    (symbol, timeframe, safe_limit),
+                ).fetchall()
+                ordered_rows = list(reversed(rows))
+            else:
+                before_limit = max(1, safe_limit // 2)
+                after_limit = max(1, safe_limit - before_limit)
+                before = connection.execute(
+                    """
+                    SELECT symbol, timeframe, feed, adjustment, bar_timestamp,
+                           open_price, high_price, low_price, close_price,
+                           volume, trade_count, vwap
+                    FROM market_bars
+                    WHERE symbol = ? AND timeframe = ?
+                      AND bar_timestamp <= ?
+                    ORDER BY bar_timestamp DESC LIMIT ?
+                    """,
+                    (symbol, timeframe, center_at, before_limit),
+                ).fetchall()
+                after = connection.execute(
+                    """
+                    SELECT symbol, timeframe, feed, adjustment, bar_timestamp,
+                           open_price, high_price, low_price, close_price,
+                           volume, trade_count, vwap
+                    FROM market_bars
+                    WHERE symbol = ? AND timeframe = ?
+                      AND bar_timestamp > ?
+                    ORDER BY bar_timestamp ASC LIMIT ?
+                    """,
+                    (symbol, timeframe, center_at, after_limit),
+                ).fetchall()
+                ordered_rows = list(reversed(before)) + list(after)
         return [
             {
                 "symbol": row["symbol"],
@@ -4834,5 +4865,5 @@ class SqliteAuditReader:
                 "trade_count": row["trade_count"],
                 "vwap": row["vwap"],
             }
-            for row in reversed(rows)
+            for row in ordered_rows
         ]

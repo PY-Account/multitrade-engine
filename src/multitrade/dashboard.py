@@ -724,6 +724,7 @@ class DashboardData:
         timeframe: str,
         *,
         limit: int = 160,
+        center_at: str | None = None,
     ) -> dict[str, Any]:
         normalized_symbol = symbol.strip().upper()
         if not re.fullmatch(r"[A-Z][A-Z0-9./-]{0,19}", normalized_symbol):
@@ -733,11 +734,22 @@ class DashboardData:
             timeframe,
         ):
             raise ValueError("invalid_timeframe")
+        if center_at is not None:
+            try:
+                datetime.fromisoformat(
+                    center_at.replace("Z", "+00:00")
+                )
+            except ValueError as exc:
+                raise ValueError("invalid_center_at") from exc
         return {
             "symbol": normalized_symbol,
             "timeframe": timeframe,
+            "center_at": center_at,
             "bars": self.reader.market_bars(
-                normalized_symbol, timeframe, limit=limit
+                normalized_symbol,
+                timeframe,
+                limit=limit,
+                center_at=center_at,
             ),
         }
 
@@ -915,8 +927,12 @@ class DashboardRequestHandler(BaseHTTPRequestHandler):
                     20,
                     min(int(values.get("limit", ["160"])[0]), 500),
                 )
+                center_at = values.get("center_at", [None])[0]
                 chart = self.data_service.chart(
-                    symbol, timeframe, limit=limit
+                    symbol,
+                    timeframe,
+                    limit=limit,
+                    center_at=center_at,
                 )
             except ValueError as exc:
                 self._send_json(400, {"error": str(exc)})

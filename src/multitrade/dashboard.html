@@ -264,8 +264,30 @@
     .glossary-item { padding: 13px; border: 1px solid var(--line); border-radius: 10px; background: var(--panel-2); }
     .glossary-item strong { display: block; }
     .glossary-item .hebrew { color: var(--accent); margin: 4px 0; direction: rtl; text-align: left; }
-    .chart-wrap { min-height: 260px; border: 1px solid var(--line); border-radius: 12px; background: var(--panel-2); padding: 8px; }
-    #price-chart { display: block; width: 100%; height: 260px; }
+    .chart-wrap { min-height: 360px; border: 1px solid var(--line); border-radius: 12px; background: var(--panel-2); padding: 8px; }
+    #price-chart { display: block; width: 100%; height: 360px; }
+    .chart-facts {
+      display: grid;
+      grid-template-columns: repeat(3, 1fr);
+      gap: 10px;
+      margin-top: 10px;
+    }
+    .chart-fact {
+      border: 1px solid var(--line);
+      border-radius: 10px;
+      background: color-mix(in srgb, var(--panel) 70%, transparent);
+      padding: 10px;
+      font-size: .78rem;
+      line-height: 1.35;
+    }
+    .chart-fact strong {
+      display: block;
+      color: var(--accent);
+      margin-bottom: 3px;
+      text-transform: uppercase;
+      letter-spacing: .06em;
+      font-size: .66rem;
+    }
     dialog {
       width: min(560px, 92vw);
       color: var(--text);
@@ -585,8 +607,11 @@
       <div><h2>Trade decisions</h2><p class="subcopy">Risk-reviewed dry runs and Paper orders. Select a record to visualize its price context.</p></div>
     </div>
     <div class="table-wrap">
+      <div class="toolbar">
+        <label>Strategy drill-down <select id="trade-strategy-filter"><option value="">All strategies</option></select></label>
+      </div>
       <table>
-        <thead><tr><th>Time</th><th>Strategy</th><th>Symbol</th><th>Side</th><th>State</th><th class="number">Quantity</th><th class="number">Risk</th><th class="number">Realized P/L</th><th>Analysis</th><th>Chart</th></tr></thead>
+        <thead><tr><th>Time</th><th>Strategy</th><th>Symbol</th><th>Side</th><th>State</th><th class="number">Quantity</th><th class="number">Risk</th><th class="number">Realized P/L</th><th>Analysis</th><th>Entry chart</th><th>Exit chart</th></tr></thead>
         <tbody id="trade-records"></tbody>
       </table>
     </div>
@@ -597,7 +622,8 @@
       <div><h2>Price context</h2><p class="subcopy" id="chart-copy">Choose a trade decision to display stored market bars, entry reference, stop, and target.</p></div>
     </div>
     <div class="chart-wrap">
-      <svg id="price-chart" viewBox="0 0 1000 260" role="img" aria-label="Trade price context chart"></svg>
+      <svg id="price-chart" viewBox="0 0 1000 360" role="img" aria-label="Trade price context chart"></svg>
+      <div id="chart-facts" class="chart-facts"></div>
     </div>
   </section>
 
@@ -888,7 +914,9 @@
   let activeSecondary = "overview";
   let selectedAccountId = "alpaca-paper";
   let selectedAcceleratedTimeframe = "";
+  let selectedTradeStrategyId = "";
   let latestAcceleratedRuns = [];
+  let latestTradeRecords = [];
   let latestOverview = null;
   const csrfToken = document.querySelector('meta[name="csrf-token"]').content;
   const TERMINOLOGY = [
@@ -1034,6 +1062,13 @@
       event => {
         selectedAcceleratedTimeframe = event.target.value;
         renderAcceleratedValidation(latestAcceleratedRuns);
+      }
+    );
+    document.getElementById("trade-strategy-filter").addEventListener(
+      "change",
+      event => {
+        selectedTradeStrategyId = event.target.value;
+        renderTradeRecords(latestTradeRecords);
       }
     );
   }
@@ -2463,13 +2498,36 @@
   }
 
   function renderTradeRecords(records) {
+    latestTradeRecords = records;
     const body = document.getElementById("trade-records");
     body.replaceChildren();
-    if (!records.length) {
-      emptyRow(body, 10, "No risk-reviewed trade decisions yet.");
+    const accountRecords = records.filter(
+      item => item.account_id === selectedAccountId
+    );
+    const strategyFilter = document.getElementById("trade-strategy-filter");
+    const strategies = [...new Set(
+      accountRecords.map(item => item.strategy_id).filter(Boolean)
+    )].sort();
+    const previous = selectedTradeStrategyId;
+    strategyFilter.replaceChildren();
+    strategyFilter.appendChild(new Option("All strategies", ""));
+    for (const strategyId of strategies) {
+      strategyFilter.appendChild(new Option(strategyId, strategyId));
+    }
+    selectedTradeStrategyId = strategies.includes(previous)
+      ? previous
+      : "";
+    strategyFilter.value = selectedTradeStrategyId;
+    const rows = selectedTradeStrategyId
+      ? accountRecords.filter(
+          item => item.strategy_id === selectedTradeStrategyId
+        )
+      : accountRecords;
+    if (!rows.length) {
+      emptyRow(body, 11, "No risk-reviewed trade decisions match this strategy filter.");
       return;
     }
-    for (const record of records) {
+    for (const record of rows) {
       const row = document.createElement("tr");
       const values = [
         [localTime(record.created_at), ""],
@@ -2497,10 +2555,24 @@
       const chartCell = document.createElement("td");
       const chartButton = document.createElement("button");
       chartButton.type = "button";
-      chartButton.textContent = "View";
-      chartButton.addEventListener("click", () => loadTradeChart(record));
+      chartButton.textContent = "Entry";
+      chartButton.addEventListener(
+        "click",
+        () => loadTradeChart(record, "entry")
+      );
       chartCell.appendChild(chartButton);
       row.appendChild(chartCell);
+      const exitChartCell = document.createElement("td");
+      const exitChartButton = document.createElement("button");
+      exitChartButton.type = "button";
+      exitChartButton.textContent = "Exit";
+      exitChartButton.disabled = !record.closed_at;
+      exitChartButton.addEventListener(
+        "click",
+        () => loadTradeChart(record, "exit")
+      );
+      exitChartCell.appendChild(exitChartButton);
+      row.appendChild(exitChartCell);
       body.appendChild(row);
     }
   }
@@ -2772,70 +2844,236 @@
     return node;
   }
 
-  function drawPriceChart(bars, trade) {
+  function numberOrNull(value) {
+    if (value == null || value === "") return null;
+    const parsed = Number(value);
+    return Number.isFinite(parsed) ? parsed : null;
+  }
+
+  function movingAverage(values, windowSize) {
+    return values.map((value, index) => {
+      if (index + 1 < windowSize) return null;
+      const slice = values.slice(index + 1 - windowSize, index + 1);
+      return slice.reduce((sum, item) => sum + item, 0) / windowSize;
+    });
+  }
+
+  function setChartFacts(facts) {
+    const container = document.getElementById("chart-facts");
+    container.replaceChildren();
+    if (!facts.length) return;
+    for (const [title, value] of facts) {
+      const item = document.createElement("div");
+      item.className = "chart-fact";
+      const heading = document.createElement("strong");
+      heading.textContent = title;
+      const body = document.createElement("span");
+      body.textContent = value;
+      item.append(heading, body);
+      container.appendChild(item);
+    }
+  }
+
+  function tradeEvidence(trade) {
+    return trade?.explanation || {};
+  }
+
+  function drawPriceChart(bars, trade, mode = "entry") {
     const svg = document.getElementById("price-chart");
     svg.replaceChildren();
+    setChartFacts([]);
     if (!bars.length) {
-      const label = svgNode("text", {x: "500", y: "130", "text-anchor": "middle", fill: "currentColor"});
+      const label = svgNode("text", {x: "500", y: "180", "text-anchor": "middle", fill: "currentColor"});
       label.textContent = "No stored bars for this symbol.";
       svg.appendChild(label);
       return;
     }
-    const prices = bars.flatMap(bar => [Number(bar.low), Number(bar.high)]);
-    for (const value of [trade.reference_price, trade.stop_price, trade.target_price]) {
-      if (value != null) prices.push(Number(value));
+    const evidence = tradeEvidence(trade);
+    const fvg = evidence.fvg || {};
+    const prices = bars.flatMap(bar => [
+      numberOrNull(bar.low),
+      numberOrNull(bar.high),
+    ]).filter(value => value != null);
+    for (const value of [
+      trade.reference_price,
+      trade.stop_price,
+      trade.target_price,
+      trade.entry_price,
+      trade.exit_price,
+      evidence.sma_fast,
+      fvg.gap_low,
+      fvg.gap_high,
+      fvg.gap_midpoint,
+    ]) {
+      const numeric = numberOrNull(value);
+      if (numeric != null) prices.push(numeric);
     }
     const minimum = Math.min(...prices);
     const maximum = Math.max(...prices);
     const span = Math.max(0.000001, maximum - minimum);
-    const x = index => 28 + index * (944 / Math.max(1, bars.length - 1));
-    const y = price => 236 - ((Number(price) - minimum) / span) * 210;
-    const path = bars
-      .map((bar, index) => `${index ? "L" : "M"} ${x(index).toFixed(2)} ${y(bar.close).toFixed(2)}`)
-      .join(" ");
-    svg.appendChild(svgNode("path", {
-      d: path,
-      fill: "none",
-      stroke: "var(--accent)",
-      "stroke-width": "2.5",
-      "vector-effect": "non-scaling-stroke",
+    const top = 26;
+    const bottom = 312;
+    const left = 44;
+    const right = 976;
+    const width = right - left;
+    const candleSlot = width / Math.max(1, bars.length);
+    const candleWidth = Math.max(2, Math.min(10, candleSlot * 0.62));
+    const x = index => left + candleSlot * index + candleSlot / 2;
+    const y = price => bottom - ((Number(price) - minimum) / span) * (bottom - top);
+    svg.appendChild(svgNode("rect", {
+      x: "0", y: "0", width: "1000", height: "360",
+      fill: "transparent",
     }));
+    if (fvg.gap_low != null && fvg.gap_high != null) {
+      const gapLow = numberOrNull(fvg.gap_low);
+      const gapHigh = numberOrNull(fvg.gap_high);
+      if (gapLow != null && gapHigh != null) {
+        const upperY = y(Math.max(gapLow, gapHigh));
+        const lowerY = y(Math.min(gapLow, gapHigh));
+        svg.appendChild(svgNode("rect", {
+          x: String(left),
+          y: String(upperY),
+          width: String(width),
+          height: String(Math.max(2, lowerY - upperY)),
+          fill: "var(--warn)",
+          opacity: "0.16",
+        }));
+        const fvgLabel = svgNode("text", {
+          x: String(right - 122),
+          y: String(Math.max(14, upperY - 5)),
+          fill: "var(--warn)",
+          "font-size": "12",
+        });
+        fvgLabel.textContent = `FVG ${gapLow.toFixed(2)}-${gapHigh.toFixed(2)}`;
+        svg.appendChild(fvgLabel);
+      }
+    }
+    bars.forEach((bar, index) => {
+      const open = numberOrNull(bar.open);
+      const high = numberOrNull(bar.high);
+      const low = numberOrNull(bar.low);
+      const close = numberOrNull(bar.close);
+      if ([open, high, low, close].some(value => value == null)) return;
+      const rising = close >= open;
+      const color = rising ? "var(--ok)" : "var(--bad)";
+      const cx = x(index);
+      svg.appendChild(svgNode("line", {
+        x1: String(cx), x2: String(cx),
+        y1: String(y(high)), y2: String(y(low)),
+        stroke: color,
+        "stroke-width": "1.4",
+        opacity: "0.9",
+      }));
+      svg.appendChild(svgNode("rect", {
+        x: String(cx - candleWidth / 2),
+        y: String(Math.min(y(open), y(close))),
+        width: String(candleWidth),
+        height: String(Math.max(1, Math.abs(y(close) - y(open)))),
+        fill: rising ? "var(--ok)" : "var(--bad)",
+        opacity: rising ? "0.78" : "0.86",
+      }));
+    });
+    const closes = bars.map(bar => numberOrNull(bar.close));
+    const ma10 = movingAverage(closes, 10);
+    const maPath = ma10
+      .map((value, index) => value == null ? null : `${x(index).toFixed(2)} ${y(value).toFixed(2)}`)
+      .filter(Boolean)
+      .map((point, index) => `${index ? "L" : "M"} ${point}`)
+      .join(" ");
+    if (maPath) {
+      svg.appendChild(svgNode("path", {
+        d: maPath,
+        fill: "none",
+        stroke: "var(--accent)",
+        "stroke-width": "2",
+        opacity: "0.92",
+        "vector-effect": "non-scaling-stroke",
+      }));
+    }
     const levels = [
-      ["Entry reference", trade.reference_price, "var(--accent)"],
+      [
+        mode === "exit" ? "Exit price" : "Entry reference",
+        mode === "exit" ? (trade.exit_price || trade.reference_price) : trade.reference_price,
+        "var(--accent)",
+      ],
       ["Stop", trade.stop_price, "var(--bad)"],
       ["Target", trade.target_price, "var(--ok)"],
+      ["Decision MA(10)", evidence.sma_fast, "var(--muted)"],
     ];
     for (const [labelText, price, color] of levels) {
       if (price == null) continue;
       const levelY = y(price);
       svg.appendChild(svgNode("line", {
-        x1: "28", x2: "972", y1: levelY, y2: levelY,
+        x1: String(left), x2: String(right), y1: levelY, y2: levelY,
         stroke: color, "stroke-dasharray": "7 5", opacity: "0.85",
       }));
       const label = svgNode("text", {
-        x: "32", y: Math.max(14, levelY - 5), fill: color, "font-size": "12",
+        x: String(left + 4), y: Math.max(14, levelY - 5), fill: color, "font-size": "12",
       });
       label.textContent = `${labelText}: ${Number(price).toFixed(2)}`;
       svg.appendChild(label);
     }
+    const latestBar = bars[bars.length - 1];
+    setChartFacts([
+      [
+        "Selected view",
+        `${mode === "exit" ? "Exit" : "Entry"} chart · ${trade.symbol} · ${bars[0]?.timeframe || "5Min"}`,
+      ],
+      [
+        "Strategy evidence",
+        (evidence.reason_codes || [])
+          .map(value => String(value).replaceAll("_", " "))
+          .join("; ") || trade.strategy_id,
+      ],
+      [
+        "FVG zone",
+        fvg.gap_low == null
+          ? "No FVG values were stored for this trade."
+          : `Low ${Number(fvg.gap_low).toFixed(2)}, midpoint ${Number(fvg.gap_midpoint).toFixed(2)}, high ${Number(fvg.gap_high).toFixed(2)}`,
+      ],
+      [
+        "Indicators",
+        `MA(10) ${numberOrNull(evidence.sma_fast)?.toFixed(2) || "--"} · ATR ${numberOrNull(evidence.atr)?.toFixed(2) || "--"} · Relative volume ${numberOrNull(evidence.relative_volume)?.toFixed(2) || "--"}`,
+      ],
+      [
+        "Risk plan",
+        `Entry ${numberOrNull(trade.reference_price)?.toFixed(2) || "--"} · Stop ${numberOrNull(trade.stop_price)?.toFixed(2) || "--"} · Target ${numberOrNull(trade.target_price)?.toFixed(2) || "--"}`,
+      ],
+      [
+        "Latest candle in view",
+        `${localTime(latestBar.timestamp)} · close ${numberOrNull(latestBar.close)?.toFixed(2) || "--"}`,
+      ],
+    ]);
   }
 
-  async function loadTradeChart(trade) {
-    setText("chart-copy", `Loading ${trade.symbol} price context...`);
+  async function loadTradeChart(trade, mode = "entry") {
+    const centeredAt = mode === "exit" && trade.closed_at
+      ? trade.closed_at
+      : trade.created_at;
+    setText(
+      "chart-copy",
+      `Loading ${trade.symbol} ${mode} price context...`
+    );
     try {
+      const params = new URLSearchParams({
+        symbol: trade.symbol,
+        timeframe: "5Min",
+        limit: "180",
+      });
+      if (centeredAt) params.set("center_at", centeredAt);
       const response = await fetch(
-        `/api/chart?symbol=${encodeURIComponent(trade.symbol)}&timeframe=5Min&limit=160`,
+        `/api/chart?${params.toString()}`,
         {cache: "no-store"}
       );
       if (!response.ok) throw new Error(`HTTP ${response.status}`);
       const data = await response.json();
-      drawPriceChart(data.bars || [], trade);
+      drawPriceChart(data.bars || [], trade, mode);
       setText(
         "chart-copy",
-        `${trade.symbol} / ${data.timeframe} / ${data.bars?.[0]?.feed || "unknown feed"} \u2014 entry, stop, and target are decision-time levels.`
+        `${trade.strategy_id} / ${trade.symbol} / ${mode} / ${data.timeframe} / ${data.bars?.[0]?.feed || "unknown feed"} \u2014 candles show stored market bars around the selected decision timestamp.`
       );
     } catch (error) {
-      drawPriceChart([], trade);
+      drawPriceChart([], trade, mode);
       setText("chart-copy", "Stored price context is unavailable.");
     }
   }
