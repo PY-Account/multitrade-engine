@@ -1,5 +1,16 @@
 # Changelog
 
+## 0.35.12 - 2026-08-20
+
+- `config/paper_portfolio.json` now reads the dedicated options Paper account
+  UUID from `${TRADING_ALPACA_OPTIONS_ACCOUNT_UUID}` instead of requiring a
+  tracked local edit.
+- `ops/update.sh` now auto-backs up and restores the tracked portfolio config
+  only when that is the sole local tracked change, so routine VPS updates no
+  longer require manual `git restore` and `perl` repair steps.
+- Added regression coverage for environment-backed broker account identity
+  pins.
+
 ## 0.35.11 - 2026-08-20
 
 - Added an authenticated web control-plane action for starting bounded

@@ -1,4 +1,5 @@
 import json
+import os
 from dataclasses import replace
 from datetime import datetime, timedelta, timezone
 from decimal import Decimal
@@ -810,4 +811,45 @@ class StrategyTests(TestCase):
         self.assertEqual(len(plans), 2)
         self.assertEqual(
             plans[1].credential_env_prefix, "ALPACA_FUND_B"
+        )
+
+    def test_expected_broker_account_id_can_come_from_environment(
+        self,
+    ) -> None:
+        source = (
+            Path(__file__).parents[1]
+            / "config"
+            / "paper_portfolio.json"
+        )
+        payload = json.loads(source.read_text(encoding="utf-8"))
+        payload["accounts"][0][
+            "expected_broker_account_id"
+        ] = "broker-account-a"
+        payload["accounts"][1][
+            "expected_broker_account_id"
+        ] = "${MULTITRADE_TEST_OPTIONS_ACCOUNT_UUID}"
+        with TemporaryDirectory() as directory:
+            path = Path(directory) / "portfolio.json"
+            path.write_text(json.dumps(payload), encoding="utf-8")
+            original = os.environ.get(
+                "MULTITRADE_TEST_OPTIONS_ACCOUNT_UUID"
+            )
+            os.environ["MULTITRADE_TEST_OPTIONS_ACCOUNT_UUID"] = (
+                "broker-account-b"
+            )
+            try:
+                plans = load_account_plans(path)
+            finally:
+                if original is None:
+                    os.environ.pop(
+                        "MULTITRADE_TEST_OPTIONS_ACCOUNT_UUID", None
+                    )
+                else:
+                    os.environ[
+                        "MULTITRADE_TEST_OPTIONS_ACCOUNT_UUID"
+                    ] = original
+
+        self.assertEqual(
+            plans[1].expected_broker_account_id,
+            "broker-account-b",
         )

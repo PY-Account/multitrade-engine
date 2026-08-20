@@ -18,6 +18,17 @@ cd /opt/multitrade/app
 bash ops/update.sh
 ```
 
+החל מגרסה `0.35.12`, אם השינוי המקומי היחיד הוא
+`config/paper_portfolio.json`, סקריפט העדכון יגבה אותו אוטומטית תחת
+`local-backups/`, יחזיר זמנית את גרסת Git, וימשיך בעדכון. אין צורך להריץ
+ידנית `git restore` או `perl` עבור UUID של חשבון האופציות.
+
+ודא שבקובץ `.env` קיים הערך:
+
+```text
+TRADING_ALPACA_OPTIONS_ACCOUNT_UUID=9d6a0c01-64a8-488f-845a-451f7a82d9d1
+```
+
 בדיקת גרסה אחרי העדכון:
 
 ```bash

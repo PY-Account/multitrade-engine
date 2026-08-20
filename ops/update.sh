@@ -9,6 +9,21 @@ if [[ ! -d .git ]]; then
   exit 1
 fi
 
+tracked_changes="$(git status --porcelain --untracked-files=no)"
+if [[ -n "${tracked_changes}" ]]; then
+  if [[ "${tracked_changes}" == " M config/paper_portfolio.json" ]]; then
+    mkdir -p local-backups
+    backup_path="local-backups/paper_portfolio.before-update.$(date -u +%Y%m%dT%H%M%SZ).json"
+    cp config/paper_portfolio.json "${backup_path}"
+    git restore config/paper_portfolio.json
+    echo "LOCAL_PORTFOLIO_CONFIG_BACKED_UP=${backup_path}"
+  else
+    echo "Tracked files have local changes; update stopped."
+    git status --short
+    exit 1
+  fi
+fi
+
 if [[ -n "$(git status --porcelain --untracked-files=no)" ]]; then
   echo "Tracked files have local changes; update stopped."
   git status --short
@@ -30,6 +45,13 @@ fi
 
 git merge --ff-only origin/main
 current_commit="$(git rev-parse HEAD)"
+
+if grep -q '\${TRADING_ALPACA_OPTIONS_ACCOUNT_UUID}' config/paper_portfolio.json \
+  && ! grep -Eq '^TRADING_ALPACA_OPTIONS_ACCOUNT_UUID=.+$' .env; then
+  echo "Missing TRADING_ALPACA_OPTIONS_ACCOUNT_UUID in .env; update stopped."
+  echo "Add the dedicated Alpaca Paper options account UUID to .env and rerun."
+  exit 1
+fi
 
 bash ops/deploy.sh "${project_directory}"
 

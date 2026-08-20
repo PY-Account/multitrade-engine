@@ -35,7 +35,7 @@
       "environment": "paper",
       "enabled": true,
       "credential_env_prefix": "ALPACA_OPTIONS",
-      "expected_broker_account_id": "REPLACE_WITH_ALPACA_OPTIONS_ACCOUNT_UUID",
+      "expected_broker_account_id": "${TRADING_ALPACA_OPTIONS_ACCOUNT_UUID}",
       "asset_classes": ["option"],
       "watchlist": ["SPY", "QQQ", "IWM", "AAPL", "MSFT", "AMD", "NVDA", "SPX", "RUT"],
       "timeframe": "5Min",

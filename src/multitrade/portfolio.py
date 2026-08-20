@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+import os
 import re
 from dataclasses import dataclass, replace
 from decimal import Decimal, ROUND_DOWN
@@ -207,6 +208,14 @@ def _decimal(value: Any, field: str) -> Decimal:
         raise ValueError(f"{field} must be a decimal") from exc
 
 
+def _env_string(value: Any) -> str:
+    candidate = str(value or "").strip()
+    match = re.fullmatch(r"\$\{([A-Z][A-Z0-9_]{0,127})\}", candidate)
+    if not match:
+        return candidate
+    return os.getenv(match.group(1), "").strip()
+
+
 def load_account_plans(path: str | Path) -> tuple[AccountPlan, ...]:
     config_path = Path(path)
     payload = json.loads(config_path.read_text(encoding="utf-8"))
@@ -398,9 +407,9 @@ def load_account_plans(path: str | Path) -> tuple[AccountPlan, ...]:
                 credential_env_prefix=str(
                     row.get("credential_env_prefix", "ALPACA")
                 ).strip(),
-                expected_broker_account_id=str(
+                expected_broker_account_id=_env_string(
                     row.get("expected_broker_account_id", "")
-                ).strip(),
+                ),
             )
         )
     enabled_plans = tuple(plan for plan in plans if plan.enabled)
