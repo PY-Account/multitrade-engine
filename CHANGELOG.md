@@ -1,5 +1,16 @@
 # Changelog
 
+## 0.35.17 - 2026-08-20
+
+- Reorganized the dashboard into a strategy-first operating model:
+  Strategies, BackTesting, Deployment, Accounts, Operations, and Management.
+- Added a Strategy Overview landing panel that frames the workflow as
+  Research → Trial → Deploy, so accounts no longer define the top-level
+  product structure.
+- Moved strategy discovery, universe selection, validation, deployment
+  controls, account monitoring, and server management into their respective
+  workspaces while preserving the existing backend execution model.
+
 ## 0.35.16 - 2026-08-20
 
 - Added `openssh-client` to the application image so the internal Admin Agent

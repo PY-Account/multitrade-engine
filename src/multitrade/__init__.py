@@ -1,3 +1,3 @@
 """MultiTrade paper-first trading engine."""
 
-__version__ = "0.35.16"
+__version__ = "0.35.17"

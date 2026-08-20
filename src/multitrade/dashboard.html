@@ -374,10 +374,10 @@
 
   <nav class="workspace-nav" aria-label="Primary workspace">
     <div class="primary-tabs" id="primary-tabs" role="tablist">
-      <button type="button" data-primary-tab="account" aria-selected="true">Account</button>
-      <button type="button" data-primary-tab="asset-universe" aria-selected="false">Asset Universe</button>
-      <button type="button" data-primary-tab="strategy-lab" aria-selected="false">Strategy Lab</button>
-      <button type="button" data-primary-tab="allocation" aria-selected="false">Allocation &amp; Risk</button>
+      <button type="button" data-primary-tab="strategies" aria-selected="true">Strategies</button>
+      <button type="button" data-primary-tab="backtesting" aria-selected="false">BackTesting</button>
+      <button type="button" data-primary-tab="deployment" aria-selected="false">Deployment</button>
+      <button type="button" data-primary-tab="accounts" aria-selected="false">Accounts</button>
       <button type="button" data-primary-tab="operations" aria-selected="false">Operations</button>
       <button type="button" data-primary-tab="management" aria-selected="false">Management</button>
     </div>
@@ -389,7 +389,14 @@
   </nav>
   <nav class="secondary-tabs" id="secondary-tabs" aria-label="Workspace section" role="tablist"></nav>
 
-  <section class="summary-grid workspace-view" data-primary="account" data-secondary="overview" aria-label="System summary">
+  <section class="summary-grid workspace-view" data-primary="strategies" data-secondary="overview" aria-label="Strategy operating model">
+    <article class="card"><div class="label">Strategy pipeline</div><div class="value">Research → Trial → Deploy</div><div class="status-detail">Find edge first, then assign it to accounts.</div></article>
+    <article class="card"><div class="label">Research service</div><div class="value" id="research-overview">--</div><div class="status-detail" id="research-overview-detail">Waiting for health data.</div></article>
+    <article class="card"><div class="label">Strategy Lab</div><div class="value" id="strategy-lab-overview">--</div><div class="status-detail" id="strategy-lab-overview-detail">Waiting for health data.</div></article>
+    <article class="card"><div class="label">Asset Universe</div><div class="value" id="asset-universe-overview">--</div><div class="status-detail" id="asset-universe-overview-detail">Waiting for health data.</div></article>
+  </section>
+
+  <section class="summary-grid workspace-view" data-primary="accounts" data-secondary="overview" aria-label="System summary">
     <article class="card"><div class="label">Engine</div><div class="value" id="engine">--</div></article>
     <article class="card"><div class="label">Strategy service</div><div class="value" id="automation">--</div></article>
     <article class="card"><div class="label">Research service</div><div class="value" id="research">--</div></article>
@@ -403,7 +410,7 @@
     <article class="card"><div class="label">Reserved risk</div><div class="value" id="risk">--</div></article>
   </section>
 
-  <section class="panel workspace-view" data-primary="asset-universe" data-secondary="recommendations">
+  <section class="panel workspace-view" data-primary="strategies" data-secondary="asset-universe">
     <div class="panel-head">
       <div><h2>Evidence-gated asset recommendations</h2><p class="subcopy">Candidates are ranked only after price, company-size, liquidity, Alpaca tradability, exchange, and any configured index-membership gates. Recommendations are research-only.</p></div>
     </div>
@@ -415,7 +422,7 @@
     </div>
   </section>
 
-  <section class="panel workspace-view" data-primary="asset-universe" data-secondary="assignments">
+  <section class="panel workspace-view" data-primary="deployment" data-secondary="universe-assignments">
     <div class="panel-head">
       <div><h2>Strategy symbol assignments</h2><p class="subcopy">Manual and recommended research universes are configured independently for every strategy. Approved execution symbols remain a separate subset of the account watchlist.</p></div>
     </div>
@@ -427,7 +434,7 @@
     </div>
   </section>
 
-  <section class="panel workspace-view" data-primary="asset-universe" data-secondary="policies">
+  <section class="panel workspace-view" data-primary="strategies" data-secondary="universe-policies">
     <div class="panel-head">
       <div><h2>Selection policies and provenance</h2><p class="subcopy">A Nasdaq listing is not treated as Nasdaq-100 membership. Index restrictions activate only through a dated, sourced constituent snapshot.</p></div>
     </div>
@@ -440,7 +447,7 @@
     <p class="subcopy" id="universe-provenance">Waiting for configuration...</p>
   </section>
 
-  <section class="two-column workspace-view" data-primary="allocation" data-secondary="risk">
+  <section class="two-column workspace-view" data-primary="deployment" data-secondary="risk">
     <article class="panel">
       <div class="panel-head">
         <div>
@@ -472,7 +479,7 @@
     </article>
   </section>
 
-  <section class="panel workspace-view" data-primary="allocation" data-secondary="risk">
+  <section class="panel workspace-view" data-primary="deployment" data-secondary="risk">
     <div class="panel-head">
       <div><h2>Firm-wide risk authority</h2><p class="subcopy" id="firm-risk-copy">Waiting for consolidated account state...</p></div>
     </div>
@@ -491,7 +498,7 @@
     <p class="subcopy" id="firm-equity-freshness">No equity freshness data.</p>
   </section>
 
-  <section class="panel workspace-view" data-primary="allocation" data-secondary="plan">
+  <section class="panel workspace-view" data-primary="deployment" data-secondary="allocation">
     <div class="panel-head">
       <div><h2>Account strategy allocation</h2><p class="subcopy">Effective capital weights, risk budgets, confidence thresholds, Paper permissions, and execution symbols for the selected account.</p></div>
     </div>
@@ -503,7 +510,7 @@
     </div>
   </section>
 
-  <section class="panel workspace-view" data-primary="account" data-secondary="portfolio">
+  <section class="panel workspace-view" data-primary="accounts" data-secondary="portfolio">
     <div class="panel-head">
       <div><h2>Open positions</h2><p class="subcopy" id="positions-copy">No data yet.</p></div>
     </div>
@@ -515,7 +522,7 @@
     </div>
   </section>
 
-  <section class="panel workspace-view" data-primary="strategy-lab" data-secondary="market-model">
+  <section class="panel workspace-view" data-primary="strategies" data-secondary="market-model">
     <div class="panel-head">
       <div><h2>Evidence-weighted market model</h2><p class="subcopy">Hourly, closed-daily-bar observations. Risk multipliers are analytical outputs only and cannot place orders.</p></div>
     </div>
@@ -527,7 +534,7 @@
     </div>
   </section>
 
-  <section class="panel workspace-view" data-primary="strategy-lab" data-secondary="market-model">
+  <section class="panel workspace-view" data-primary="backtesting" data-secondary="research-validation">
     <div class="panel-head">
       <div><h2>Research model validation</h2><p class="subcopy">Next-open simulation after decision time, including exposure-change costs and a fully invested benchmark. Passing gates permits only extended Paper observation.</p></div>
     </div>
@@ -539,7 +546,7 @@
     </div>
   </section>
 
-  <section class="panel workspace-view" data-primary="allocation" data-secondary="concentration">
+  <section class="panel workspace-view" data-primary="deployment" data-secondary="concentration">
     <div class="panel-head">
       <div><h2>Universe correlation and concentration</h2><p class="subcopy">Equal-importance observation of recent daily-return relationships. This diagnoses apparent diversification that may collapse into one correlated bet.</p></div>
     </div>
@@ -551,7 +558,7 @@
     </div>
   </section>
 
-  <section class="panel workspace-view" data-primary="strategy-lab" data-secondary="evidence">
+  <section class="panel workspace-view" data-primary="strategies" data-secondary="evidence">
     <div class="panel-head">
       <div><h2>Research evidence registry</h2><p class="subcopy">Published support, contradictory caveats, and internal admission status. External evidence never authorizes deployment by itself.</p></div>
     </div>
@@ -563,7 +570,7 @@
     </div>
   </section>
 
-  <section class="panel workspace-view" data-primary="strategy-lab" data-secondary="options">
+  <section class="panel workspace-view" data-primary="strategies" data-secondary="option-models">
     <div class="panel-head">
       <div><h2>Option package observations</h2><p class="subcopy">Frozen decision-time structures, contract legs, and modeled Greeks. Observations include packages selected while execution is disabled and are not evidence of fills.</p></div>
     </div>
@@ -575,7 +582,7 @@
     </div>
   </section>
 
-  <section class="panel workspace-view" data-primary="strategy-lab" data-secondary="options">
+  <section class="panel workspace-view" data-primary="backtesting" data-secondary="option-evidence">
     <div class="panel-head">
       <div><h2>Exact-contract path evidence</h2><p class="subcopy">Conservative package marks reconstructed from historical option trade bars. These are synchronized trade-bar proxies—not historical BBO quotes, executable prices, reconstructed Greeks, or realized theta attribution.</p></div>
     </div>
@@ -587,7 +594,7 @@
     </div>
   </section>
 
-  <section class="panel workspace-view" data-primary="strategy-lab" data-secondary="monitoring">
+  <section class="panel workspace-view" data-primary="strategies" data-secondary="signals">
     <div class="panel-head">
       <div><h2>Strategy bots</h2><p class="subcopy">Latest closed-bar evaluation for each strategy and symbol.</p></div>
     </div>
@@ -599,7 +606,7 @@
     </div>
   </section>
 
-  <section class="panel workspace-view" data-primary="strategy-lab" data-secondary="monitoring">
+  <section class="panel workspace-view" data-primary="strategies" data-secondary="signals">
     <div class="panel-head">
       <div><h2>Strategy signals</h2><p class="subcopy">Deterministic, versioned signals with decision-time evidence.</p></div>
     </div>
@@ -611,7 +618,7 @@
     </div>
   </section>
 
-  <section class="panel workspace-view" data-primary="account" data-secondary="performance">
+  <section class="panel workspace-view" data-primary="accounts" data-secondary="performance">
     <div class="panel-head">
       <div><h2>Account-scoped strategy performance</h2><p class="subcopy">Realized Paper results are separated from decisions and open positions. Modeled option theta is a decision-time sensitivity estimate, not realized profit or a performance promise.</p></div>
     </div>
@@ -623,7 +630,7 @@
     </div>
   </section>
 
-  <section class="panel workspace-view" data-primary="account" data-secondary="trades">
+  <section class="panel workspace-view" data-primary="accounts" data-secondary="trades">
     <div class="panel-head">
       <div><h2>Trade decisions</h2><p class="subcopy">Risk-reviewed dry runs and Paper orders. Select a record to visualize its price context.</p></div>
     </div>
@@ -638,7 +645,7 @@
     </div>
   </section>
 
-  <section class="panel workspace-view" data-primary="account" data-secondary="trades">
+  <section class="panel workspace-view" data-primary="accounts" data-secondary="trades">
     <div class="panel-head">
       <div><h2>Price context</h2><p class="subcopy" id="chart-copy">Choose a trade decision to display stored market bars, entry reference, stop, and target.</p></div>
     </div>
@@ -648,7 +655,7 @@
     </div>
   </section>
 
-  <section class="panel workspace-view" data-primary="strategy-lab" data-secondary="accelerated">
+  <section class="panel workspace-view" data-primary="backtesting" data-secondary="accelerated">
     <div class="panel-head">
       <div>
         <h2>Accelerated candidate screening</h2>
@@ -708,7 +715,7 @@
     </div>
   </section>
 
-  <section class="panel workspace-view" data-primary="strategy-lab" data-secondary="validation">
+  <section class="panel workspace-view" data-primary="backtesting" data-secondary="lab-validation">
     <div class="panel-head">
       <div><h2>Continuous Strategy Lab</h2><p class="subcopy">Portfolio-wide out-of-sample evaluation using next-bar entries, base costs, adverse-cost stress, cross-symbol breadth gates, and no automatic execution promotion.</p></div>
     </div>
@@ -720,7 +727,7 @@
     </div>
   </section>
 
-  <section class="panel workspace-view" data-primary="strategy-lab" data-secondary="robustness">
+  <section class="panel workspace-view" data-primary="backtesting" data-secondary="robustness">
     <div class="panel-head">
       <div><h2>Chronological stability</h2><p class="subcopy">Fixed strategy parameters are evaluated in non-overlapping later windows. Earlier bars are used only for bounded feature warmup; every fold remains research-only.</p></div>
     </div>
@@ -732,7 +739,7 @@
     </div>
   </section>
 
-  <section class="panel workspace-view" data-primary="strategy-lab" data-secondary="robustness">
+  <section class="panel workspace-view" data-primary="backtesting" data-secondary="robustness">
     <div class="panel-head">
       <div><h2>Trade-sequence stress</h2><p class="subcopy">Deterministic bootstrap paths resample observed chronological out-of-sample R-multiples at the configured risk per trade. This tests ordering sensitivity; it is not a forecast and cannot authorize execution.</p></div>
     </div>
@@ -744,7 +751,7 @@
     </div>
   </section>
 
-  <section class="panel workspace-view" data-primary="strategy-lab" data-secondary="families">
+  <section class="panel workspace-view" data-primary="backtesting" data-secondary="families">
     <div class="panel-head">
       <div><h2>Frozen strategy-family comparison</h2><p class="subcopy">One sensitivity variant per strategy rotates into each six-hour cycle and uses the same assigned universe as its baseline. This is parameter-stability evidence, not optimization, execution approval, or a substitute for a genuinely untouched final holdout.</p></div>
     </div>
@@ -756,7 +763,7 @@
     </div>
   </section>
 
-  <section class="panel workspace-view" data-primary="strategy-lab" data-secondary="trials">
+  <section class="panel workspace-view" data-primary="backtesting" data-secondary="trials">
     <div class="panel-head">
       <div><h2>Immutable model-trial registry</h2><p class="subcopy">Every evaluated candidate is append-only and identified by its implementation and parameters, laboratory configuration, and exact input dataset. Per-strategy hash chains expose conflicting mutation or broken lineage.</p></div>
     </div>
@@ -768,7 +775,7 @@
     </div>
   </section>
 
-  <section class="panel workspace-view" data-primary="strategy-lab" data-secondary="validation">
+  <section class="panel workspace-view" data-primary="backtesting" data-secondary="backtests">
     <div class="panel-head">
       <div><h2>Backtest validation</h2><p class="subcopy">Results include slippage and conservative same-bar stop handling. A result is not proof of future performance.</p></div>
     </div>
@@ -780,7 +787,7 @@
     </div>
   </section>
 
-  <section class="panel workspace-view" data-primary="account" data-secondary="portfolio">
+  <section class="panel workspace-view" data-primary="accounts" data-secondary="portfolio">
     <div class="panel-head">
       <div><h2>Open orders</h2><p class="subcopy" id="orders-copy">No data yet.</p></div>
     </div>
@@ -804,7 +811,7 @@
     </div>
   </section>
 
-  <section class="panel workspace-view" data-primary="management" data-secondary="strategies">
+  <section class="panel workspace-view" data-primary="deployment" data-secondary="strategy-controls">
     <div class="panel-head">
       <div>
         <h2>Paper strategy controls</h2>
@@ -829,7 +836,7 @@
     </div>
   </section>
 
-  <section class="panel workspace-view" data-primary="management" data-secondary="research-runs">
+  <section class="panel workspace-view" data-primary="backtesting" data-secondary="research-runs">
     <div class="panel-head">
       <div>
         <h2>Research run controls</h2>
@@ -1023,7 +1030,7 @@
   let dateTimePartsFormatter;
   let moneyFormatter;
   let quantityFormatter;
-  let activePrimary = "account";
+  let activePrimary = "strategies";
   let activeSecondary = "overview";
   let selectedAccountId = "alpaca-paper";
   let selectedAcceleratedTimeframe = "";
@@ -1058,39 +1065,43 @@
     ["Risk authority", "סמכות הסיכון", "The centralized pre-trade gate that enforces per-trade, aggregate, symbol, strategy, and firm-wide limits."],
   ];
   const SECONDARY_NAVIGATION = {
-    account: [
+    strategies: [
+      ["overview", "Strategy Overview"],
+      ["asset-universe", "Asset Universe"],
+      ["universe-policies", "Universe Policies"],
+      ["market-model", "Market Model"],
+      ["evidence", "Evidence"],
+      ["option-models", "Option Models"],
+      ["signals", "Signals & Bots"],
+    ],
+    backtesting: [
+      ["accelerated", "Accelerated Validation"],
+      ["research-runs", "Run Backtests"],
+      ["families", "Family Comparison"],
+      ["lab-validation", "Model Validation"],
+      ["research-validation", "Research Validation"],
+      ["robustness", "Robustness"],
+      ["trials", "Trial Registry"],
+      ["backtests", "Classic Backtests"],
+      ["option-evidence", "Option Evidence"],
+    ],
+    deployment: [
+      ["strategy-controls", "Strategy Controls"],
+      ["allocation", "Account Allocation"],
+      ["risk", "Risk Authority"],
+      ["concentration", "Concentration"],
+      ["universe-assignments", "Universe Assignments"],
+    ],
+    accounts: [
       ["overview", "Overview"],
       ["portfolio", "Positions & Orders"],
       ["performance", "Strategy Performance"],
       ["trades", "Trades & Charts"],
     ],
-    "asset-universe": [
-      ["recommendations", "Recommendations"],
-      ["assignments", "Strategy Assignments"],
-      ["policies", "Policies & Sources"],
-    ],
-    "strategy-lab": [
-      ["accelerated", "Accelerated Validation"],
-      ["families", "Family Comparison"],
-      ["validation", "Model Validation"],
-      ["robustness", "Robustness"],
-      ["trials", "Trial Registry"],
-      ["monitoring", "Signals & Bots"],
-      ["options", "Option Evidence"],
-      ["market-model", "Market Model"],
-      ["evidence", "Evidence"],
-    ],
-    allocation: [
-      ["plan", "Strategy Allocation"],
-      ["risk", "Risk Authority"],
-      ["concentration", "Concentration"],
-    ],
     operations: [
       ["audit", "Audit Log"],
     ],
     management: [
-      ["strategies", "Strategy Controls"],
-      ["research-runs", "Research Runs"],
       ["server-update", "Server Update"],
       ["server-settings", "Server Settings"],
       ["export", "Data Export"],
@@ -1162,8 +1173,15 @@
         () => setWorkspace(button.dataset.primaryTab)
       );
     }
+    const primaryAliases = {
+      account: "accounts",
+      "asset-universe": "strategies",
+      "strategy-lab": "backtesting",
+      allocation: "deployment",
+    };
+    const savedPrimary = primaryAliases[saved.primary] || saved.primary;
     setWorkspace(
-      SECONDARY_NAVIGATION[saved.primary] ? saved.primary : "account",
+      SECONDARY_NAVIGATION[savedPrimary] ? savedPrimary : "strategies",
       saved.secondary
     );
     document.getElementById("account-select").addEventListener(
@@ -3615,12 +3633,30 @@
         data.research.healthy ? "ok" : "bad"
       );
       setStatus(
+        "research-overview",
+        data.research.healthy ? "Healthy" : "Attention",
+        data.research.healthy ? "ok" : "bad"
+      );
+      setText(
+        "research-overview-detail",
+        healthExplanation(data.research, "Research")
+      );
+      setStatus(
         "strategy-lab",
+        data.strategy_lab.healthy ? "Healthy" : "Attention",
+        data.strategy_lab.healthy ? "ok" : "bad"
+      );
+      setStatus(
+        "strategy-lab-overview",
         data.strategy_lab.healthy ? "Healthy" : "Attention",
         data.strategy_lab.healthy ? "ok" : "bad"
       );
       setText(
         "strategy-lab-detail",
+        healthExplanation(data.strategy_lab, "Strategy Lab")
+      );
+      setText(
+        "strategy-lab-overview-detail",
         healthExplanation(data.strategy_lab, "Strategy Lab")
       );
       document.getElementById("strategy-lab").title = (
@@ -3635,6 +3671,15 @@
         "asset-universe",
         data.asset_universe.healthy ? "Healthy" : "Attention",
         data.asset_universe.healthy ? "ok" : "bad"
+      );
+      setStatus(
+        "asset-universe-overview",
+        data.asset_universe.healthy ? "Healthy" : "Attention",
+        data.asset_universe.healthy ? "ok" : "bad"
+      );
+      setText(
+        "asset-universe-overview-detail",
+        healthExplanation(data.asset_universe, "Asset Universe")
       );
       setStatus(
         "market",
@@ -3739,8 +3784,11 @@
       renderEvents(data.events || []);
     } catch (error) {
       setStatus("engine", "Unavailable", "bad");
+      setStatus("research-overview", "Unavailable", "bad");
+      setStatus("strategy-lab-overview", "Unavailable", "bad");
       setStatus("option-evidence", "Unavailable", "bad");
       setStatus("asset-universe", "Unavailable", "bad");
+      setStatus("asset-universe-overview", "Unavailable", "bad");
       setText("updated", "Dashboard data unavailable");
     }
   }

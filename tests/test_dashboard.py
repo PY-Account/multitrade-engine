@@ -454,21 +454,16 @@ class DashboardTests(TestCase):
                 self.assertIn('value="dark"', html)
                 self.assertIn('hourCycle: "h23"', html)
                 self.assertIn('Asia/Jerusalem', html)
+                self.assertIn('data-primary-tab="strategies"', html)
+                self.assertIn('data-primary-tab="backtesting"', html)
+                self.assertIn('data-primary-tab="deployment"', html)
+                self.assertIn('data-primary-tab="accounts"', html)
                 self.assertIn('data-primary-tab="management"', html)
+                self.assertIn("Research → Trial → Deploy", html)
                 self.assertIn('id="strategy-controls"', html)
                 self.assertIn("Trading and research glossary", html)
                 self.assertIn("Awaiting registration", html)
                 self.assertNotIn("{{CSRF_TOKEN}}", html)
-                self.assertIn('data-primary-tab="account"', html)
-                self.assertIn(
-                    'data-primary-tab="strategy-lab"', html
-                )
-                self.assertIn(
-                    'data-primary-tab="asset-universe"', html
-                )
-                self.assertIn(
-                    'data-primary-tab="allocation"', html
-                )
                 self.assertIn('id="account-select"', html)
                 self.assertIn("Continuous Strategy Lab", html)
                 self.assertIn(
