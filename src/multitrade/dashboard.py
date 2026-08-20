@@ -18,7 +18,7 @@ from pathlib import Path
 from typing import Any, Callable
 from urllib.error import URLError
 from urllib.parse import parse_qs, urlparse
-from urllib.request import urlopen
+from urllib.request import Request, urlopen
 
 from multitrade import __version__
 from multitrade.accelerated_validation import (
@@ -104,6 +104,8 @@ class DashboardData:
         accelerated_validation_runner: (
             AcceleratedValidationRunner | None
         ) = None,
+        admin_agent_url: str = "",
+        admin_agent_token: str = "",
     ) -> None:
         self.reader = SqliteAuditReader(db_path)
         self.configuration_store = SqliteAuditStore(db_path)
@@ -186,6 +188,8 @@ class DashboardData:
                 "updated_at": None,
             }
         }
+        self.admin_agent_url = admin_agent_url.rstrip("/")
+        self.admin_agent_token = admin_agent_token
 
     def effective_account_plans(self) -> tuple[AccountPlan, ...]:
         return apply_strategy_configuration_overrides(
@@ -320,6 +324,123 @@ class DashboardData:
         )
         thread.start()
         return self.action_status["accelerated_validation"].copy()
+
+    def admin_agent_status(self) -> dict[str, Any]:
+        if not self.admin_agent_url or not self.admin_agent_token:
+            return {"enabled": False, "status": "not_configured"}
+        try:
+            status = {
+                "enabled": True,
+                **self._admin_agent_request("GET", "/api/admin/status"),
+            }
+            try:
+                status["settings"] = self._admin_agent_request(
+                    "GET", "/api/admin/settings"
+                )
+            except Exception as exc:
+                status["settings"] = {
+                    "status": "unavailable",
+                    "error_type": type(exc).__name__,
+                    "message": str(exc),
+                }
+            return status
+        except Exception as exc:
+            return {
+                "enabled": True,
+                "status": "unavailable",
+                "error_type": type(exc).__name__,
+                "message": str(exc),
+            }
+
+    def request_server_update(
+        self,
+        payload: dict[str, Any],
+        *,
+        requested_by: str,
+        remote_addr: str,
+    ) -> dict[str, Any]:
+        if not self.admin_agent_url or not self.admin_agent_token:
+            raise ValueError("admin_agent_not_configured")
+        if payload.get("confirmation") != "RUN SERVER UPDATE":
+            raise ValueError("server_update_confirmation_required")
+        result = self._admin_agent_request(
+            "POST",
+            "/api/admin/update",
+            {
+                "confirmation": "RUN SERVER UPDATE",
+                "requested_by": requested_by,
+            },
+        )
+        self.configuration_store.record_event(
+            "control_plane_admin_action_requested",
+            str(result.get("action", {}).get("action_id") or "server-update"),
+            {
+                "action": "server_update",
+                "requested_by": requested_by,
+                "remote_addr": remote_addr,
+                "admin_agent_result": result,
+            },
+        )
+        return result
+
+    def update_server_setting(
+        self,
+        payload: dict[str, Any],
+        *,
+        requested_by: str,
+        remote_addr: str,
+    ) -> dict[str, Any]:
+        if not self.admin_agent_url or not self.admin_agent_token:
+            raise ValueError("admin_agent_not_configured")
+        if payload.get("confirmation") != "UPDATE SERVER SETTING":
+            raise ValueError("server_setting_confirmation_required")
+        key = str(payload.get("key") or "").strip()
+        value = str(payload.get("value") or "")
+        result = self._admin_agent_request(
+            "POST",
+            "/api/admin/settings",
+            {
+                "confirmation": "UPDATE SERVER SETTING",
+                "requested_by": requested_by,
+                "key": key,
+                "value": value,
+            },
+        )
+        self.configuration_store.record_event(
+            "control_plane_admin_setting_changed",
+            str(result.get("action", {}).get("action_id") or key),
+            {
+                "action": "server_setting_update",
+                "key": key,
+                "requested_by": requested_by,
+                "remote_addr": remote_addr,
+                "admin_agent_result": result,
+            },
+        )
+        return result
+
+    def _admin_agent_request(
+        self,
+        method: str,
+        path: str,
+        payload: dict[str, Any] | None = None,
+    ) -> dict[str, Any]:
+        data = None
+        headers = {
+            "Authorization": f"Bearer {self.admin_agent_token}",
+            "Accept": "application/json",
+        }
+        if payload is not None:
+            data = json.dumps(payload).encode("utf-8")
+            headers["Content-Type"] = "application/json"
+        request = Request(
+            f"{self.admin_agent_url}{path}",
+            data=data,
+            method=method,
+            headers=headers,
+        )
+        with urlopen(request, timeout=8) as response:
+            return json.loads(response.read().decode("utf-8"))
 
     def _run_accelerated_validation_action(
         self,
@@ -960,6 +1081,7 @@ class DashboardData:
             ),
             "control_plane": {
                 "actions": self._control_plane_actions_payload(),
+                "admin_agent": self.admin_agent_status(),
             },
             "strategy_model_trials": strategy_model_trials,
             "strategy_experiments": {
@@ -1255,6 +1377,8 @@ class DashboardRequestHandler(BaseHTTPRequestHandler):
         if parsed.path not in {
             "/api/config/strategy",
             "/api/actions/accelerated-validation",
+            "/api/admin/update",
+            "/api/admin/settings",
         }:
             self._send_json(404, {"error": "not_found"})
             return
@@ -1289,13 +1413,25 @@ class DashboardRequestHandler(BaseHTTPRequestHandler):
                             updated_by=self.configured_username,
                         )
                     )
-                else:
+                elif parsed.path == "/api/actions/accelerated-validation":
                     result = (
                         self.data_service.request_accelerated_validation(
                             payload,
                             requested_by=self.configured_username,
                             remote_addr=self.client_address[0],
                         )
+                    )
+                elif parsed.path == "/api/admin/update":
+                    result = self.data_service.request_server_update(
+                        payload,
+                        requested_by=self.configured_username,
+                        remote_addr=self.client_address[0],
+                    )
+                else:
+                    result = self.data_service.update_server_setting(
+                        payload,
+                        requested_by=self.configured_username,
+                        remote_addr=self.client_address[0],
                     )
         except (json.JSONDecodeError, UnicodeDecodeError):
             self._send_json(400, {"error": "invalid_json"})
@@ -1315,8 +1451,12 @@ class DashboardRequestHandler(BaseHTTPRequestHandler):
             self._send_json(
                 200, {"status": "updated", "configuration": result}
             )
-        else:
+        elif parsed.path == "/api/actions/accelerated-validation":
             self._send_json(202, {"status": "accepted", "action": result})
+        elif parsed.path == "/api/admin/update":
+            self._send_json(202, {"status": "accepted", "admin": result})
+        else:
+            self._send_json(200, {"status": "updated", "admin": result})
 
     def _send_login_page(self, error: bool = False) -> None:
         nonce = secrets.token_urlsafe(18)

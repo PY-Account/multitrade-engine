@@ -137,6 +137,8 @@ class Settings:
     dashboard_port: int
     dashboard_username: str
     dashboard_password: str
+    admin_agent_url: str
+    admin_agent_token: str
     analyst_api_enabled: bool
     analyst_api_token: str
     analyst_api_requests_per_minute: int
@@ -465,6 +467,8 @@ class Settings:
                 "DASHBOARD_USERNAME", ""
             ).strip(),
             dashboard_password=os.getenv("DASHBOARD_PASSWORD", ""),
+            admin_agent_url=os.getenv("ADMIN_AGENT_URL", "").strip(),
+            admin_agent_token=os.getenv("ADMIN_AGENT_TOKEN", ""),
             analyst_api_enabled=_bool_env(
                 "ANALYST_API_ENABLED", False
             ),

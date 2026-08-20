@@ -11,6 +11,17 @@ LABEL org.opencontainers.image.revision="${BUILD_COMMIT}"
 
 WORKDIR /app
 
+RUN apt-get update \
+    && apt-get install -y --no-install-recommends \
+        bash \
+        ca-certificates \
+        docker.io \
+        git \
+    && (apt-get install -y --no-install-recommends docker-compose-plugin \
+        || apt-get install -y --no-install-recommends docker-compose \
+        || true) \
+    && rm -rf /var/lib/apt/lists/*
+
 COPY pyproject.toml README.md ./
 COPY src ./src
 COPY config ./config

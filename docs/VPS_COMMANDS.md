@@ -38,6 +38,47 @@ docker compose run --rm --no-deps engine multitrade doctor
 באתר, הגרסה מופיעה בדרך כלל בפינה/תגית הגרסה. אם האתר עדיין מציג גרסה ישנה,
 נסה רענון חזק בדפדפן או בדוק שהקונטיינרים אכן נבנו מחדש.
 
+### עדכון דרך ממשק ה-Web
+
+החל מגרסה `0.35.14`, ניתן להפעיל עדכון מהאתר:
+
+```text
+Management -> Server Update -> Update from GitHub
+```
+
+נדרשת הפעלה חד-פעמית של Admin Agent פנימי. הוסף ל-`.env`:
+
+```text
+ADMIN_AGENT_TOKEN=טוקן-אקראי-באורך-32-תווים-לפחות
+```
+
+אפשר לייצר טוקן כך:
+
+```bash
+python -c 'import secrets; print(secrets.token_urlsafe(32))'
+```
+
+לאחר מכן הרץ פעם אחת:
+
+```bash
+cd /opt/multitrade/app
+bash ops/update.sh
+```
+
+מהעדכון הבא, כפתור העדכון באתר יוכל להריץ את אותה זרימה מבוקרת בלי לפתוח
+טרמינל.
+
+ניתן לערוך חלק מהגדרות השרת דרך:
+
+```text
+Management -> Server Settings
+```
+
+לדוגמה: UUID של חשבון האופציות, דומיין, ומתגי Paper. ערכים סודיים הם
+write-only ולא יוצגו בחזרה במסך. אחרי שינוי setting, הרץ
+`Management -> Server Update` כדי להפעיל את השירותים מחדש עם הערכים החדשים.
+פירוט נוסף: `docs/ADMIN_CONTROL_PLANE.md`.
+
 ## עריכת קובץ הגדרות
 
 פתיחת קובץ הסביבה:

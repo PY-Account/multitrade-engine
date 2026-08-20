@@ -46,6 +46,7 @@ services:
     environment:
       DASHBOARD_HOST: 0.0.0.0
       DASHBOARD_PORT: "8080"
+      ADMIN_AGENT_URL: http://admin-agent:8090
     volumes:
       - engine-data:/app/var
     command: ["multitrade", "dashboard"]
@@ -64,6 +65,51 @@ services:
         condition: service_healthy
     healthcheck:
       test: ["CMD", "multitrade", "dashboard-healthcheck"]
+      interval: 30s
+      timeout: 5s
+      start_period: 15s
+      retries: 3
+    logging:
+      driver: json-file
+      options:
+        max-size: "10m"
+        max-file: "5"
+
+  admin-agent:
+    build: *app-build
+    image: multitrade-engine:local
+    profiles:
+      - admin
+    restart: unless-stopped
+    init: true
+    user: "0:0"
+    env_file:
+      - .env
+    environment:
+      ADMIN_AGENT_HOST: 0.0.0.0
+      ADMIN_AGENT_PORT: "8090"
+      ADMIN_AGENT_WORKDIR: /workspace
+    working_dir: /workspace
+    volumes:
+      - .:/workspace
+      - /var/run/docker.sock:/var/run/docker.sock
+    command: ["multitrade", "admin-agent"]
+    read_only: false
+    security_opt:
+      - no-new-privileges:true
+    cap_drop:
+      - ALL
+    stop_grace_period: 10s
+    expose:
+      - "8090"
+    healthcheck:
+      test:
+        [
+          "CMD",
+          "python",
+          "-c",
+          "from urllib.request import urlopen; urlopen('http://127.0.0.1:8090/healthz', timeout=3).read()",
+        ]
       interval: 30s
       timeout: 5s
       start_period: 15s

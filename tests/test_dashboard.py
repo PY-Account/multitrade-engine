@@ -5,6 +5,7 @@ import threading
 import time
 from datetime import datetime, timedelta, timezone
 from decimal import Decimal
+from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 from tempfile import TemporaryDirectory
 from unittest import TestCase
@@ -26,6 +27,86 @@ from multitrade.health import write_health
 from multitrade.market import MarketBar
 from multitrade.portfolio import AccountPlan, StrategyAllocation
 from multitrade.universe import load_asset_universe_program
+
+
+class FakeAdminAgentHandler(BaseHTTPRequestHandler):
+    requests: list[dict[str, object]] = []
+
+    def log_message(self, format, *args):
+        return
+
+    def do_GET(self):
+        if self.path == "/api/admin/settings":
+            self._json(
+                200,
+                {
+                    "status": "ok",
+                    "component": "admin_agent",
+                    "settings": [
+                        {
+                            "key": "DASHBOARD_DOMAIN",
+                            "configured": True,
+                            "secret": False,
+                            "value": "trade.example.com",
+                        }
+                    ],
+                },
+            )
+            return
+        if self.path != "/api/admin/status":
+            self.send_error(404)
+            return
+        self._json(
+            200,
+            {
+                "status": "ok",
+                "component": "admin_agent",
+                "last_action": {"state": "idle", "updated_at": None},
+            },
+        )
+
+    def do_POST(self):
+        if self.path not in {"/api/admin/update", "/api/admin/settings"}:
+            self.send_error(404)
+            return
+        length = int(self.headers.get("Content-Length", "0"))
+        payload = json.loads(self.rfile.read(length))
+        self.requests.append(
+            {
+                "authorization": self.headers.get("Authorization"),
+                "payload": payload,
+            }
+        )
+        if self.path == "/api/admin/update":
+            self._json(
+                202,
+                {
+                    "status": "accepted",
+                    "action": {
+                        "state": "running",
+                        "action_id": "update:test",
+                    },
+                },
+            )
+        else:
+            self._json(
+                202,
+                {
+                    "status": "accepted",
+                    "action": {
+                        "state": "completed",
+                        "action_id": "setting:test",
+                    },
+                },
+            )
+
+    def _json(self, status: int, payload: dict[str, object]) -> None:
+        encoded = json.dumps(payload).encode("utf-8")
+        self.send_response(status)
+        self.send_header("Content-Type", "application/json")
+        self.send_header("Content-Length", str(len(encoded)))
+        self.end_headers()
+        self.wfile.write(encoded)
 
 
 class DashboardTests(TestCase):
@@ -822,6 +903,168 @@ class DashboardTests(TestCase):
                 server.shutdown()
                 server.server_close()
                 thread.join(timeout=3)
+
+    def test_authenticated_csrf_protected_server_update_request(
+        self,
+    ) -> None:
+        token = "admin-agent-test-token-123456789012345"
+        FakeAdminAgentHandler.requests = []
+        admin_server = ThreadingHTTPServer(
+            ("127.0.0.1", 0), FakeAdminAgentHandler
+        )
+        admin_thread = threading.Thread(
+            target=admin_server.serve_forever, daemon=True
+        )
+        admin_thread.start()
+        admin_port = admin_server.server_address[1]
+        with TemporaryDirectory() as directory:
+            service, _, _ = self._fixture(directory)
+            service.admin_agent_url = f"http://127.0.0.1:{admin_port}"
+            service.admin_agent_token = token
+            server = create_dashboard_server(
+                "127.0.0.1",
+                0,
+                service,
+                username="operator",
+                password="a-long-test-password",
+            )
+            thread = threading.Thread(
+                target=server.serve_forever, daemon=True
+            )
+            thread.start()
+            port = server.server_address[1]
+            basic = base64.b64encode(
+                b"operator:a-long-test-password"
+            ).decode("ascii")
+            authorization = f"Basic {basic}"
+            try:
+                root = Request(
+                    f"http://127.0.0.1:{port}/",
+                    headers={"Authorization": authorization},
+                )
+                with urlopen(root, timeout=3) as response:
+                    html = response.read().decode("utf-8")
+                csrf = re.search(
+                    r'name="csrf-token" content="([^"]+)"', html
+                ).group(1)
+                payload = json.dumps(
+                    {"confirmation": "RUN SERVER UPDATE"}
+                ).encode("utf-8")
+                update = Request(
+                    f"http://127.0.0.1:{port}/api/admin/update",
+                    data=payload,
+                    method="POST",
+                    headers={
+                        "Authorization": authorization,
+                        "Content-Type": "application/json",
+                        "X-CSRF-Token": csrf,
+                    },
+                )
+                with urlopen(update, timeout=3) as response:
+                    result = json.loads(response.read())
+                self.assertEqual(result["status"], "accepted")
+                self.assertEqual(
+                    FakeAdminAgentHandler.requests[0]["authorization"],
+                    f"Bearer {token}",
+                )
+                self.assertEqual(
+                    FakeAdminAgentHandler.requests[0]["payload"][
+                        "requested_by"
+                    ],
+                    "operator",
+                )
+                overview = service.overview()
+                self.assertEqual(
+                    overview["events"][0]["event_type"],
+                    "control_plane_admin_action_requested",
+                )
+            finally:
+                server.shutdown()
+                server.server_close()
+                thread.join(timeout=3)
+                admin_server.shutdown()
+                admin_server.server_close()
+                admin_thread.join(timeout=3)
+
+    def test_authenticated_csrf_protected_server_setting_update(
+        self,
+    ) -> None:
+        token = "admin-agent-test-token-123456789012345"
+        FakeAdminAgentHandler.requests = []
+        admin_server = ThreadingHTTPServer(
+            ("127.0.0.1", 0), FakeAdminAgentHandler
+        )
+        admin_thread = threading.Thread(
+            target=admin_server.serve_forever, daemon=True
+        )
+        admin_thread.start()
+        admin_port = admin_server.server_address[1]
+        with TemporaryDirectory() as directory:
+            service, _, _ = self._fixture(directory)
+            service.admin_agent_url = f"http://127.0.0.1:{admin_port}"
+            service.admin_agent_token = token
+            server = create_dashboard_server(
+                "127.0.0.1",
+                0,
+                service,
+                username="operator",
+                password="a-long-test-password",
+            )
+            thread = threading.Thread(
+                target=server.serve_forever, daemon=True
+            )
+            thread.start()
+            port = server.server_address[1]
+            basic = base64.b64encode(
+                b"operator:a-long-test-password"
+            ).decode("ascii")
+            authorization = f"Basic {basic}"
+            try:
+                root = Request(
+                    f"http://127.0.0.1:{port}/",
+                    headers={"Authorization": authorization},
+                )
+                with urlopen(root, timeout=3) as response:
+                    html = response.read().decode("utf-8")
+                csrf = re.search(
+                    r'name="csrf-token" content="([^"]+)"', html
+                ).group(1)
+                payload = json.dumps(
+                    {
+                        "confirmation": "UPDATE SERVER SETTING",
+                        "key": "TRADING_ALPACA_OPTIONS_ACCOUNT_UUID",
+                        "value": "9d6a0c01-64a8-488f-845a-451f7a82d9d1",
+                    }
+                ).encode("utf-8")
+                update = Request(
+                    f"http://127.0.0.1:{port}/api/admin/settings",
+                    data=payload,
+                    method="POST",
+                    headers={
+                        "Authorization": authorization,
+                        "Content-Type": "application/json",
+                        "X-CSRF-Token": csrf,
+                    },
+                )
+                with urlopen(update, timeout=3) as response:
+                    result = json.loads(response.read())
+                self.assertEqual(result["status"], "updated")
+                self.assertEqual(
+                    FakeAdminAgentHandler.requests[0]["payload"]["key"],
+                    "TRADING_ALPACA_OPTIONS_ACCOUNT_UUID",
+                )
+                overview = service.overview()
+                self.assertEqual(
+                    overview["events"][0]["event_type"],
+                    "control_plane_admin_setting_changed",
+                )
+            finally:
+                server.shutdown()
+                server.server_close()
+                thread.join(timeout=3)
+                admin_server.shutdown()
+                admin_server.server_close()
+                admin_thread.join(timeout=3)
 
     def test_analyst_gateway_is_read_only_redacted_and_audited(self) -> None:
         with TemporaryDirectory() as directory:

@@ -873,6 +873,54 @@
     <button id="research-run-start" class="primary" type="button">Start accelerated validation</button>
   </section>
 
+  <section class="panel workspace-view" data-primary="management" data-secondary="server-update">
+    <div class="panel-head">
+      <div>
+        <h2>Server update</h2>
+        <p class="subcopy">Pull the latest GitHub release, rebuild services, and bring the VPS deployment back up through the internal Admin Agent.</p>
+      </div>
+    </div>
+    <div class="safety-callout">
+      This action is allowlisted and audited. It runs the same guarded `ops/update.sh` flow that preserves local portfolio identity configuration.
+    </div>
+    <div class="facts facts-spaced">
+      <div class="fact"><span class="label">Admin Agent</span><strong id="admin-agent-state">--</strong></div>
+      <div class="fact"><span class="label">Last update state</span><strong id="admin-update-state">--</strong></div>
+      <div class="fact"><span class="label">Last update time</span><strong id="admin-update-time">--</strong></div>
+      <div class="fact"><span class="label">Result</span><strong id="admin-update-result">--</strong></div>
+    </div>
+    <p class="configuration-message" id="admin-update-message" role="status" aria-live="polite"></p>
+    <button id="admin-update-start" class="primary" type="button">Update from GitHub</button>
+  </section>
+
+  <section class="panel workspace-view" data-primary="management" data-secondary="server-settings">
+    <div class="panel-head">
+      <div>
+        <h2>Server settings</h2>
+        <p class="subcopy">Edit allowlisted `.env` settings through the internal Admin Agent. Secret values are write-only and never shown in clear text.</p>
+      </div>
+    </div>
+    <div class="safety-callout">
+      After changing a server setting, run Server Update to restart services with the new `.env` values.
+    </div>
+    <div class="control-grid">
+      <label>Setting
+        <select id="admin-setting-key"></select>
+      </label>
+      <label>New value
+        <input id="admin-setting-value" type="text" autocomplete="off" placeholder="Enter replacement value">
+      </label>
+    </div>
+    <p class="configuration-message" id="admin-setting-message" role="status" aria-live="polite"></p>
+    <button id="admin-setting-save" class="primary" type="button">Save server setting</button>
+    <div class="table-wrap">
+      <table class="configuration-table">
+        <thead><tr><th>Key</th><th>Configured</th><th>Current value</th><th>Secret</th></tr></thead>
+        <tbody id="admin-settings-table"></tbody>
+      </table>
+    </div>
+  </section>
+
   <section class="panel workspace-view" data-primary="management" data-secondary="glossary">
     <div class="panel-head">
       <div>
@@ -1043,6 +1091,8 @@
     management: [
       ["strategies", "Strategy Controls"],
       ["research-runs", "Research Runs"],
+      ["server-update", "Server Update"],
+      ["server-settings", "Server Settings"],
       ["export", "Data Export"],
       ["glossary", "Glossary / מילון מונחים"],
     ],
@@ -1369,6 +1419,18 @@
     node.className = `configuration-message ${state}`;
   }
 
+  function setAdminUpdateMessage(message, state = "") {
+    const node = document.getElementById("admin-update-message");
+    node.textContent = message;
+    node.className = `configuration-message ${state}`;
+  }
+
+  function setAdminSettingMessage(message, state = "") {
+    const node = document.getElementById("admin-setting-message");
+    node.textContent = message;
+    node.className = `configuration-message ${state}`;
+  }
+
   function entryIntervalLabel(minutes) {
     const value = Number(minutes || 0);
     if (!value) return "Cycle/default";
@@ -1450,6 +1512,185 @@
       );
     } finally {
       startButton.disabled = false;
+    }
+  }
+
+  function renderAdminUpdate(data) {
+    const agent = data.control_plane?.admin_agent || {};
+    const lastAction = agent.last_action || {};
+    const result = lastAction.result || {};
+    const enabled = Boolean(agent.enabled);
+    const status = agent.status || (enabled ? "unknown" : "not configured");
+    setText(
+      "admin-agent-state",
+      enabled ? status.replaceAll("_", " ") : "Not configured"
+    );
+    setText(
+      "admin-update-state",
+      lastAction.state
+        ? lastAction.state.replaceAll("_", " ")
+        : "--"
+    );
+    setText("admin-update-time", localTime(lastAction.updated_at));
+    const returnCode = result.returncode;
+    const resultText = returnCode === undefined
+      ? (result.message || "--")
+      : `exit ${returnCode}`;
+    setText("admin-update-result", resultText);
+    const button = document.getElementById("admin-update-start");
+    button.disabled = !enabled || lastAction.state === "running";
+    if (!enabled) {
+      setAdminUpdateMessage(
+        "Admin Agent is not enabled. Add ADMIN_AGENT_TOKEN to .env and run one final terminal update.",
+        "bad"
+      );
+      return;
+    }
+    if (agent.status !== "ok") {
+      setAdminUpdateMessage(
+        `Admin Agent unavailable: ${agent.message || agent.error || agent.status || "unknown"}`,
+        "bad"
+      );
+      return;
+    }
+    if (lastAction.state === "running") {
+      setAdminUpdateMessage("Server update is running. This can take a few minutes.");
+      return;
+    }
+    if (lastAction.state === "failed") {
+      const tail = String(result.output_tail || result.message || "");
+      setAdminUpdateMessage(
+        tail
+          ? `Last update failed. Tail: ${tail.slice(-700)}`
+          : "Last update failed.",
+        "bad"
+      );
+      return;
+    }
+    if (lastAction.state === "completed") {
+      setAdminUpdateMessage("Last server update completed successfully.", "ok");
+      return;
+    }
+    setAdminUpdateMessage("Ready to update from GitHub.", "ok");
+  }
+
+  function renderAdminSettings(data) {
+    const agent = data.control_plane?.admin_agent || {};
+    const settingsPayload = agent.settings || {};
+    const settings = settingsPayload.settings || [];
+    const body = document.getElementById("admin-settings-table");
+    const select = document.getElementById("admin-setting-key");
+    const saveButton = document.getElementById("admin-setting-save");
+    const priorValue = select.value;
+    body.replaceChildren();
+    select.replaceChildren();
+    if (!agent.enabled || agent.status !== "ok" || !settings.length) {
+      saveButton.disabled = true;
+      emptyRow(
+        body,
+        4,
+        agent.enabled
+          ? "Managed server settings are unavailable."
+          : "Admin Agent is not enabled."
+      );
+      return;
+    }
+    saveButton.disabled = false;
+    for (const setting of settings) {
+      const option = document.createElement("option");
+      option.value = setting.key;
+      option.textContent = setting.key;
+      select.appendChild(option);
+      const row = document.createElement("tr");
+      row.appendChild(cell(setting.key));
+      row.appendChild(cell(setting.configured ? "Yes" : "No"));
+      row.appendChild(cell(setting.value || "--"));
+      row.appendChild(cell(setting.secret ? "Write-only" : "No"));
+      body.appendChild(row);
+    }
+    if ([...select.options].some(option => option.value === priorValue)) {
+      select.value = priorValue;
+    }
+  }
+
+  async function startServerUpdate() {
+    const button = document.getElementById("admin-update-start");
+    if (!window.confirm(
+      "Update the VPS from GitHub now?\n\nThis will pull main, rebuild Docker services, and restart the deployment."
+    )) return;
+    button.disabled = true;
+    setAdminUpdateMessage("Requesting server update...");
+    try {
+      const response = await fetch("/api/admin/update", {
+        method: "POST",
+        cache: "no-store",
+        headers: {
+          "Content-Type": "application/json",
+          "X-CSRF-Token": csrfToken,
+        },
+        body: JSON.stringify({
+          confirmation: "RUN SERVER UPDATE",
+        }),
+      });
+      const result = await response.json();
+      if (!response.ok) throw new Error(result.error || `HTTP ${response.status}`);
+      setAdminUpdateMessage(
+        "Server update started. The dashboard may briefly disconnect while services restart.",
+        "ok"
+      );
+      await refresh();
+    } catch (error) {
+      setAdminUpdateMessage(
+        `Could not start server update: ${error.message}`,
+        "bad"
+      );
+    } finally {
+      button.disabled = false;
+    }
+  }
+
+  async function saveServerSetting() {
+    const button = document.getElementById("admin-setting-save");
+    const key = document.getElementById("admin-setting-key").value;
+    const value = document.getElementById("admin-setting-value").value;
+    if (!key) {
+      setAdminSettingMessage("Choose a setting first.", "bad");
+      return;
+    }
+    if (!window.confirm(
+      `Update ${key} in the server .env file?\n\nA backup will be created before changing it.`
+    )) return;
+    button.disabled = true;
+    setAdminSettingMessage("Saving server setting...");
+    try {
+      const response = await fetch("/api/admin/settings", {
+        method: "POST",
+        cache: "no-store",
+        headers: {
+          "Content-Type": "application/json",
+          "X-CSRF-Token": csrfToken,
+        },
+        body: JSON.stringify({
+          confirmation: "UPDATE SERVER SETTING",
+          key,
+          value,
+        }),
+      });
+      const result = await response.json();
+      if (!response.ok) throw new Error(result.error || `HTTP ${response.status}`);
+      document.getElementById("admin-setting-value").value = "";
+      setAdminSettingMessage(
+        "Setting saved. Run Server Update to restart services with the new value.",
+        "ok"
+      );
+      await refresh();
+    } catch (error) {
+      setAdminSettingMessage(
+        `Could not save server setting: ${error.message}`,
+        "bad"
+      );
+    } finally {
+      button.disabled = false;
     }
   }
 
@@ -3467,6 +3708,8 @@
       );
       renderStrategyControls(data);
       renderResearchRunControls(data);
+      renderAdminUpdate(data);
+      renderAdminSettings(data);
       renderEvidenceCatalog(data.evidence_catalog || []);
       renderSignals(data.signals || []);
       renderTradeRecords(data.trade_records || []);
@@ -3493,6 +3736,12 @@
   document
     .getElementById("research-run-start")
     .addEventListener("click", startAcceleratedValidationRun);
+  document
+    .getElementById("admin-update-start")
+    .addEventListener("click", startServerUpdate);
+  document
+    .getElementById("admin-setting-save")
+    .addEventListener("click", saveServerSetting);
   refresh();
   setInterval(refresh, 15000);
 </script>

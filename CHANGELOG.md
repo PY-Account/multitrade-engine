@@ -1,5 +1,20 @@
 # Changelog
 
+## 0.35.14 - 2026-08-20
+
+- Added an internal Admin Agent service that can run the guarded
+  `ops/update.sh` deployment flow from an authenticated dashboard action.
+- Added `Management -> Server Update`, showing Admin Agent availability, last
+  update state, timestamp, result, and failure output tail.
+- Added `Management -> Server Settings` for allowlisted `.env` edits such as
+  Paper execution gates and the dedicated options account UUID, with secret
+  values treated as write-only.
+- `ops/deploy.sh` now supports both `docker compose` and `docker-compose`, and
+  automatically enables the internal `admin` profile when `ADMIN_AGENT_TOKEN`
+  is configured.
+- Added Admin control-plane documentation so routine GitHub updates no longer
+  require repeated terminal command sequences after one-time setup.
+
 ## 0.35.13 - 2026-08-20
 
 - Added per-allocation `minimum_entry_interval_minutes` so the same strategy

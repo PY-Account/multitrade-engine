@@ -19,12 +19,27 @@ if [[ ! "${MULTITRADE_BUILD_COMMIT}" =~ ^[0-9a-f]{40}$ ]]; then
 fi
 echo "BUILD_COMMIT=${MULTITRADE_BUILD_COMMIT}"
 
-compose=(docker compose)
+if docker compose version >/dev/null 2>&1; then
+  compose=(docker compose)
+elif command -v docker-compose >/dev/null 2>&1; then
+  compose=(docker-compose)
+else
+  echo "Docker Compose is not available; deployment stopped."
+  exit 1
+fi
+
 if grep -Eq '^DASHBOARD_DOMAIN=[A-Za-z0-9.-]+\.[A-Za-z]{2,}$' .env; then
   compose+=(--profile public-dashboard)
   echo "PUBLIC_DASHBOARD_PROFILE_ENABLED"
 else
   echo "PUBLIC_DASHBOARD_PROFILE_DISABLED"
+fi
+
+if grep -Eq '^ADMIN_AGENT_TOKEN=.{32,}$' .env; then
+  compose+=(--profile admin)
+  echo "ADMIN_AGENT_PROFILE_ENABLED"
+else
+  echo "ADMIN_AGENT_PROFILE_DISABLED"
 fi
 
 "${compose[@]}" config --quiet

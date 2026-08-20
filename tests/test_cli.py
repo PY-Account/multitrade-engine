@@ -52,6 +52,11 @@ class MultiAccountCliTests(TestCase):
         self.assertEqual(args.timeframes, "1Hour,4Hour,1Day")
         self.assertTrue(args.force_all)
 
+    def test_admin_agent_command_is_registered(self) -> None:
+        args = build_parser().parse_args(["admin-agent"])
+
+        self.assertEqual(args.command, "admin-agent")
+
     def test_aggregate_health_serializes_cycle_timestamps(self) -> None:
         with TemporaryDirectory() as directory:
             health_path = Path(directory) / "health.json"

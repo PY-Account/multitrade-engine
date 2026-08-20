@@ -14,6 +14,7 @@ from multitrade.accelerated_validation import (
     AcceleratedValidationService,
     accelerated_validation_payload,
 )
+from multitrade.admin_agent import run_admin_agent
 from multitrade.audit import SqliteAuditStore
 from multitrade.automation import PaperAutomationSupervisor
 from multitrade.backtest import Backtester, StrategyValidator
@@ -1483,6 +1484,8 @@ def _dashboard() -> int:
             )
         ),
         firm_risk_policy=settings.firm_risk_policy,
+        admin_agent_url=settings.admin_agent_url,
+        admin_agent_token=settings.admin_agent_token,
     )
     server = create_dashboard_server(
         host=settings.dashboard_host,
@@ -1771,6 +1774,10 @@ def build_parser() -> argparse.ArgumentParser:
         "dashboard-healthcheck",
         help="Check the local dashboard HTTP endpoint",
     )
+    subparsers.add_parser(
+        "admin-agent",
+        help="Run the internal allowlisted server administration agent",
+    )
     return parser
 
 
@@ -1853,6 +1860,8 @@ def main(argv: list[str] | None = None) -> int:
             return _dashboard()
         if args.command == "dashboard-healthcheck":
             return _dashboard_healthcheck()
+        if args.command == "admin-agent":
+            return run_admin_agent()
     except (ValueError, OSError, RuntimeError) as exc:
         print(f"fatal: {exc}", file=sys.stderr)
         return 2
