@@ -1,5 +1,11 @@
 # Changelog
 
+## 0.35.18 - 2026-08-20
+
+- Mounted only the dedicated GitHub deploy key and known-hosts file read-only
+  into the internal Admin Agent so dashboard-triggered GitHub updates can use
+  the existing SSH configuration without exposing the whole root SSH directory.
+
 ## 0.35.17 - 2026-08-20
 
 - Reorganized the dashboard into a strategy-first operating model:

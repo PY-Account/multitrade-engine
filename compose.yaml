@@ -93,6 +93,8 @@ services:
     volumes:
       - .:/workspace
       - /var/run/docker.sock:/var/run/docker.sock
+      - /root/.ssh/multitrade_github:/root/.ssh/multitrade_github:ro
+      - /root/.ssh/known_hosts:/root/.ssh/known_hosts:ro
     command: ["multitrade", "admin-agent"]
     read_only: false
     security_opt:
