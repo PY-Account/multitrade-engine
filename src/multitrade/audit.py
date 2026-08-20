@@ -4843,10 +4843,41 @@ class SqliteAuditReader:
         *,
         limit: int = 200,
         center_at: str | None = None,
+        from_at: str | None = None,
+        to_at: str | None = None,
     ) -> list[dict[str, Any]]:
         safe_limit = max(10, min(limit, 1000))
         with closing(self._connect()) as connection:
-            if center_at is None:
+            if from_at is not None or to_at is not None:
+                conditions = ["symbol = ?", "timeframe = ?"]
+                parameters: list[Any] = [symbol, timeframe]
+                if from_at is not None:
+                    conditions.append("bar_timestamp >= ?")
+                    parameters.append(from_at)
+                if to_at is not None:
+                    conditions.append("bar_timestamp <= ?")
+                    parameters.append(to_at)
+                parameters.append(safe_limit)
+                order_direction = (
+                    "DESC" if from_at is not None and to_at is None else "ASC"
+                )
+                rows = connection.execute(
+                    f"""
+                    SELECT symbol, timeframe, feed, adjustment, bar_timestamp,
+                           open_price, high_price, low_price, close_price,
+                           volume, trade_count, vwap
+                    FROM market_bars
+                    WHERE {" AND ".join(conditions)}
+                    ORDER BY bar_timestamp {order_direction} LIMIT ?
+                    """,
+                    tuple(parameters),
+                ).fetchall()
+                ordered_rows = (
+                    list(reversed(rows))
+                    if order_direction == "DESC"
+                    else list(rows)
+                )
+            elif center_at is None:
                 rows = connection.execute(
                     """
                     SELECT symbol, timeframe, feed, adjustment, bar_timestamp,

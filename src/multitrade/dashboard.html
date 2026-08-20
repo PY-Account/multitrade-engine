@@ -3333,6 +3333,29 @@
     });
   }
 
+  function timestampMs(value) {
+    if (!value) return null;
+    const parsed = Date.parse(value);
+    return Number.isFinite(parsed) ? parsed : null;
+  }
+
+  function nearestBarIndex(bars, timestamp) {
+    const target = timestampMs(timestamp);
+    if (target == null || !bars.length) return null;
+    let bestIndex = null;
+    let bestDistance = Infinity;
+    bars.forEach((bar, index) => {
+      const barTime = timestampMs(bar.timestamp);
+      if (barTime == null) return;
+      const distance = Math.abs(barTime - target);
+      if (distance < bestDistance) {
+        bestDistance = distance;
+        bestIndex = index;
+      }
+    });
+    return bestIndex;
+  }
+
   function setChartFacts(facts) {
     const container = document.getElementById("chart-facts");
     container.replaceChildren();
@@ -3519,11 +3542,66 @@
       label.textContent = `${labelText}: ${numericPrice.toFixed(2)}`;
       svg.appendChild(label);
     }
+    const drawTradeMarker = (labelText, timestamp, price, color, labelOffset) => {
+      const index = nearestBarIndex(bars, timestamp);
+      const numericPrice = numberOrNull(price);
+      if (index == null) return;
+      const markerX = x(index);
+      svg.appendChild(svgNode("line", {
+        x1: String(markerX), x2: String(markerX),
+        y1: String(top), y2: String(bottom),
+        stroke: color,
+        "stroke-width": "1.6",
+        "stroke-dasharray": "4 4",
+        opacity: "0.72",
+      }));
+      const label = svgNode("text", {
+        x: String(Math.min(right - 72, Math.max(left + 2, markerX + 6))),
+        y: String(top + labelOffset),
+        fill: color,
+        "font-size": "12",
+        "font-weight": "700",
+      });
+      label.textContent = labelText;
+      svg.appendChild(label);
+      if (numericPrice != null && isReasonableOverlay(numericPrice)) {
+        svg.appendChild(svgNode("circle", {
+          cx: String(markerX),
+          cy: String(y(numericPrice)),
+          r: "5",
+          fill: color,
+          stroke: "var(--panel)",
+          "stroke-width": "2",
+        }));
+      }
+    };
+    drawTradeMarker(
+      "ENTRY",
+      trade.created_at,
+      trade.entry_price || trade.reference_price,
+      "var(--accent)",
+      14
+    );
+    if (trade.closed_at) {
+      drawTradeMarker(
+        "EXIT",
+        trade.closed_at,
+        trade.exit_price || trade.reference_price,
+        "var(--warn)",
+        30
+      );
+    }
     const latestBar = bars[bars.length - 1];
     setChartFacts([
       [
         "Selected view",
-        `${mode === "exit" ? "Exit" : "Entry"} chart · ${trade.symbol} · ${bars[0]?.timeframe || "5Min"}`,
+        `${mode === "exit" ? "Exit focus" : "Lifecycle"} chart · ${trade.symbol} · ${bars[0]?.timeframe || "5Min"}`,
+      ],
+      [
+        "Lifecycle",
+        trade.closed_at
+          ? `Entry ${localTime(trade.created_at)} · Exit ${localTime(trade.closed_at)}`
+          : `Entry ${localTime(trade.created_at)} · still open / latest stored candle shown`,
       ],
       [
         "Strategy evidence",
@@ -3553,9 +3631,6 @@
   }
 
   async function loadTradeChart(trade, mode = "entry") {
-    const centeredAt = mode === "exit" && trade.closed_at
-      ? trade.closed_at
-      : trade.created_at;
     setText(
       "chart-copy",
       `Loading ${trade.symbol} ${mode} price context...`
@@ -3564,9 +3639,16 @@
       const params = new URLSearchParams({
         symbol: trade.symbol,
         timeframe: "5Min",
-        limit: "180",
+        limit: mode === "entry" ? "500" : "220",
       });
-      if (centeredAt) params.set("center_at", centeredAt);
+      if (mode === "entry") {
+        if (trade.created_at) params.set("from_at", trade.created_at);
+        if (trade.closed_at) params.set("to_at", trade.closed_at);
+      } else if (trade.closed_at) {
+        params.set("center_at", trade.closed_at);
+      } else if (trade.created_at) {
+        params.set("from_at", trade.created_at);
+      }
       const response = await fetch(
         `/api/chart?${params.toString()}`,
         {cache: "no-store"}
@@ -3576,7 +3658,7 @@
       drawPriceChart(data.bars || [], trade, mode);
       setText(
         "chart-copy",
-        `${trade.strategy_id} / ${trade.symbol} / ${mode} / ${data.timeframe} / ${data.bars?.[0]?.feed || "unknown feed"} \u2014 candles show stored market bars around the selected decision timestamp.`
+        `${trade.strategy_id} / ${trade.symbol} / ${mode} / ${data.timeframe} / ${data.bars?.[0]?.feed || "unknown feed"} \u2014 ${mode === "entry" ? "candles show the stored lifecycle from entry through exit or the latest stored bar." : "candles show stored market bars around the selected exit timestamp."}`
       );
     } catch (error) {
       drawPriceChart([], trade, mode);

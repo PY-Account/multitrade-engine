@@ -1,5 +1,15 @@
 # Changelog
 
+## 0.35.20 - 2026-08-20
+
+- Expanded trade Entry charts into lifecycle views that show stored candles
+  from entry through exit, or through the latest stored candle while a trade is
+  still open.
+- Added Entry and Exit markers directly on the price chart, including marker
+  dots at recorded entry/exit prices when those prices are available.
+- Added range-based chart API support so the dashboard can request
+  trade-specific candle windows instead of only centered snapshots.
+
 ## 0.35.19 - 2026-08-20
 
 - Moved the account selector out of the top-level workspace navigation into a

@@ -314,6 +314,62 @@ class DashboardTests(TestCase):
                 bars[10].timestamp.isoformat(),
             )
 
+    def test_chart_can_return_trade_lifecycle_range(self) -> None:
+        with TemporaryDirectory() as directory:
+            service, db_path, _ = self._fixture(directory)
+            store = SqliteAuditStore(db_path)
+            start = datetime(
+                2026, 8, 19, 14, 30, tzinfo=timezone.utc
+            )
+            bars = [
+                MarketBar(
+                    symbol="AAPL",
+                    asset_class=AssetClass.STOCK,
+                    timeframe="5Min",
+                    timestamp=start + timedelta(minutes=5 * index),
+                    open=Decimal("220") + Decimal(index),
+                    high=Decimal("221") + Decimal(index),
+                    low=Decimal("219") + Decimal(index),
+                    close=Decimal("220.5") + Decimal(index),
+                    volume=Decimal("100000"),
+                    trade_count=100,
+                    vwap=Decimal("220.25") + Decimal(index),
+                    feed="iex",
+                )
+                for index in range(24)
+            ]
+            store.record_market_bars(bars)
+
+            closed = service.chart(
+                "AAPL",
+                "5Min",
+                limit=20,
+                from_at=bars[4].timestamp.isoformat(),
+                to_at=bars[9].timestamp.isoformat(),
+            )
+            self.assertEqual(closed["from_at"], bars[4].timestamp.isoformat())
+            self.assertEqual(closed["to_at"], bars[9].timestamp.isoformat())
+            self.assertEqual(
+                [item["timestamp"] for item in closed["bars"]],
+                [bar.timestamp.isoformat() for bar in bars[4:10]],
+            )
+
+            open_ended = service.chart(
+                "AAPL",
+                "5Min",
+                limit=10,
+                from_at=bars[4].timestamp.isoformat(),
+            )
+            self.assertEqual(len(open_ended["bars"]), 10)
+            self.assertEqual(
+                open_ended["bars"][0]["timestamp"],
+                bars[14].timestamp.isoformat(),
+            )
+            self.assertEqual(
+                open_ended["bars"][-1]["timestamp"],
+                bars[-1].timestamp.isoformat(),
+            )
+
     def test_overview_exposes_isolated_views_for_each_account(
         self,
     ) -> None:
