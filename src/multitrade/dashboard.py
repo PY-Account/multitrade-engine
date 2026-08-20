@@ -701,6 +701,9 @@ class DashboardData:
                         "minimum_confidence": format(
                             allocation.minimum_confidence, "f"
                         ),
+                        "minimum_entry_interval_minutes": (
+                            allocation.minimum_entry_interval_minutes
+                        ),
                         "paper_execution_allowed": (
                             allocation.paper_execution_allowed
                         ),

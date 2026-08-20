@@ -823,7 +823,7 @@
     <p class="configuration-message" id="configuration-message" role="status" aria-live="polite"></p>
     <div class="table-wrap">
       <table class="configuration-table">
-        <thead><tr><th>Strategy</th><th>Class</th><th>Enabled</th><th>Paper permission</th><th>Execution symbols</th><th>Revision</th><th>Last change</th><th>Action</th></tr></thead>
+        <thead><tr><th>Strategy</th><th>Class</th><th>Entry interval</th><th>Enabled</th><th>Paper permission</th><th>Execution symbols</th><th>Revision</th><th>Last change</th><th>Action</th></tr></thead>
         <tbody id="strategy-controls"></tbody>
       </table>
     </div>
@@ -1369,6 +1369,15 @@
     node.className = `configuration-message ${state}`;
   }
 
+  function entryIntervalLabel(minutes) {
+    const value = Number(minutes || 0);
+    if (!value) return "Cycle/default";
+    if (value % 10080 === 0) return `${value / 10080} week`;
+    if (value % 1440 === 0) return `${value / 1440} day`;
+    if (value % 60 === 0) return `${value / 60} hour`;
+    return `${value} min`;
+  }
+
   function renderResearchRunControls(data) {
     setText("research-run-account", selectedAccountId);
     const action = data.control_plane?.actions?.accelerated_validation || {};
@@ -1458,7 +1467,7 @@
     );
     const allocations = account?.allocations || [];
     if (!allocations.length) {
-      emptyRow(body, 8, "No strategy configuration is available for this account.");
+      emptyRow(body, 9, "No strategy configuration is available for this account.");
       return;
     }
     for (const allocation of allocations) {
@@ -1466,6 +1475,7 @@
       const row = document.createElement("tr");
       row.appendChild(cell(allocation.strategy_id));
       row.appendChild(cell(allocation.asset_class || "stock"));
+      row.appendChild(cell(entryIntervalLabel(allocation.minimum_entry_interval_minutes)));
 
       const enabledCell = document.createElement("td");
       const enabled = document.createElement("input");

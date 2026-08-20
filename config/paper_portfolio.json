@@ -240,6 +240,7 @@
           "minimum_confidence": "0.70",
           "paper_execution_allowed": true,
           "timeframe": "5Min",
+          "minimum_entry_interval_minutes": 1440,
           "symbols": ["SPY", "IWM"],
           "option_policy": {
             "structure": "bull_put_credit_spread",

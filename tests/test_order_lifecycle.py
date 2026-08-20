@@ -293,6 +293,51 @@ class OrderLifecycleTests(TestCase):
             )
             self.assertEqual(store.active_risk(), Decimal("0"))
 
+    def test_last_submitted_at_can_be_scoped_to_strategy(self) -> None:
+        with TemporaryDirectory() as directory:
+            db_path = Path(directory) / "audit.db"
+            store = SqliteAuditStore(db_path)
+            snapshot = AccountSnapshot(
+                equity=Decimal("10000"),
+                start_of_day_equity=Decimal("10000"),
+                peak_equity=Decimal("10000"),
+            )
+            for strategy_id in ("strategy_a", "strategy_b"):
+                intent = TradeIntent(
+                    intent_id=f"intent-{strategy_id}",
+                    strategy_id=strategy_id,
+                    asset_class=AssetClass.STOCK,
+                    symbol="SPY",
+                    side=Side.BUY,
+                    requested_quantity=Decimal("1"),
+                    order_type=OrderType.MARKET,
+                    time_in_force=TimeInForce.DAY,
+                    reference_price=Decimal("100"),
+                    stop_price=Decimal("95"),
+                )
+                decision = store.evaluate_and_reserve(
+                    RiskEngine(), intent, snapshot
+                )
+                self.assertTrue(decision.approved)
+                store.mark_submitted(
+                    f"intent-{strategy_id}",
+                    f"broker-{strategy_id}",
+                )
+
+            self.assertIsNotNone(
+                store.last_submitted_at("alpaca-paper", "SPY")
+            )
+            self.assertIsNotNone(
+                store.last_submitted_at(
+                    "alpaca-paper", "SPY", "strategy_a"
+                )
+            )
+            self.assertIsNone(
+                store.last_submitted_at(
+                    "alpaca-paper", "SPY", "strategy_c"
+                )
+            )
+
     def test_canceled_opening_order_releases_risk(self) -> None:
         with TemporaryDirectory() as directory:
             store = SqliteAuditStore(Path(directory) / "audit.db")

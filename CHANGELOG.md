@@ -1,5 +1,18 @@
 # Changelog
 
+## 0.35.13 - 2026-08-20
+
+- Added per-allocation `minimum_entry_interval_minutes` so the same strategy
+  identity can run as daily or weekly without duplicating models.
+- Applied a one-day interval to `spx_rut_put_credit_14dte`, preserving the
+  user's earlier daily Paper test while allowing a 10080-minute weekly
+  TradingWarz-style protocol through configuration.
+- Strategy entry interval checks now use account/symbol/strategy submission
+  history, including already-submitted risk reservations before broker
+  reconciliation finishes.
+- The dashboard Strategy Controls table now shows each allocation's entry
+  interval.
+
 ## 0.35.12 - 2026-08-20
 
 - `config/paper_portfolio.json` now reads the dedicated options Paper account

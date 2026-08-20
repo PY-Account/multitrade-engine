@@ -1693,23 +1693,49 @@ class SqliteAuditStore:
             self._close_if_needed(connection)
 
     def last_submitted_at(
-        self, account_id: str, symbol: str
+        self,
+        account_id: str,
+        symbol: str,
+        strategy_id: str | None = None,
     ) -> datetime | None:
         connection = self._connect()
         try:
+            parameters: tuple[Any, ...] = (account_id, symbol)
+            reservation_parameters: tuple[Any, ...] = (
+                account_id,
+                symbol,
+            )
+            strategy_filter = ""
+            reservation_strategy_filter = ""
+            if strategy_id is not None:
+                strategy_filter = " AND strategy_id = ?"
+                parameters = (*parameters, strategy_id)
+                reservation_strategy_filter = " AND strategy_id = ?"
+                reservation_parameters = (
+                    *reservation_parameters,
+                    strategy_id,
+                )
             row = connection.execute(
-                """
-                SELECT created_at
-                FROM trade_records
-                WHERE account_id = ? AND symbol = ?
-                  AND broker_order_id IS NOT NULL
-                ORDER BY created_at DESC LIMIT 1
+                f"""
+                SELECT MAX(created_at) AS created_at FROM (
+                    SELECT created_at
+                    FROM trade_records
+                    WHERE account_id = ? AND symbol = ?
+                      AND broker_order_id IS NOT NULL
+                      {strategy_filter}
+                    UNION ALL
+                    SELECT created_at
+                    FROM risk_reservations
+                    WHERE account_id = ? AND symbol = ?
+                      AND broker_order_id IS NOT NULL
+                      {reservation_strategy_filter}
+                )
                 """,
-                (account_id, symbol),
+                (*parameters, *reservation_parameters),
             ).fetchone()
             return (
                 datetime.fromisoformat(row["created_at"])
-                if row is not None
+                if row is not None and row["created_at"] is not None
                 else None
             )
         finally:

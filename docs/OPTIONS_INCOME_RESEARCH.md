@@ -42,6 +42,20 @@ exact-contract paths, conservative spread pricing, and prospective Paper
 observations. The allocation is enabled for observation but its
 `paper_execution_allowed` flag remains false.
 
+## Index weekly/daily cadence
+
+`index_put_credit_14dte` is the shared identity for the SPX/RUT defined-risk
+put-credit idea. Do not create a second strategy just to test daily versus
+weekly frequency. Set the allocation-level
+`minimum_entry_interval_minutes` instead:
+
+- `1440`: at most one entry per day per proxy symbol.
+- `10080`: at most one entry per week per proxy symbol.
+
+The default Paper options allocation keeps the user's daily test preference
+with `1440`. A TradingWarz-style weekly income trial should change only that
+interval and preregister the change before comparing results.
+
 ## V2 profitability loop
 
 V1 produced small positive gross results in two variants, but modeled costs

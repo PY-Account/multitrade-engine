@@ -853,3 +853,25 @@ class StrategyTests(TestCase):
             plans[1].expected_broker_account_id,
             "broker-account-b",
         )
+
+    def test_index_credit_allocation_declares_daily_entry_interval(
+        self,
+    ) -> None:
+        stock_plan, option_plan = load_account_plans(
+            Path(__file__).parents[1]
+            / "config"
+            / "paper_portfolio.json"
+        )
+
+        self.assertEqual(stock_plan.account_id, "alpaca-paper")
+        allocation = option_plan.allocations[
+            "spx_rut_put_credit_14dte"
+        ]
+        self.assertEqual(
+            allocation.source_strategy_id,
+            "index_put_credit_14dte",
+        )
+        self.assertEqual(
+            allocation.minimum_entry_interval_minutes,
+            1440,
+        )

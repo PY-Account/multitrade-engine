@@ -33,6 +33,7 @@ class StrategyAllocation:
     asset_class: AssetClass = AssetClass.STOCK
     option_policy: OptionExecutionPolicy | None = None
     timeframe: str | None = None
+    minimum_entry_interval_minutes: int = 0
 
     def __post_init__(self) -> None:
         if not self.strategy_id:
@@ -50,6 +51,10 @@ class StrategyAllocation:
             raise ValueError("minimum_confidence must be in [0, 1]")
         if any(not symbol for symbol in self.symbols):
             raise ValueError("Strategy symbols cannot be empty strings")
+        if self.minimum_entry_interval_minutes < 0:
+            raise ValueError(
+                "minimum_entry_interval_minutes cannot be negative"
+            )
         if self.timeframe is not None:
             timeframe_seconds(self.timeframe)
         if self.asset_class is AssetClass.OPTION:
@@ -373,6 +378,11 @@ def load_account_plans(path: str | Path) -> tuple[AccountPlan, ...]:
                 ),
                 asset_class=asset_class,
                 option_policy=option_policy,
+                minimum_entry_interval_minutes=int(
+                    allocation_row.get(
+                        "minimum_entry_interval_minutes", 0
+                    )
+                ),
             )
         plans.append(
             AccountPlan(

@@ -23,7 +23,7 @@ rejected.
 Every option bot is a normal account allocation in
 `config/paper_portfolio.json`. It has its own strategy ID, source signal,
 capital weight, risk budget, confidence floor, symbols, Paper permission, and
-`option_policy`. The policy freezes:
+entry interval. The `option_policy` freezes:
 
 - structure and required Alpaca options level;
 - minimum/maximum days to expiration;
@@ -37,6 +37,12 @@ capital weight, risk budget, confidence floor, symbols, Paper permission, and
 The income-oriented option allocations may be enabled for guarded Paper
 submission. Protective puts remain disabled by default because they require an
 existing managed stock position.
+
+`minimum_entry_interval_minutes` controls how often the same account, symbol,
+and strategy may submit a new entry after a broker submission. For
+`spx_rut_put_credit_14dte`, `1440` means at most one entry per day per proxy
+symbol. A weekly income protocol can use `10080` without creating a duplicate
+strategy identity.
 
 ## Entry gates
 

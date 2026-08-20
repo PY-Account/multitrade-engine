@@ -1195,6 +1195,20 @@ class PaperAutomationService:
             )
         ):
             return "symbol_cooldown_active"
+        if allocation.minimum_entry_interval_minutes:
+            last_strategy_submission = self.store.last_submitted_at(
+                self.account_plan.account_id,
+                signal.symbol,
+                allocation.strategy_id,
+            )
+            if (
+                last_strategy_submission is not None
+                and checked_at - last_strategy_submission
+                < timedelta(
+                    minutes=allocation.minimum_entry_interval_minutes
+                )
+            ):
+                return "strategy_entry_interval_active"
         return None
 
 
