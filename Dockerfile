@@ -17,6 +17,7 @@ RUN apt-get update \
         ca-certificates \
         docker.io \
         git \
+        openssh-client \
     && (apt-get install -y --no-install-recommends docker-compose-plugin \
         || apt-get install -y --no-install-recommends docker-compose \
         || true) \

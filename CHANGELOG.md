@@ -1,5 +1,10 @@
 # Changelog
 
+## 0.35.16 - 2026-08-20
+
+- Added `openssh-client` to the application image so the internal Admin Agent
+  can run GitHub SSH-based updates from the dashboard.
+
 ## 0.35.15 - 2026-08-20
 
 - Strategy Controls can now edit the effective timeframe per strategy

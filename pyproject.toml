@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "multitrade-engine"
-version = "0.35.15"
+version = "0.35.16"
 description = "Paper-first multi-strategy trading engine with centralized risk controls"
 readme = "README.md"
 requires-python = ">=3.12"
