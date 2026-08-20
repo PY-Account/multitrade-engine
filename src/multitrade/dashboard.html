@@ -2890,11 +2890,11 @@
     }
     const evidence = tradeEvidence(trade);
     const fvg = evidence.fvg || {};
-    const prices = bars.flatMap(bar => [
+    const barPrices = bars.flatMap(bar => [
       numberOrNull(bar.low),
       numberOrNull(bar.high),
     ]).filter(value => value != null);
-    for (const value of [
+    const overlayCandidates = [
       trade.reference_price,
       trade.stop_price,
       trade.target_price,
@@ -2904,12 +2904,18 @@
       fvg.gap_low,
       fvg.gap_high,
       fvg.gap_midpoint,
-    ]) {
-      const numeric = numberOrNull(value);
-      if (numeric != null) prices.push(numeric);
-    }
-    const minimum = Math.min(...prices);
-    const maximum = Math.max(...prices);
+    ].map(numberOrNull).filter(value => value != null);
+    const rawMinimum = Math.min(...barPrices);
+    const rawMaximum = Math.max(...barPrices);
+    const rawSpan = Math.max(0.000001, rawMaximum - rawMinimum);
+    const isReasonableOverlay = value =>
+      value >= rawMinimum - rawSpan * 1.25 && value <= rawMaximum + rawSpan * 1.25;
+    const prices = barPrices.concat(overlayCandidates.filter(isReasonableOverlay));
+    const unpaddedMinimum = Math.min(...prices);
+    const unpaddedMaximum = Math.max(...prices);
+    const unpaddedSpan = Math.max(0.000001, unpaddedMaximum - unpaddedMinimum);
+    const minimum = unpaddedMinimum - unpaddedSpan * 0.08;
+    const maximum = unpaddedMaximum + unpaddedSpan * 0.08;
     const span = Math.max(0.000001, maximum - minimum);
     const top = 26;
     const bottom = 312;
@@ -2924,10 +2930,34 @@
       x: "0", y: "0", width: "1000", height: "360",
       fill: "transparent",
     }));
+    for (let tickIndex = 0; tickIndex <= 4; tickIndex += 1) {
+      const price = maximum - (span * tickIndex) / 4;
+      const tickY = y(price);
+      svg.appendChild(svgNode("line", {
+        x1: String(left), x2: String(right),
+        y1: String(tickY), y2: String(tickY),
+        stroke: "currentColor",
+        opacity: tickIndex === 4 ? "0.18" : "0.09",
+      }));
+      const label = svgNode("text", {
+        x: "8",
+        y: String(tickY + 4),
+        fill: "currentColor",
+        opacity: "0.58",
+        "font-size": "11",
+      });
+      label.textContent = price.toFixed(2);
+      svg.appendChild(label);
+    }
     if (fvg.gap_low != null && fvg.gap_high != null) {
       const gapLow = numberOrNull(fvg.gap_low);
       const gapHigh = numberOrNull(fvg.gap_high);
-      if (gapLow != null && gapHigh != null) {
+      if (
+        gapLow != null
+        && gapHigh != null
+        && isReasonableOverlay(gapLow)
+        && isReasonableOverlay(gapHigh)
+      ) {
         const upperY = y(Math.max(gapLow, gapHigh));
         const lowerY = y(Math.min(gapLow, gapHigh));
         svg.appendChild(svgNode("rect", {
@@ -3001,8 +3031,9 @@
       ["Decision MA(10)", evidence.sma_fast, "var(--muted)"],
     ];
     for (const [labelText, price, color] of levels) {
-      if (price == null) continue;
-      const levelY = y(price);
+      const numericPrice = numberOrNull(price);
+      if (numericPrice == null || !isReasonableOverlay(numericPrice)) continue;
+      const levelY = y(numericPrice);
       svg.appendChild(svgNode("line", {
         x1: String(left), x2: String(right), y1: levelY, y2: levelY,
         stroke: color, "stroke-dasharray": "7 5", opacity: "0.85",
@@ -3010,7 +3041,7 @@
       const label = svgNode("text", {
         x: String(left + 4), y: Math.max(14, levelY - 5), fill: color, "font-size": "12",
       });
-      label.textContent = `${labelText}: ${Number(price).toFixed(2)}`;
+      label.textContent = `${labelText}: ${numericPrice.toFixed(2)}`;
       svg.appendChild(label);
     }
     const latestBar = bars[bars.length - 1];
