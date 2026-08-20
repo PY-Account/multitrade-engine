@@ -1105,9 +1105,30 @@ class ContinuousStrategyLabService:
             ) as executor:
                 reports = list(executor.map(evaluate_job, evaluation_jobs))
         self.last_reports = tuple(reports)
+        reports_persisted = 0
+        trial_registration_conflicts = 0
         if persist_reports:
             for report in reports:
-                self.store.record_strategy_lab_report(report)
+                try:
+                    self.store.record_strategy_lab_report(report)
+                    reports_persisted += 1
+                except ValueError as exc:
+                    if "already registered with different evidence" not in str(
+                        exc
+                    ):
+                        raise
+                    trial_registration_conflicts += 1
+                    self.store.record_event(
+                        "strategy_lab_trial_registration_conflict",
+                        self.account_plan.account_id,
+                        {
+                            "report_id": report.report_id,
+                            "strategy_id": report.strategy_id,
+                            "strategy_version": report.strategy_version,
+                            "evaluated_at": report.evaluated_at.isoformat(),
+                            "reason": str(exc),
+                        },
+                    )
             self.store.record_event(
                 "strategy_lab_cycle_completed",
                 self.account_plan.account_id,
@@ -1115,9 +1136,13 @@ class ContinuousStrategyLabService:
                     "timeframe": ",".join(sorted(symbols_by_timeframe)),
                     "timeframes": sorted(symbols_by_timeframe),
                     "strategies_evaluated": len(reports),
+                    "reports_persisted": reports_persisted,
+                    "trial_registration_conflicts": (
+                        trial_registration_conflicts
+                    ),
                     "baseline_strategies_evaluated": baseline_count,
                     "comparison_variants_evaluated": comparison_count,
-                    "immutable_trials_registered": len(reports),
+                    "immutable_trials_registered": reports_persisted,
                     "symbols_requested": len(requested_symbols),
                     "symbols_with_bars": sum(
                         bool(rows)
@@ -1132,9 +1157,11 @@ class ContinuousStrategyLabService:
             "timeframe": ",".join(sorted(symbols_by_timeframe)),
             "timeframes": sorted(symbols_by_timeframe),
             "strategies_evaluated": len(reports),
+            "reports_persisted": reports_persisted,
+            "trial_registration_conflicts": trial_registration_conflicts,
             "baseline_strategies_evaluated": baseline_count,
             "comparison_variants_evaluated": comparison_count,
-            "immutable_trials_registered": len(reports),
+            "immutable_trials_registered": reports_persisted,
             "symbols_requested": len(requested_symbols),
             "symbols_with_bars": sum(
                 bool(rows)
@@ -1150,8 +1177,10 @@ class ContinuousStrategyLabService:
             evaluated_at=evaluated_at,
             timeframe=",".join(sorted(symbols_by_timeframe)),
             strategies_evaluated=len(reports),
-            reports_completed=len(reports),
-            trials_registered=len(reports) if persist_reports else 0,
+            reports_completed=(
+                reports_persisted if persist_reports else len(reports)
+            ),
+            trials_registered=reports_persisted if persist_reports else 0,
             symbols_requested=len(requested_symbols),
             symbols_with_bars=sum(
                 bool(rows)

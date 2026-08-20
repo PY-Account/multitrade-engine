@@ -718,6 +718,91 @@ class StrategyLabTests(TestCase):
                         ("frequent_test_baseline_2026q3",),
                     )
 
+    def test_manifest_conflict_is_audited_without_stopping_service(
+        self,
+    ) -> None:
+        with TemporaryDirectory() as directory:
+            db_path = Path(directory) / "trading.db"
+            health_path = Path(directory) / "strategy-lab-health.json"
+            store = SqliteAuditStore(db_path)
+            base_program = experiment_program()
+            base_experiment = base_program.experiments_by_strategy[
+                "frequent_test"
+            ]
+            changed_program = StrategyExperimentProgram(
+                {
+                    "frequent_test": replace(
+                        base_experiment,
+                        hypothesis=(
+                            "The same frozen experiment was edited "
+                            "after registration."
+                        ),
+                    )
+                }
+            )
+
+            first_service = ContinuousStrategyLabService(
+                account_plan=account_plan(),
+                strategies={
+                    "frequent_test": FrequentTestStrategy()
+                },
+                market_data=FakeMarketData(),
+                store=store,
+                health_path=str(health_path),
+                experiment_program=base_program,
+                config=StrategyLabConfig(
+                    base_slippage_bps=Decimal("0"),
+                    stressed_slippage_bps=Decimal("10"),
+                    minimum_out_of_sample_trades=20,
+                ),
+            )
+            second_service = ContinuousStrategyLabService(
+                account_plan=account_plan(),
+                strategies={
+                    "frequent_test": FrequentTestStrategy()
+                },
+                market_data=FakeMarketData(),
+                store=store,
+                health_path=str(health_path),
+                experiment_program=changed_program,
+                config=StrategyLabConfig(
+                    base_slippage_bps=Decimal("0"),
+                    stressed_slippage_bps=Decimal("10"),
+                    minimum_out_of_sample_trades=20,
+                ),
+            )
+
+            first_result = first_service.run_cycle(
+                now=datetime(
+                    2026, 7, 30, 12, tzinfo=timezone.utc
+                )
+            )
+            second_result = second_service.run_cycle(
+                now=datetime(
+                    2026, 7, 31, 12, tzinfo=timezone.utc
+                )
+            )
+            reader = SqliteAuditReader(db_path)
+            reports = reader.recent_strategy_lab_reports()
+            trials = reader.recent_strategy_model_trials()
+            events = reader.recent_events(5)
+
+            self.assertEqual(first_result.reports_completed, 1)
+            self.assertEqual(first_result.trials_registered, 1)
+            self.assertEqual(second_result.reports_completed, 0)
+            self.assertEqual(second_result.trials_registered, 0)
+            self.assertEqual(len(reports), 1)
+            self.assertEqual(len(trials), 1)
+            self.assertEqual(
+                events[1]["event_type"],
+                "strategy_lab_trial_registration_conflict",
+            )
+            self.assertEqual(
+                events[1]["payload"]["strategy_id"],
+                "frequent_test",
+            )
+            self.assertTrue(health_path.is_file())
+
     def test_comparison_variant_uses_same_research_symbols(
         self,
     ) -> None:
