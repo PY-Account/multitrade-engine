@@ -1,5 +1,13 @@
 # Changelog
 
+## 0.35.23 - 2026-08-20
+
+- Fixed dashboard-triggered updates from the Admin Agent by mounting the
+  project at `/opt/multitrade/app` inside the Admin Agent container, matching
+  the host path used by Docker daemon bind mounts such as the Caddyfile.
+- Prevented one-click GitHub updates from failing Caddy startup with
+  `/workspace/Caddyfile` host-path mount errors.
+
 ## 0.35.22 - 2026-08-20
 
 - Simplified option combo trade review by showing multi-leg trades as one

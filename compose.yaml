@@ -88,10 +88,10 @@ services:
     environment:
       ADMIN_AGENT_HOST: 0.0.0.0
       ADMIN_AGENT_PORT: "8090"
-      ADMIN_AGENT_WORKDIR: /workspace
-    working_dir: /workspace
+      ADMIN_AGENT_WORKDIR: /opt/multitrade/app
+    working_dir: /opt/multitrade/app
     volumes:
-      - .:/workspace
+      - .:/opt/multitrade/app
       - /var/run/docker.sock:/var/run/docker.sock
       - /root/.ssh/multitrade_github:/root/.ssh/multitrade_github:ro
       - /root/.ssh/known_hosts:/root/.ssh/known_hosts:ro
