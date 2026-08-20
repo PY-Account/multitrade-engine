@@ -23,6 +23,7 @@ from multitrade.domain import (
     ZERO,
 )
 from multitrade.market import MarketBar, timeframe_seconds
+from multitrade.probability import defined_risk_probability_estimate
 
 
 OPTION_DATA_URL = "https://data.alpaca.markets"
@@ -1466,6 +1467,14 @@ class DefinedRiskOptionSelector:
                 raise ValueError(
                     "Selected spread fails minimum credit-to-risk ratio"
                 )
+        probability_estimate = defined_risk_probability_estimate(
+            structure=structure.value,
+            legs=intent.option_legs,
+            net_price=Decimal(str(intent.limit_price)),
+            underlying_price=underlying_price,
+            expiration=expiration,
+            as_of=as_of,
+        )
         selected_snapshots = {
             contract.symbol: contract for contract in contracts
         }
@@ -1473,6 +1482,7 @@ class DefinedRiskOptionSelector:
             intent,
             explanation={
                 **intent.explanation,
+                "probability_estimate": probability_estimate.payload(),
                 "source_strategy_id": (
                     self.policy.source_strategy_id
                 ),

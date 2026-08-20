@@ -331,6 +331,20 @@ class DefinedRiskOptionFactoryTests(TestCase):
         self.assertFalse(
             intent.explanation["historical_bar_greeks_available"]
         )
+        probability = intent.explanation["probability_estimate"]
+        self.assertTrue(probability["record_only"])
+        self.assertEqual(
+            probability["breakeven_low"], Decimal("149.20")
+        )
+        self.assertEqual(
+            probability["max_profit_per_package"], Decimal("80.00")
+        )
+        self.assertEqual(
+            probability["max_loss_per_package"], Decimal("420.00")
+        )
+        self.assertEqual(
+            probability["probability_of_profit"], Decimal("0.75")
+        )
 
     def test_bull_put_selector_can_target_fixed_strike_width(
         self,
@@ -394,4 +408,8 @@ class DefinedRiskOptionFactoryTests(TestCase):
         self.assertEqual(
             intent.explanation["target_strike_width"],
             Decimal("25"),
+        )
+        self.assertIn(
+            "expected_return_on_risk",
+            intent.explanation["probability_estimate"],
         )
