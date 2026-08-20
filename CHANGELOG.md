@@ -1,5 +1,13 @@
 # Changelog
 
+## 0.35.11 - 2026-08-20
+
+- Added an authenticated web control-plane action for starting bounded
+  accelerated validation runs from `Management -> Research Runs`.
+- Research runs started from the dashboard are CSRF-protected, audited,
+  backgrounded, limited to enabled Paper accounts, and remain research-only.
+- Added live dashboard status for the latest web-started research action.
+
 ## 0.32.2 - 2026-08-12
 
 - Fixed full accelerated validation runs that include option allocations with

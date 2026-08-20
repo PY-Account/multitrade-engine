@@ -252,6 +252,25 @@
     }
     .configuration-message.ok { color: var(--ok); }
     .configuration-message.bad { color: var(--bad); }
+    .control-grid {
+      display: grid;
+      grid-template-columns: repeat(5, minmax(120px, 1fr));
+      gap: 12px;
+      margin: 16px 0;
+      align-items: end;
+    }
+    .control-grid label {
+      display: grid;
+      gap: 7px;
+      color: var(--muted);
+      font-size: .76rem;
+    }
+    .control-grid label.checkbox-line {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      min-height: 38px;
+    }
     .safety-callout {
       padding: 14px;
       border: 1px solid var(--warn);
@@ -312,12 +331,14 @@
     }
     @media (max-width: 1100px) {
       .summary-grid { grid-template-columns: repeat(3, 1fr); }
+      .control-grid { grid-template-columns: repeat(2, 1fr); }
     }
     @media (max-width: 820px) {
       header { align-items: start; flex-direction: column; }
       .header-tools { align-items: start; }
       .two-column { grid-template-columns: 1fr; }
       .preference-grid { grid-template-columns: 1fr; }
+      .control-grid { grid-template-columns: 1fr; }
       .glossary-grid { grid-template-columns: 1fr; }
       .workspace-nav { align-items: stretch; flex-direction: column; }
       .account-switcher { padding-bottom: 10px; }
@@ -808,6 +829,50 @@
     </div>
   </section>
 
+  <section class="panel workspace-view" data-primary="management" data-secondary="research-runs">
+    <div class="panel-head">
+      <div>
+        <h2>Research run controls</h2>
+        <p class="subcopy">Start bounded historical strategy screening from the web interface. Runs are audited, research-only, and never authorize execution.</p>
+      </div>
+    </div>
+    <div class="safety-callout">
+      Use small batches first. The run uses broker market data and can still hit provider rate limits when the universe or timeframe set is too broad.
+    </div>
+    <div class="control-grid">
+      <label>Timeframes
+        <input id="research-run-timeframes" type="text" value="1Day" placeholder="5Min, 1Hour, 4Hour, 1Day">
+      </label>
+      <label>Workers
+        <select id="research-run-workers">
+          <option value="1">1</option>
+          <option value="2">2</option>
+          <option value="3">3</option>
+          <option value="4">4</option>
+        </select>
+      </label>
+      <label>Max candidates
+        <input id="research-run-max-candidates" type="number" value="48" min="1" max="96" step="1">
+      </label>
+      <label class="checkbox-line">
+        <input id="research-run-optimize" type="checkbox">
+        Optimize parameters
+      </label>
+      <label class="checkbox-line">
+        <input id="research-run-force-all" type="checkbox">
+        Force all candidates
+      </label>
+    </div>
+    <div class="facts facts-spaced">
+      <div class="fact"><span class="label">Selected account</span><strong id="research-run-account">--</strong></div>
+      <div class="fact"><span class="label">Last action state</span><strong id="research-run-state">Idle</strong></div>
+      <div class="fact"><span class="label">Last update</span><strong id="research-run-updated">--</strong></div>
+      <div class="fact"><span class="label">Last result</span><strong id="research-run-result">--</strong></div>
+    </div>
+    <p class="configuration-message" id="research-run-message" role="status" aria-live="polite"></p>
+    <button id="research-run-start" class="primary" type="button">Start accelerated validation</button>
+  </section>
+
   <section class="panel workspace-view" data-primary="management" data-secondary="glossary">
     <div class="panel-head">
       <div>
@@ -977,6 +1042,7 @@
     ],
     management: [
       ["strategies", "Strategy Controls"],
+      ["research-runs", "Research Runs"],
       ["export", "Data Export"],
       ["glossary", "Glossary / מילון מונחים"],
     ],
@@ -1295,6 +1361,87 @@
     const node = document.getElementById("configuration-message");
     node.textContent = message;
     node.className = `configuration-message ${state}`;
+  }
+
+  function setResearchRunMessage(message, state = "") {
+    const node = document.getElementById("research-run-message");
+    node.textContent = message;
+    node.className = `configuration-message ${state}`;
+  }
+
+  function renderResearchRunControls(data) {
+    setText("research-run-account", selectedAccountId);
+    const action = data.control_plane?.actions?.accelerated_validation || {};
+    const result = action.result || {};
+    setText(
+      "research-run-state",
+      action.state
+        ? action.state.replaceAll("_", " ")
+        : "Idle"
+    );
+    setText("research-run-updated", localTime(action.updated_at));
+    const failureCount = Array.isArray(result.failures)
+      ? result.failures.length
+      : 0;
+    const runCount = Array.isArray(result.runs)
+      ? result.runs.length
+      : 0;
+    const resultCopy = result.status
+      ? `${result.status} · ${runCount} runs · ${failureCount} failures`
+      : "--";
+    setText("research-run-result", resultCopy);
+    const startButton = document.getElementById("research-run-start");
+    startButton.disabled = action.state === "running";
+  }
+
+  async function startAcceleratedValidationRun() {
+    const startButton = document.getElementById("research-run-start");
+    const timeframes = document.getElementById("research-run-timeframes").value
+      .split(/[\s,;]+/)
+      .map(value => value.trim())
+      .filter(Boolean);
+    const workers = Number(document.getElementById("research-run-workers").value);
+    const maxCandidates = Number(document.getElementById("research-run-max-candidates").value);
+    const optimize = document.getElementById("research-run-optimize").checked;
+    const forceAll = document.getElementById("research-run-force-all").checked;
+    if (!window.confirm(
+      `Start historical accelerated validation for ${selectedAccountId}?\n\nThis is research-only and cannot authorize execution.`
+    )) return;
+    startButton.disabled = true;
+    setResearchRunMessage("Starting accelerated validation...");
+    try {
+      const response = await fetch("/api/actions/accelerated-validation", {
+        method: "POST",
+        cache: "no-store",
+        headers: {
+          "Content-Type": "application/json",
+          "X-CSRF-Token": csrfToken,
+        },
+        body: JSON.stringify({
+          account_id: selectedAccountId,
+          timeframes,
+          workers,
+          optimize,
+          force_all: forceAll,
+          max_candidates: maxCandidates,
+          confirmation: "RUN PAPER RESEARCH",
+        }),
+      });
+      const result = await response.json();
+      if (!response.ok) throw new Error(result.error || `HTTP ${response.status}`);
+      setResearchRunMessage(
+        "Accelerated validation started. Results will appear in Strategy Lab when the run completes.",
+        "ok"
+      );
+      await refresh();
+    } catch (error) {
+      setResearchRunMessage(
+        `Could not start accelerated validation: ${error.message}`,
+        "bad"
+      );
+    } finally {
+      startButton.disabled = false;
+    }
   }
 
   function renderStrategyControls(data) {
@@ -3309,6 +3456,7 @@
         data.strategy_lab_reports || []
       );
       renderStrategyControls(data);
+      renderResearchRunControls(data);
       renderEvidenceCatalog(data.evidence_catalog || []);
       renderSignals(data.signals || []);
       renderTradeRecords(data.trade_records || []);
@@ -3332,6 +3480,9 @@
   initializeNavigation();
   renderGlossary();
   applyTerminologyTooltips();
+  document
+    .getElementById("research-run-start")
+    .addEventListener("click", startAcceleratedValidationRun);
   refresh();
   setInterval(refresh, 15000);
 </script>

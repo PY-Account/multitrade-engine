@@ -2,6 +2,7 @@ import base64
 import json
 import re
 import threading
+import time
 from datetime import datetime, timedelta, timezone
 from decimal import Decimal
 from pathlib import Path
@@ -920,6 +921,148 @@ class DashboardTests(TestCase):
                     if event["event_type"] == "analyst_api_read"
                 ]
                 self.assertEqual(len(analyst_reads), 2)
+            finally:
+                server.shutdown()
+                server.server_close()
+                thread.join(timeout=3)
+
+    def test_authenticated_dashboard_can_start_accelerated_validation_action(
+        self,
+    ) -> None:
+        with TemporaryDirectory() as directory:
+            service, _, _ = self._fixture(directory)
+            runner_requests = []
+
+            def runner(request, plans):
+                runner_requests.append((request, plans))
+                return {
+                    "status": "ok",
+                    "component": "accelerated_validation",
+                    "account_id": request["account_id"],
+                    "runs": [],
+                    "failures": [],
+                }
+
+            service.accelerated_validation_runner = runner
+            service.account_plans = (
+                AccountPlan(
+                    account_id="alpaca-paper",
+                    broker="alpaca",
+                    environment="paper",
+                    enabled=True,
+                    asset_classes=(AssetClass.STOCK,),
+                    watchlist=("AAPL",),
+                    timeframe="1Day",
+                    maximum_positions=4,
+                    maximum_daily_orders=6,
+                    symbol_cooldown_minutes=60,
+                    allocations={
+                        "breakout_retest": StrategyAllocation(
+                            strategy_id="breakout_retest",
+                            enabled=True,
+                            capital_weight=Decimal("0.25"),
+                            risk_fraction=Decimal("0.005"),
+                            minimum_confidence=Decimal("0.60"),
+                        )
+                    },
+                ),
+            )
+            server = create_dashboard_server(
+                "127.0.0.1",
+                0,
+                service,
+                username="operator",
+                password="a-long-test-password",
+            )
+            thread = threading.Thread(
+                target=server.serve_forever, daemon=True
+            )
+            thread.start()
+            port = server.server_address[1]
+            token = base64.b64encode(
+                b"operator:a-long-test-password"
+            ).decode("ascii")
+            authorization = f"Basic {token}"
+            try:
+                root = Request(
+                    f"http://127.0.0.1:{port}/",
+                    headers={"Authorization": authorization},
+                )
+                with urlopen(root, timeout=3) as response:
+                    html = response.read().decode("utf-8")
+                csrf = re.search(
+                    r'name="csrf-token" content="([^"]+)"', html
+                ).group(1)
+                payload = json.dumps(
+                    {
+                        "account_id": "alpaca-paper",
+                        "timeframes": ["1Day"],
+                        "workers": 1,
+                        "optimize": True,
+                        "force_all": False,
+                        "max_candidates": 12,
+                        "confirmation": "RUN PAPER RESEARCH",
+                    }
+                ).encode("utf-8")
+
+                missing_csrf = Request(
+                    f"http://127.0.0.1:{port}"
+                    "/api/actions/accelerated-validation",
+                    data=payload,
+                    method="POST",
+                    headers={
+                        "Authorization": authorization,
+                        "Content-Type": "application/json",
+                    },
+                )
+                with self.assertRaises(HTTPError) as error:
+                    urlopen(missing_csrf, timeout=3)
+                self.assertEqual(error.exception.code, 403)
+                error.exception.close()
+
+                request = Request(
+                    f"http://127.0.0.1:{port}"
+                    "/api/actions/accelerated-validation",
+                    data=payload,
+                    method="POST",
+                    headers={
+                        "Authorization": authorization,
+                        "Content-Type": "application/json",
+                        "X-CSRF-Token": csrf,
+                    },
+                )
+                with urlopen(request, timeout=3) as response:
+                    result = json.loads(response.read())
+                self.assertEqual(response.status, 202)
+                self.assertEqual(result["status"], "accepted")
+
+                deadline = time.time() + 3
+                overview = service.overview()
+                while (
+                    overview["control_plane"]["actions"][
+                        "accelerated_validation"
+                    ]["state"]
+                    == "running"
+                    and time.time() < deadline
+                ):
+                    time.sleep(0.02)
+                    overview = service.overview()
+                action = overview["control_plane"]["actions"][
+                    "accelerated_validation"
+                ]
+                self.assertEqual(action["state"], "completed")
+                self.assertEqual(len(runner_requests), 1)
+                self.assertEqual(runner_requests[0][0]["account_id"], "alpaca-paper")
+                self.assertEqual(runner_requests[0][0]["timeframes"], ["1Day"])
+                events = service.overview()["events"]
+                self.assertEqual(
+                    events[0]["event_type"],
+                    "control_plane_action_completed",
+                )
+                self.assertEqual(
+                    events[1]["event_type"],
+                    "control_plane_action_started",
+                )
             finally:
                 server.shutdown()
                 server.server_close()

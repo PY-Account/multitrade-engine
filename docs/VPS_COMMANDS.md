@@ -162,6 +162,25 @@ multitrade-analyst-snapshot.json
 Upload that file to Codex when you want a full review of the latest strategy
 validation, Paper execution, risk, health, and audit evidence.
 
+## הרצת בדיקת אסטרטגיות מהממשק
+
+החל מגרסה `0.35.11`, ניתן להריץ בדיקה מואצת גם מהאתר:
+
+```text
+Management -> Research Runs -> Start accelerated validation
+```
+
+בחר חשבון, Timeframes, מספר Workers והאם להפעיל Optimization. הפעולה נרשמת
+ב-Audit, רצה ברקע, ואינה מאפשרת מסחר או קידום אוטומטי של אסטרטגיה.
+
+פקודת הטרמינל המקבילה, אם עדיין צריך:
+
+```bash
+cd /opt/multitrade/app
+docker compose run --rm --no-deps engine \
+  multitrade accelerated-validation --workers 1 --timeframes 1Day
+```
+
 Equivalent terminal command, if needed:
 
 ```bash

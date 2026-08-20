@@ -8,19 +8,25 @@ import secrets
 import sqlite3
 import threading
 import time
+from dataclasses import replace
 from datetime import datetime, timezone
 from decimal import Decimal, InvalidOperation
 from hmac import compare_digest
 from http.cookies import SimpleCookie
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
-from typing import Any
+from typing import Any, Callable
 from urllib.error import URLError
 from urllib.parse import parse_qs, urlparse
 from urllib.request import urlopen
 
 from multitrade import __version__
+from multitrade.accelerated_validation import (
+    AcceleratedValidationService,
+    accelerated_validation_payload,
+)
 from multitrade.audit import SqliteAuditReader, SqliteAuditStore
+from multitrade.config import Settings
 from multitrade.experiments import (
     StrategyExperimentProgram,
     experiment_program_payload,
@@ -32,6 +38,7 @@ from multitrade.portfolio import (
 )
 from multitrade.research import evidence_catalog
 from multitrade.risk import FirmRiskPolicy
+from multitrade.market import timeframe_seconds
 from multitrade.universe import AssetUniverseProgram, program_payload
 
 
@@ -58,6 +65,11 @@ border:0;border-radius:8px;background:#3ba6ff;color:#04111b;font-weight:700;curs
 autocomplete="username" required maxlength="128"><label for="password">Password</label>
 <input id="password" name="password" type="password" autocomplete="current-password"
 required maxlength="512"><button type="submit">Sign in</button></form></main></body></html>"""
+
+
+AcceleratedValidationRunner = Callable[
+    [dict[str, Any], tuple[AccountPlan, ...]], dict[str, Any]
+]
 
 
 class DashboardData:
@@ -89,6 +101,9 @@ class DashboardData:
         firm_risk_policy: FirmRiskPolicy | None = None,
         release_version: str = __version__,
         build_commit: str | None = None,
+        accelerated_validation_runner: (
+            AcceleratedValidationRunner | None
+        ) = None,
     ) -> None:
         self.reader = SqliteAuditReader(db_path)
         self.configuration_store = SqliteAuditStore(db_path)
@@ -160,6 +175,17 @@ class DashboardData:
             if re.fullmatch(r"[0-9a-f]{40,64}", candidate_commit)
             else "unknown"
         )
+        self.accelerated_validation_runner = (
+            accelerated_validation_runner
+            or self._default_accelerated_validation_runner
+        )
+        self.action_lock = threading.Lock()
+        self.action_status: dict[str, Any] = {
+            "accelerated_validation": {
+                "state": "idle",
+                "updated_at": None,
+            }
+        }
 
     def effective_account_plans(self) -> tuple[AccountPlan, ...]:
         return apply_strategy_configuration_overrides(
@@ -252,6 +278,234 @@ class DashboardData:
             expected_revision=expected_revision,
             updated_by=updated_by,
         )
+
+    def request_accelerated_validation(
+        self,
+        payload: dict[str, Any],
+        *,
+        requested_by: str,
+        remote_addr: str,
+    ) -> dict[str, Any]:
+        request = self._accelerated_validation_request(payload)
+        with self.action_lock:
+            current = self.action_status["accelerated_validation"]
+            if current.get("state") == "running":
+                raise ValueError("accelerated_validation_already_running")
+            requested_at = datetime.now(timezone.utc).isoformat()
+            action_id = f"accelerated-validation:{int(time.time())}"
+            self.action_status["accelerated_validation"] = {
+                "state": "running",
+                "action_id": action_id,
+                "requested_at": requested_at,
+                "updated_at": requested_at,
+                "requested_by": requested_by,
+                "request": request,
+            }
+        self.configuration_store.record_event(
+            "control_plane_action_started",
+            action_id,
+            {
+                "action": "accelerated_validation",
+                "request": request,
+                "requested_by": requested_by,
+                "remote_addr": remote_addr,
+                "scope": "research_only",
+                "execution_enabled": False,
+            },
+        )
+        thread = threading.Thread(
+            target=self._run_accelerated_validation_action,
+            args=(action_id, request, requested_by),
+            daemon=True,
+        )
+        thread.start()
+        return self.action_status["accelerated_validation"].copy()
+
+    def _run_accelerated_validation_action(
+        self,
+        action_id: str,
+        request: dict[str, Any],
+        requested_by: str,
+    ) -> None:
+        try:
+            plans = self._action_account_plans(request["account_id"])
+            result = self.accelerated_validation_runner(request, plans)
+            state = "completed" if result.get("status") == "ok" else "failed"
+        except Exception as exc:
+            result = {
+                "status": "error",
+                "error_type": type(exc).__name__,
+                "message": str(exc),
+            }
+            state = "failed"
+        updated_at = datetime.now(timezone.utc).isoformat()
+        with self.action_lock:
+            self.action_status["accelerated_validation"] = {
+                "state": state,
+                "action_id": action_id,
+                "requested_at": request["requested_at"],
+                "updated_at": updated_at,
+                "requested_by": requested_by,
+                "request": request,
+                "result": result,
+            }
+        self.configuration_store.record_event(
+            "control_plane_action_completed",
+            action_id,
+            {
+                "action": "accelerated_validation",
+                "state": state,
+                "request": request,
+                "result": result,
+                "requested_by": requested_by,
+                "scope": "research_only",
+                "execution_enabled": False,
+            },
+        )
+
+    def _action_account_plans(
+        self, account_id: str
+    ) -> tuple[AccountPlan, ...]:
+        plans = tuple(
+            plan
+            for plan in self.effective_account_plans()
+            if plan.enabled and plan.account_id == account_id
+        )
+        if not plans:
+            raise ValueError("unknown_enabled_paper_account")
+        return plans
+
+    def _accelerated_validation_request(
+        self, payload: dict[str, Any]
+    ) -> dict[str, Any]:
+        account_id = str(payload.get("account_id", "")).strip()
+        if not account_id:
+            raise ValueError("account_id_required")
+        if not any(
+            plan.account_id == account_id
+            and plan.environment == "paper"
+            and plan.enabled
+            for plan in self.account_plans
+        ):
+            raise ValueError("unknown_enabled_paper_account")
+        workers = self._bounded_int(payload.get("workers", 1), 1, 4)
+        max_candidates = self._bounded_int(
+            payload.get("max_candidates", 48), 1, 96
+        )
+        optimize = bool(payload.get("optimize", False))
+        force_all = bool(payload.get("force_all", False))
+        raw_timeframes = payload.get("timeframes", [])
+        if not isinstance(raw_timeframes, list):
+            raise ValueError("timeframes_must_be_a_list")
+        timeframes = tuple(
+            dict.fromkeys(
+                str(timeframe).strip()
+                for timeframe in raw_timeframes
+                if str(timeframe).strip()
+            )
+        )
+        if len(timeframes) > 4:
+            raise ValueError("too_many_timeframes")
+        for timeframe in timeframes:
+            timeframe_seconds(timeframe)
+        if payload.get("confirmation") != "RUN PAPER RESEARCH":
+            raise ValueError("research_confirmation_required")
+        return {
+            "account_id": account_id,
+            "workers": workers,
+            "optimize": optimize,
+            "max_candidates": max_candidates,
+            "force_all": force_all,
+            "timeframes": list(timeframes),
+            "requested_at": datetime.now(timezone.utc).isoformat(),
+        }
+
+    @staticmethod
+    def _bounded_int(value: Any, lower: int, upper: int) -> int:
+        try:
+            parsed = int(value)
+        except (TypeError, ValueError) as exc:
+            raise ValueError("invalid_integer") from exc
+        if not lower <= parsed <= upper:
+            raise ValueError("integer_out_of_range")
+        return parsed
+
+    @staticmethod
+    def _default_accelerated_validation_runner(
+        request: dict[str, Any],
+        plans: tuple[AccountPlan, ...],
+    ) -> dict[str, Any]:
+        settings = Settings.from_env()
+        store = SqliteAuditStore(settings.db_path)
+        runs: list[dict[str, Any]] = []
+        failures: list[dict[str, str]] = []
+        configured_timeframes = tuple(request.get("timeframes") or ())
+        research_timeframes = configured_timeframes or tuple(
+            dict.fromkeys(plan.timeframe for plan in plans)
+        )
+
+        def plan_for_timeframe(
+            plan: AccountPlan, timeframe: str
+        ) -> AccountPlan:
+            return replace(
+                plan,
+                timeframe=timeframe,
+                allocations={
+                    strategy_id: replace(
+                        allocation, timeframe=timeframe
+                    )
+                    for strategy_id, allocation in plan.allocations.items()
+                },
+            )
+
+        research_plans = tuple(
+            plan_for_timeframe(plan, timeframe)
+            for plan in plans
+            for timeframe in research_timeframes
+        )
+        for plan in research_plans:
+            try:
+                run = AcceleratedValidationService.from_account_plan(
+                    settings,
+                    plan,
+                    store=store,
+                    workers=int(request["workers"]),
+                ).run(
+                    optimize=bool(request["optimize"]),
+                    max_optimization_candidates=int(
+                        request["max_candidates"]
+                    ),
+                    force_all=bool(request["force_all"]),
+                )
+                runs.append(accelerated_validation_payload(run))
+            except Exception as exc:
+                failures.append(
+                    {
+                        "account_id": plan.account_id,
+                        "timeframe": plan.timeframe,
+                        "error_type": type(exc).__name__,
+                        "message": str(exc),
+                    }
+                )
+        return {
+            "status": (
+                "ok"
+                if not failures
+                else ("degraded" if runs else "error")
+            ),
+            "component": "accelerated_validation",
+            "account_id": request["account_id"],
+            "research_runs_configured": len(research_plans),
+            "accounts_succeeded": len(runs),
+            "accounts_failed": len(failures),
+            "workers_per_account": int(request["workers"]),
+            "runs": runs,
+            "failures": failures,
+            "prospective_trial_count_incremented": False,
+            "execution_enabled": False,
+            "parameter_optimization_enabled": bool(request["optimize"]),
+            "timeframes": research_timeframes,
+        }
 
     @staticmethod
     def _decimal(value: Any) -> Decimal:
@@ -701,6 +955,9 @@ class DashboardData:
             "accelerated_validation_runs": (
                 accelerated_validation_runs
             ),
+            "control_plane": {
+                "actions": self._control_plane_actions_payload(),
+            },
             "strategy_model_trials": strategy_model_trials,
             "strategy_experiments": {
                 "configuration": (
@@ -717,6 +974,10 @@ class DashboardData:
             "asset_universe_reports": asset_universe_reports,
             "evidence_catalog": evidence_catalog(),
         }
+
+    def _control_plane_actions_payload(self) -> dict[str, Any]:
+        with self.action_lock:
+            return json.loads(json.dumps(self.action_status))
 
     def chart(
         self,
@@ -988,7 +1249,10 @@ class DashboardRequestHandler(BaseHTTPRequestHandler):
         if not self._authorized():
             self._send_json(401, {"error": "authentication_required"})
             return
-        if parsed.path != "/api/config/strategy":
+        if parsed.path not in {
+            "/api/config/strategy",
+            "/api/actions/accelerated-validation",
+        }:
             self._send_json(404, {"error": "not_found"})
             return
         if not self.headers.get("Content-Type", "").lower().startswith(
@@ -1015,10 +1279,21 @@ class DashboardRequestHandler(BaseHTTPRequestHandler):
             if not isinstance(payload, dict):
                 raise ValueError("json_object_required")
             with self.config_lock:
-                result = self.data_service.update_strategy_configuration(
-                    payload,
-                    updated_by=self.configured_username,
-                )
+                if parsed.path == "/api/config/strategy":
+                    result = (
+                        self.data_service.update_strategy_configuration(
+                            payload,
+                            updated_by=self.configured_username,
+                        )
+                    )
+                else:
+                    result = (
+                        self.data_service.request_accelerated_validation(
+                            payload,
+                            requested_by=self.configured_username,
+                            remote_addr=self.client_address[0],
+                        )
+                    )
         except (json.JSONDecodeError, UnicodeDecodeError):
             self._send_json(400, {"error": "invalid_json"})
             return
@@ -1033,7 +1308,12 @@ class DashboardRequestHandler(BaseHTTPRequestHandler):
         except sqlite3.Error:
             self._send_json(503, {"error": "configuration_store_unavailable"})
             return
-        self._send_json(200, {"status": "updated", "configuration": result})
+        if parsed.path == "/api/config/strategy":
+            self._send_json(
+                200, {"status": "updated", "configuration": result}
+            )
+        else:
+            self._send_json(202, {"status": "accepted", "action": result})
 
     def _send_login_page(self, error: bool = False) -> None:
         nonce = secrets.token_urlsafe(18)
