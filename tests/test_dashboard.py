@@ -537,6 +537,9 @@ class DashboardTests(TestCase):
                 self.assertIn('id="account-context"', html)
                 self.assertIn("Deployment account scope", html)
                 self.assertIn('id="account-select"', html)
+                self.assertIn("Direction", html)
+                self.assertIn("Order side", html)
+                self.assertIn("Combo legs", html)
                 self.assertIn("Continuous Strategy Lab", html)
                 self.assertIn(
                     "Accelerated candidate screening", html

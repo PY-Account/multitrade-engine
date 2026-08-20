@@ -1,5 +1,15 @@
 # Changelog
 
+## 0.35.22 - 2026-08-20
+
+- Simplified option combo trade review by showing multi-leg trades as one
+  summarized row with expandable leg details.
+- Added market-direction labeling to trade rows so bullish, bearish, and range
+  intent is separated from broker order side.
+- Added combo-row summary numbers for entry price, risk, quantity, realized
+  P/L, and latest option proxy P/L when exact-contract evidence is available.
+- Surfaced the stored option exit policy directly in each trade analysis row.
+
 ## 0.35.21 - 2026-08-20
 
 - Hardened the deployment script used by dashboard-triggered GitHub updates so

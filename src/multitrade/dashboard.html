@@ -251,6 +251,21 @@
     details summary { color: var(--accent); cursor: pointer; margin-bottom: 6px; }
     .empty { color: var(--muted); text-align: center; padding: 24px; }
     .badge { display: inline-block; border: 1px solid var(--line); border-radius: 999px; padding: 4px 7px; font-size: .68rem; }
+    .direction-pill {
+      display: inline-flex;
+      align-items: center;
+      gap: 5px;
+      border: 1px solid var(--line);
+      border-radius: 999px;
+      padding: 4px 8px;
+      font-size: .72rem;
+      font-weight: 700;
+      white-space: nowrap;
+    }
+    .direction-pill.bullish { color: var(--ok); }
+    .direction-pill.bearish { color: var(--bad); }
+    .direction-pill.neutral { color: var(--warn); }
+    #trade-records td:nth-child(3) { white-space: pre-line; min-width: 260px; }
     .term-help { text-decoration: underline dotted var(--muted); text-underline-offset: 3px; cursor: help; }
     .status-detail { margin-top: 7px; color: var(--muted); font-size: .72rem; line-height: 1.35; }
     .configuration-table input[type="text"] { min-width: 260px; }
@@ -656,7 +671,7 @@
         <label>Strategy drill-down <select id="trade-strategy-filter"><option value="">All strategies</option></select></label>
       </div>
       <table>
-        <thead><tr><th>Time</th><th>Strategy</th><th>Symbol</th><th>Side</th><th>State</th><th class="number">Quantity</th><th class="number">Risk</th><th class="number">Realized P/L</th><th>Analysis</th><th>Entry chart</th><th>Exit chart</th></tr></thead>
+        <thead><tr><th>Time</th><th>Strategy</th><th>Symbol</th><th>Direction</th><th>Order side</th><th>State</th><th class="number">Quantity</th><th class="number">Risk</th><th class="number">Realized P/L</th><th>Analysis</th><th>Entry chart</th><th>Exit chart</th></tr></thead>
         <tbody id="trade-records"></tbody>
       </table>
     </div>
@@ -2972,6 +2987,130 @@
     return container;
   }
 
+  function tradeDirection(record) {
+    const structure = String(record.structure || record.explanation?.structure || "").toLowerCase();
+    const strategy = String(record.strategy_id || "").toLowerCase();
+    const source = String(record.explanation?.source_strategy_id || "").toLowerCase();
+    const legs = record.option_legs || [];
+    const text = `${structure} ${strategy} ${source}`;
+    if (text.includes("iron_condor") || text.includes("condor") || text.includes("range")) {
+      return {label: "Range", arrow: "\u2194", className: "neutral"};
+    }
+    if (text.includes("bear") || text.includes("put_debit")) {
+      return {label: "Bearish", arrow: "\u2193", className: "bearish"};
+    }
+    if (text.includes("bull") || text.includes("put_credit") || text.includes("cash_secured_put")) {
+      return {label: "Bullish", arrow: "\u2191", className: "bullish"};
+    }
+    if (legs.length) {
+      const puts = legs.filter(leg => String(leg.right || "").toLowerCase() === "put");
+      const calls = legs.filter(leg => String(leg.right || "").toLowerCase() === "call");
+      const soldPuts = puts.filter(leg => String(leg.side || "").toLowerCase() === "sell");
+      const boughtPuts = puts.filter(leg => String(leg.side || "").toLowerCase() === "buy");
+      if (puts.length && calls.length) return {label: "Range", arrow: "\u2194", className: "neutral"};
+      if (boughtPuts.length > soldPuts.length) return {label: "Bearish", arrow: "\u2193", className: "bearish"};
+      if (soldPuts.length) return {label: "Bullish", arrow: "\u2191", className: "bullish"};
+    }
+    if (record.side === "sell") return {label: "Bearish", arrow: "\u2193", className: "bearish"};
+    return {label: "Bullish", arrow: "\u2191", className: "bullish"};
+  }
+
+  function directionCell(record) {
+    const direction = tradeDirection(record);
+    const node = document.createElement("td");
+    const pill = document.createElement("span");
+    pill.className = `direction-pill ${direction.className}`;
+    pill.title = "Market direction, not broker order side.";
+    pill.textContent = `${direction.arrow} ${direction.label}`;
+    node.appendChild(pill);
+    return node;
+  }
+
+  function exitPolicyText(record) {
+    const evidence = record.explanation || {};
+    const items = [];
+    if (evidence.profit_target_fraction != null) items.push(`take profit ${percent(evidence.profit_target_fraction)}`);
+    if (evidence.loss_limit_multiple != null) items.push(`loss stop ${Number(evidence.loss_limit_multiple).toFixed(2)}x`);
+    if (evidence.exit_before_expiry_days != null) items.push(`exit ${evidence.exit_before_expiry_days} DTE`);
+    if (evidence.maximum_holding_minutes != null) {
+      const minutes = Number(evidence.maximum_holding_minutes);
+      items.push(minutes >= 60 ? `max hold ${(minutes / 60).toFixed(1)}h` : `max hold ${minutes}m`);
+    }
+    if (record.exit_reason) items.push(`actual exit ${String(record.exit_reason).replaceAll("_", " ")}`);
+    return items.length ? items.join(" · ") : "No explicit exit policy stored.";
+  }
+
+  function legLabel(leg) {
+    const side = String(leg.side || "").toUpperCase();
+    const right = String(leg.right || "").toUpperCase();
+    const strike = numberOrNull(leg.strike);
+    const delta = numberOrNull(leg.delta);
+    const theta = numberOrNull(leg.theta);
+    return [
+      side,
+      leg.ratio ? `${leg.ratio}x` : "",
+      right,
+      strike == null ? "" : strike.toFixed(2),
+      leg.expiration ? `exp ${leg.expiration}` : "",
+      leg.symbol || "",
+      delta == null ? "" : `\u0394 ${delta.toFixed(2)}`,
+      theta == null ? "" : `\u03B8 ${theta.toFixed(2)}`,
+    ].filter(Boolean).join(" ");
+  }
+
+  function comboSummary(record) {
+    const legs = record.option_legs || [];
+    const structure = String(record.structure || record.explanation?.structure || "option combo").replaceAll("_", " ");
+    return legs.length ? `${record.symbol} · ${structure} · ${legs.length} legs` : record.symbol;
+  }
+
+  function tradeEntryText(record) {
+    return record.opening_net_price != null
+      ? money(record.opening_net_price)
+      : record.entry_price != null
+        ? money(record.entry_price)
+        : record.reference_price != null
+          ? money(record.reference_price)
+          : "--";
+  }
+
+  function optionEvidenceForTrade(record) {
+    const rows = latestOverview?.option_package_evidence || [];
+    return rows.find(item => item.intent_id === record.intent_id) || null;
+  }
+
+  function comboHeaderText(record) {
+    const evidence = optionEvidenceForTrade(record);
+    const pnl = record.realized_pnl != null
+      ? `Realized P/L ${money(record.realized_pnl)}`
+      : evidence?.latest_proxy_pnl != null
+        ? `Proxy P/L ${money(evidence.latest_proxy_pnl)}`
+        : "Open P/L unavailable";
+    return `Entry ${tradeEntryText(record)} · ${pnl} · Risk ${money(record.reserved_risk)} · Qty ${quantity(record.approved_quantity)}`;
+  }
+
+  function comboDetails(record) {
+    const legs = record.option_legs || [];
+    if (!legs.length) return null;
+    const details = document.createElement("details");
+    const summary = document.createElement("summary");
+    summary.textContent = `Combo legs (${legs.length})`;
+    const list = document.createElement("ol");
+    for (const leg of legs) {
+      const item = document.createElement("li");
+      item.textContent = legLabel(leg);
+      list.appendChild(item);
+    }
+    details.append(summary, list);
+    const evidence = optionEvidenceForTrade(record);
+    if (evidence?.latest_proxy_pnl != null) {
+      const proxy = document.createElement("p");
+      proxy.textContent = `Latest proxy P/L: ${money(evidence.latest_proxy_pnl)} · coverage ${percent(evidence.coverage_fraction)} · evaluated ${localTime(evidence.evaluated_at)}`;
+      details.appendChild(proxy);
+    }
+    return details;
+  }
+
   function renderTradeRecords(records) {
     latestTradeRecords = records;
     const body = document.getElementById("trade-records");
@@ -2999,7 +3138,7 @@
         )
       : accountRecords;
     if (!rows.length) {
-      emptyRow(body, 11, "No risk-reviewed trade decisions match this strategy filter.");
+      emptyRow(body, 12, "No risk-reviewed trade decisions match this strategy filter.");
       return;
     }
     for (const record of rows) {
@@ -3007,7 +3146,11 @@
       const values = [
         [localTime(record.created_at), ""],
         [record.strategy_id, ""],
-        [record.symbol, ""],
+        [`${comboSummary(record)}\n${comboHeaderText(record)}`, ""],
+      ];
+      for (const [value, className] of values) row.appendChild(cell(value, className));
+      row.appendChild(directionCell(record));
+      const trailingValues = [
         [record.side, ""],
         [record.state, ""],
         [quantity(record.approved_quantity), "number"],
@@ -3021,11 +3164,16 @@
             : `number ${Number(record.realized_pnl) >= 0 ? "ok" : "bad"}`,
         ],
       ];
-      for (const [value, className] of values) row.appendChild(cell(value, className));
+      for (const [value, className] of trailingValues) row.appendChild(cell(value, className));
       const analysis = document.createElement("td");
       analysis.appendChild(
         explanationDetails(record.explanation, record)
       );
+      const exitPolicy = document.createElement("p");
+      exitPolicy.textContent = `Exit policy: ${exitPolicyText(record)}`;
+      analysis.appendChild(exitPolicy);
+      const legs = comboDetails(record);
+      if (legs) analysis.appendChild(legs);
       row.appendChild(analysis);
       const chartCell = document.createElement("td");
       const chartButton = document.createElement("button");
