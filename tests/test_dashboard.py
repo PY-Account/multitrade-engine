@@ -354,6 +354,20 @@ class DashboardTests(TestCase):
                 [bar.timestamp.isoformat() for bar in bars[4:10]],
             )
 
+            with_context = service.chart(
+                "AAPL",
+                "5Min",
+                limit=20,
+                from_at=bars[4].timestamp.isoformat(),
+                to_at=bars[9].timestamp.isoformat(),
+                context_before=4,
+            )
+            self.assertEqual(with_context["context_before"], 4)
+            self.assertEqual(
+                [item["timestamp"] for item in with_context["bars"]],
+                [bar.timestamp.isoformat() for bar in bars[:10]],
+            )
+
             open_ended = service.chart(
                 "AAPL",
                 "5Min",

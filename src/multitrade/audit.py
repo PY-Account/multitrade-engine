@@ -4845,10 +4845,39 @@ class SqliteAuditReader:
         center_at: str | None = None,
         from_at: str | None = None,
         to_at: str | None = None,
+        context_before: int = 0,
     ) -> list[dict[str, Any]]:
         safe_limit = max(10, min(limit, 1000))
+        safe_context_before = max(0, min(context_before, safe_limit - 1))
         with closing(self._connect()) as connection:
             if from_at is not None or to_at is not None:
+                select_sql = """
+                    SELECT symbol, timeframe, feed, adjustment, bar_timestamp,
+                           open_price, high_price, low_price, close_price,
+                           volume, trade_count, vwap
+                    FROM market_bars
+                """
+                before_rows: list[sqlite3.Row] = []
+                if from_at is not None and safe_context_before:
+                    before_rows = list(
+                        reversed(
+                            connection.execute(
+                                f"""
+                                {select_sql}
+                                WHERE symbol = ? AND timeframe = ?
+                                  AND bar_timestamp < ?
+                                ORDER BY bar_timestamp DESC LIMIT ?
+                                """,
+                                (
+                                    symbol,
+                                    timeframe,
+                                    from_at,
+                                    safe_context_before,
+                                ),
+                            ).fetchall()
+                        )
+                    )
+                remaining_limit = max(1, safe_limit - len(before_rows))
                 conditions = ["symbol = ?", "timeframe = ?"]
                 parameters: list[Any] = [symbol, timeframe]
                 if from_at is not None:
@@ -4857,26 +4886,24 @@ class SqliteAuditReader:
                 if to_at is not None:
                     conditions.append("bar_timestamp <= ?")
                     parameters.append(to_at)
-                parameters.append(safe_limit)
+                parameters.append(remaining_limit)
                 order_direction = (
                     "DESC" if from_at is not None and to_at is None else "ASC"
                 )
-                rows = connection.execute(
+                range_rows = connection.execute(
                     f"""
-                    SELECT symbol, timeframe, feed, adjustment, bar_timestamp,
-                           open_price, high_price, low_price, close_price,
-                           volume, trade_count, vwap
-                    FROM market_bars
+                    {select_sql}
                     WHERE {" AND ".join(conditions)}
                     ORDER BY bar_timestamp {order_direction} LIMIT ?
                     """,
                     tuple(parameters),
                 ).fetchall()
-                ordered_rows = (
-                    list(reversed(rows))
+                ordered_range_rows = (
+                    list(reversed(range_rows))
                     if order_direction == "DESC"
-                    else list(rows)
+                    else list(range_rows)
                 )
+                ordered_rows = before_rows + ordered_range_rows
             elif center_at is None:
                 rows = connection.execute(
                     """

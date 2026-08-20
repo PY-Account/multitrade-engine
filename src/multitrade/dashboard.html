@@ -3604,6 +3604,12 @@
           : `Entry ${localTime(trade.created_at)} · still open / latest stored candle shown`,
       ],
       [
+        "Pre-entry context",
+        mode === "entry"
+          ? "Entry charts include up to 40 stored candles before the entry timestamp."
+          : "Exit focus charts are centered around the exit timestamp.",
+      ],
+      [
         "Strategy evidence",
         (evidence.reason_codes || [])
           .map(value => String(value).replaceAll("_", " "))
@@ -3644,10 +3650,12 @@
       if (mode === "entry") {
         if (trade.created_at) params.set("from_at", trade.created_at);
         if (trade.closed_at) params.set("to_at", trade.closed_at);
+        params.set("context_before", "40");
       } else if (trade.closed_at) {
         params.set("center_at", trade.closed_at);
       } else if (trade.created_at) {
         params.set("from_at", trade.created_at);
+        params.set("context_before", "40");
       }
       const response = await fetch(
         `/api/chart?${params.toString()}`,
@@ -3658,7 +3666,7 @@
       drawPriceChart(data.bars || [], trade, mode);
       setText(
         "chart-copy",
-        `${trade.strategy_id} / ${trade.symbol} / ${mode} / ${data.timeframe} / ${data.bars?.[0]?.feed || "unknown feed"} \u2014 ${mode === "entry" ? "candles show the stored lifecycle from entry through exit or the latest stored bar." : "candles show stored market bars around the selected exit timestamp."}`
+        `${trade.strategy_id} / ${trade.symbol} / ${mode} / ${data.timeframe} / ${data.bars?.[0]?.feed || "unknown feed"} \u2014 ${mode === "entry" ? "candles show up to 40 stored candles before entry, then the stored lifecycle through exit or the latest stored bar." : "candles show stored market bars around the selected exit timestamp."}`
       );
     } catch (error) {
       drawPriceChart([], trade, mode);

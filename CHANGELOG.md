@@ -1,5 +1,17 @@
 # Changelog
 
+## 0.35.21 - 2026-08-20
+
+- Hardened the deployment script used by dashboard-triggered GitHub updates so
+  it builds every application service, includes the option-evidence worker, and
+  starts the public dashboard and Admin Agent profiles when their `.env`
+  settings are configured.
+- Added Admin Agent self-update detection so a dashboard-triggered update does
+  not kill the Admin Agent container mid-command and leave it in a Created or
+  Exited state.
+- Added 40-candle pre-entry context to Entry/lifecycle trade charts so trade
+  reviews show the setup before the system opened the position.
+
 ## 0.35.20 - 2026-08-20
 
 - Expanded trade Entry charts into lifecycle views that show stored candles

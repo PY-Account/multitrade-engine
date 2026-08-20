@@ -1124,6 +1124,7 @@ class DashboardData:
         center_at: str | None = None,
         from_at: str | None = None,
         to_at: str | None = None,
+        context_before: int = 0,
     ) -> dict[str, Any]:
         normalized_symbol = symbol.strip().upper()
         if not re.fullmatch(r"[A-Z][A-Z0-9./-]{0,19}", normalized_symbol):
@@ -1154,12 +1155,14 @@ class DashboardData:
             from_at is not None or to_at is not None
         ):
             raise ValueError("center_at_cannot_be_combined_with_range")
+        safe_context_before = max(0, min(context_before, limit - 1))
         return {
             "symbol": normalized_symbol,
             "timeframe": timeframe,
             "center_at": center_at,
             "from_at": from_at,
             "to_at": to_at,
+            "context_before": safe_context_before,
             "bars": self.reader.market_bars(
                 normalized_symbol,
                 timeframe,
@@ -1167,6 +1170,7 @@ class DashboardData:
                 center_at=center_at,
                 from_at=from_at,
                 to_at=to_at,
+                context_before=safe_context_before,
             ),
         }
 
@@ -1347,6 +1351,13 @@ class DashboardRequestHandler(BaseHTTPRequestHandler):
                 center_at = values.get("center_at", [None])[0]
                 from_at = values.get("from_at", [None])[0]
                 to_at = values.get("to_at", [None])[0]
+                context_before = max(
+                    0,
+                    min(
+                        int(values.get("context_before", ["0"])[0]),
+                        limit - 1,
+                    ),
+                )
                 chart = self.data_service.chart(
                     symbol,
                     timeframe,
@@ -1354,6 +1365,7 @@ class DashboardRequestHandler(BaseHTTPRequestHandler):
                     center_at=center_at,
                     from_at=from_at,
                     to_at=to_at,
+                    context_before=context_before,
                 )
             except ValueError as exc:
                 self._send_json(400, {"error": str(exc)})
