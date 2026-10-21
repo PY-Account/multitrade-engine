@@ -1,0 +1,47 @@
+{
+  "accounts": [
+    {
+      "account_id": "alpaca-paper-options",
+      "broker": "alpaca",
+      "environment": "paper",
+      "enabled": true,
+      "credential_env_prefix": "ALPACA_OPTIONS",
+      "expected_broker_account_id": "${TRADING_ALPACA_OPTIONS_ACCOUNT_UUID}",
+      "asset_classes": ["option"],
+      "watchlist": ["SPY"],
+      "timeframe": "5Min",
+      "maximum_positions": 2,
+      "maximum_daily_orders": 2,
+      "symbol_cooldown_minutes": 10080,
+      "strategies": [
+        {
+          "strategy_id": "tt_spy_put_credit",
+          "asset_class": "option",
+          "enabled": true,
+          "capital_weight": "0.10",
+          "risk_fraction": "0.01",
+          "minimum_confidence": "0.70",
+          "paper_execution_allowed": false,
+          "timeframe": "5Min",
+          "minimum_entry_interval_minutes": 10080,
+          "symbols": ["SPY"],
+          "option_policy": {
+            "structure": "bull_put_credit_spread",
+            "source_strategy_id": "tt_spy_put_credit",
+            "minimum_dte": 40,
+            "target_dte": 45,
+            "maximum_dte": 50,
+            "short_delta_target": "0.30",
+            "maximum_short_delta": "0.35",
+            "target_strike_width": "5",
+            "require_exact_strike_width": true,
+            "maximum_strike_width": "5",
+            "exit_mode": "expiration_only",
+            "exit_before_expiry_days": 21,
+            "maximum_quote_age_seconds": 60
+          }
+        }
+      ]
+    }
+  ]
+}

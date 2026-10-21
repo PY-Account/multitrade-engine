@@ -127,10 +127,16 @@ class RiskEngine:
             if intent.risk_budget_fraction is not None
             else asset_ceiling
         )
+        tt_spy = self._is_tt_spy(intent)
+        if tt_spy:
+            requested_ceiling = min(requested_ceiling, Decimal("0.01"))
         trade_ceiling = snapshot.equity * min(
             asset_ceiling, requested_ceiling
         )
-        portfolio_ceiling = snapshot.equity * self.policy.max_total_open
+        portfolio_ceiling = snapshot.equity * min(
+            self.policy.max_total_open,
+            Decimal("0.10") if tt_spy else self.policy.max_total_open,
+        )
         remaining_portfolio_risk = max(
             ZERO, portfolio_ceiling - snapshot.active_risk
         )
@@ -204,7 +210,11 @@ class RiskEngine:
             )
 
         drawdown = max(ZERO, snapshot.peak_equity - snapshot.equity)
-        if drawdown >= snapshot.peak_equity * self.policy.max_drawdown:
+        drawdown_limit = min(
+            self.policy.max_drawdown,
+            Decimal("0.10") if self._is_tt_spy(intent) else self.policy.max_drawdown,
+        )
+        if drawdown >= snapshot.peak_equity * drawdown_limit:
             return self._reject(
                 intent, "drawdown_kill_switch", snapshot.active_risk
             )
@@ -219,6 +229,13 @@ class RiskEngine:
                 snapshot.active_risk,
             )
         return None
+
+    @staticmethod
+    def _is_tt_spy(intent: TradeIntent) -> bool:
+        return (
+            intent.strategy_id == "tt_spy_put_credit"
+            or intent.explanation.get("source_strategy_id") == "tt_spy_put_credit"
+        )
 
     def _evaluate_reduce_only(
         self,

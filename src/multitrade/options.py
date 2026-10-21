@@ -524,12 +524,25 @@ class OptionExecutionPolicy:
     exit_before_expiry_days: int = 7
     maximum_holding_minutes: int | None = None
     maximum_quote_age_seconds: int = 120
+    target_dte: int | None = None
+    require_exact_strike_width: bool = False
+    exit_mode: str = "profit_loss_or_expiration"
 
     def __post_init__(self) -> None:
         if not self.source_strategy_id:
             raise ValueError("Option source_strategy_id is required")
         if self.minimum_dte < 0 or self.maximum_dte < self.minimum_dte:
             raise ValueError("Option DTE interval is invalid")
+        if self.target_dte is not None and not (
+            self.minimum_dte <= self.target_dte <= self.maximum_dte
+        ):
+            raise ValueError("target_dte must be inside the DTE interval")
+        if self.require_exact_strike_width and self.target_strike_width is None:
+            raise ValueError("Exact width requires target_strike_width")
+        if self.exit_mode not in {"profit_loss_or_expiration", "expiration_only"}:
+            raise ValueError("Unsupported option exit_mode")
+        if self.exit_mode == "expiration_only" and self.maximum_holding_minutes is not None:
+            raise ValueError("expiration_only cannot use maximum_holding_minutes")
         for value in (
             self.long_delta_target,
             self.short_delta_target,
@@ -1246,7 +1259,12 @@ class DefinedRiskOptionSelector:
                 for contract in eligible
             }
         )
-        expiration = expirations[0]
+        expiration = (
+            min(expirations, key=lambda expiry: (
+                abs((expiry - as_of).days - self.policy.target_dte), expiry
+            ))
+            if self.policy.target_dte is not None else expirations[0]
+        )
         contracts = tuple(
             contract
             for contract in eligible
@@ -1425,6 +1443,10 @@ class DefinedRiskOptionSelector:
             raise ValueError(f"Unsupported option structure: {structure}")
 
         widths = self._strike_widths(intent)
+        if self.policy.require_exact_strike_width and any(
+            width != self.policy.target_strike_width for width in widths
+        ):
+            raise ValueError("Selected option width must exactly match target")
         if any(
             width > self.policy.maximum_strike_width
             for width in widths
@@ -1488,6 +1510,9 @@ class DefinedRiskOptionSelector:
                 ),
                 "maximum_short_delta": self.policy.maximum_short_delta,
                 "target_strike_width": self.policy.target_strike_width,
+                "require_exact_strike_width": self.policy.require_exact_strike_width,
+                "target_dte": self.policy.target_dte,
+                "exit_mode": self.policy.exit_mode,
                 "minimum_credit_to_risk": self.policy.minimum_credit_to_risk,
                 "expiration": expiration.isoformat(),
                 "days_to_expiration": (

@@ -181,9 +181,9 @@ def evaluate_option_package_path(
             expiration - timestamp.date()
         ).days <= exit_days:
             reason = "expiration_window"
-        elif pnl >= premium_basis * profit_target:
+        elif explanation.get("exit_mode") != "expiration_only" and pnl >= premium_basis * profit_target:
             reason = "profit_target"
-        elif pnl <= -(premium_basis * loss_multiple):
+        elif explanation.get("exit_mode") != "expiration_only" and pnl <= -(premium_basis * loss_multiple):
             reason = "loss_limit"
         if reason is not None:
             first_exit = {

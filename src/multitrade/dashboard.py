@@ -847,6 +847,13 @@ class DashboardData:
                         ),
                         "option_policy": (
                             {
+                                "exit_mode": allocation.option_policy.exit_mode,
+                                "target_dte": allocation.option_policy.target_dte,
+                                "require_exact_strike_width": allocation.option_policy.require_exact_strike_width,
+                                "target_strike_width": (
+                                    str(allocation.option_policy.target_strike_width)
+                                    if allocation.option_policy.target_strike_width is not None else None
+                                ),
                                 "structure": (
                                     allocation.option_policy.structure.value
                                 ),

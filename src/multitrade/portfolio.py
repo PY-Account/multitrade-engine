@@ -66,6 +66,27 @@ class StrategyAllocation:
             raise ValueError(
                 "Only option allocations may define an option policy"
             )
+        if self.source_strategy_id == "tt_spy_put_credit":
+            policy = self.option_policy
+            if (
+                self.asset_class is not AssetClass.OPTION
+                or self.symbols != ("SPY",)
+                or self.timeframe != "5Min"
+                or self.minimum_entry_interval_minutes < 10080
+                or self.risk_fraction > Decimal("0.01")
+                or self.capital_weight > Decimal("0.10")
+                or policy is None
+                or policy.structure is not OptionStructure.BULL_PUT_CREDIT
+                or (policy.minimum_dte, policy.target_dte, policy.maximum_dte) != (40, 45, 50)
+                or policy.short_delta_target != Decimal("0.30")
+                or policy.maximum_short_delta != Decimal("0.35")
+                or policy.target_strike_width != Decimal("5")
+                or policy.maximum_strike_width != Decimal("5")
+                or not policy.require_exact_strike_width
+                or policy.exit_mode != "expiration_only"
+                or policy.exit_before_expiry_days != 21
+            ):
+                raise ValueError("TT SPY candidate requires its frozen option-only risk profile")
 
     @property
     def source_strategy_id(self) -> str:
@@ -347,6 +368,16 @@ def load_account_plans(path: str | Path) -> tuple[AccountPlan, ...]:
                             "maximum_quote_age_seconds", 120
                         )
                     ),
+                    target_dte=(
+                        int(option_payload["target_dte"])
+                        if option_payload.get("target_dte") is not None else None
+                    ),
+                    require_exact_strike_width=bool(
+                        option_payload.get("require_exact_strike_width", False)
+                    ),
+                    exit_mode=str(option_payload.get(
+                        "exit_mode", "profit_loss_or_expiration"
+                    )),
                 )
             allocations[strategy_id] = StrategyAllocation(
                 strategy_id=strategy_id,

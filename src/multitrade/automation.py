@@ -715,11 +715,14 @@ class PaperAutomationService:
                 maximum_holding = explanation.get("maximum_holding_minutes")
                 created_at = datetime.fromisoformat(str(trade["created_at"]).replace("Z", "+00:00"))
                 held_minutes = (checked_at - created_at).total_seconds() / 60
-                if estimated_pnl >= (
+                expiration_only = explanation.get("exit_mode") == "expiration_only"
+                if expiration_only and days_to_expiration <= exit_days:
+                    reason = "expiration_window"
+                elif not expiration_only and estimated_pnl >= (
                     premium_basis * profit_target
                 ):
                     reason = "profit_target"
-                elif estimated_pnl <= -(
+                elif not expiration_only and estimated_pnl <= -(
                     premium_basis * loss_multiple
                 ):
                     reason = "loss_limit"
@@ -733,11 +736,12 @@ class PaperAutomationService:
                     {
                         "days_to_expiration": days_to_expiration,
                         "estimated_pnl": estimated_pnl,
+                        "exit_mode": explanation.get("exit_mode", "profit_loss_or_expiration"),
                         "profit_target_amount": (
-                            premium_basis * profit_target
+                            None if expiration_only else premium_basis * profit_target
                         ),
                         "loss_limit_amount": (
-                            premium_basis * loss_multiple
+                            None if expiration_only else premium_basis * loss_multiple
                         ),
                         "exit_reason": reason,
                         "closing_net_price": closing_price,

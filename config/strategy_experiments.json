@@ -18,9 +18,32 @@
     "confirmed_breakout_retest_v4": "confirmed_breakout_retest_v4_baseline_2026q3",
     "zero_dte_iron_condor": "zero_dte_iron_condor_baseline_2026q3",
     "bearish_fvg_put_debit": "bearish_fvg_put_debit_baseline_2026q3",
-    "index_put_credit_14dte": "index_put_credit_14dte_baseline_2026q3"
+    "index_put_credit_14dte": "index_put_credit_14dte_baseline_2026q3",
+    "tt_spy_put_credit": "tt_spy_put_credit_baseline_2026q4"
   },
   "experiments": [
+    {
+      "experiment_id": "tt_spy_put_credit_baseline_2026q4",
+      "family_id": "tt_spy_defined_risk_put_credit",
+      "strategy_id": "tt_spy_put_credit",
+      "strategy_version": "1.0.0",
+      "variant_id": "delta_030_width_5_exit_21dte",
+      "registered_at": "2026-10-21T08:00:00+00:00",
+      "prospective_observation_start": "2026-10-22T00:00:00+00:00",
+      "review_not_before": "2027-01-21T00:00:00+00:00",
+      "status": "frozen_research",
+      "hypothesis": "A TT-inspired SPY 30-delta exact-$5 put credit spread entered near 45 DTE and closed at 21 DTE may have positive net expectancy; 15% account return and drawdown below 20% remain unverified targets.",
+      "mechanism": "Collect downside premium with same-expiry protection, no call-side exposure, no profit or premium-stop exit, Monday scheduling, 1% entry risk and a 10% drawdown entry guard. Stock-bar simulation of the entry signal is not evidence of options performance.",
+      "primary_metric": "exact_contract_net_account_return_and_drawdown",
+      "minimum_prospective_days": 90,
+      "minimum_prospective_trials": 20,
+      "final_holdout_status": "not_reserved",
+      "expected_parameters": {
+        "strategy_id": "tt_spy_put_credit",
+        "version": "1.0.0"
+      },
+      "execution_eligible": false
+    },
     {
       "experiment_id": "breakout_retest_baseline_2026q3",
       "family_id": "intraday_breakout_continuation",

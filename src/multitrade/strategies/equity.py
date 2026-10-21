@@ -7,6 +7,7 @@ from typing import ClassVar
 from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 
 from multitrade.domain import ZERO
+from multitrade.strategies.tt_spy import TtSpyPutCreditStrategy
 from multitrade.features import MarketRegime
 from multitrade.patterns import (
     PatternDirection,
@@ -1402,6 +1403,7 @@ def default_equity_strategies() -> dict[str, Strategy]:
         ZeroDteIronCondorStrategy(),
         BearishFvgPutDebitStrategy(),
         IndexPutCredit14DteStrategy(),
+        TtSpyPutCreditStrategy(),
     )
     return {
         strategy.strategy_id: strategy for strategy in strategies
@@ -1434,6 +1436,7 @@ def equity_strategy_from_parameters(
         "zero_dte_iron_condor": ZeroDteIronCondorStrategy,
         "bearish_fvg_put_debit": BearishFvgPutDebitStrategy,
         "index_put_credit_14dte": IndexPutCredit14DteStrategy,
+        "tt_spy_put_credit": TtSpyPutCreditStrategy,
     }
     strategy_type = strategy_types.get(strategy_id)
     if strategy_type is None:

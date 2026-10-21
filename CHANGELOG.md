@@ -1,5 +1,17 @@
 # Changelog
 
+## 0.35.24 - 2026-10-21
+
+- Added the opt-in TT-inspired SPY 30-delta put-credit Paper candidate with
+  exact $5 protection, nearest-45-DTE selection, and expiration-only exits
+  at 21 DTE, including matching exact-contract evidence semantics.
+- Enforced 1% entry risk, a 10% account active-risk entry ceiling, and a 10%
+  drawdown entry guard for this candidate even with looser server settings.
+- Added Monday New York scheduling, frozen option-only configuration,
+  Windows timezone data, an observation-only isolated profile, and a runbook.
+- Kept existing strategy approvals unchanged; the new default allocation is
+  disabled and cannot submit until explicitly enabled for Paper testing.
+
 ## 0.35.23 - 2026-08-20
 
 - Fixed dashboard-triggered updates from the Admin Agent by mounting the

@@ -158,6 +158,12 @@ running strategy validation, and inspecting logs are collected in
 
 ## Operating modes
 
+The TT-inspired SPY 30-delta, exact $5-wide put-credit candidate is available
+as `tt_spy_put_credit`, disabled in the normal portfolio. Its isolated Paper
+profile, 45/21-DTE rules, 1% entry-risk ceiling, 10% drawdown entry guard, and
+deployment steps are documented in [TT_SPY_PUT_CREDIT.md](docs/TT_SPY_PUT_CREDIT.md).
+Published TT ROC is not an engine backtest or an account-return forecast.
+
 The tracked defaults generate and record signals but cannot place orders:
 
 ```dotenv
